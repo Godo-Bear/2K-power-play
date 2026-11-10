@@ -396,7 +396,9 @@ export class Game {
       const ae = Math.abs(err);
       if (ae <= w) {
         label = 'EXCELLENT'; color = '#3dff7a';
-        prob = info.contest >= 0.7 ? 1 : Math.max(prob, 0.72);
+        // A green release by a human almost always goes in, even with a hand in the face
+        if (isUser) prob = info.contest >= 0.7 ? 1 : 0.94;
+        else prob = info.contest >= 0.7 ? 1 : Math.max(prob, 0.72);
       } else if (ae <= w * 2.5) { label = err < 0 ? 'SLIGHTLY EARLY' : 'SLIGHTLY LATE'; color = '#ffd60a'; prob *= 0.78; }
       else if (ae <= w * 5) { label = err < 0 ? 'EARLY' : 'LATE'; color = '#ff8c1a'; prob *= 0.4; }
       else { label = err < 0 ? 'VERY EARLY' : 'VERY LATE'; color = '#ff3b3b'; prob *= 0.08; airball = Math.random() < 0.5; }
@@ -420,7 +422,7 @@ export class Game {
         if (Math.random() < fc) fouled = q;
       }
     }
-    if (fouled) prob *= 0.55;
+    if (fouled) prob *= (isUser && label === 'EXCELLENT') ? 0.97 : 0.55; // contact barely affects a perfect release
     prob = Math.min(1, prob);
     if (label === 'EXCELLENT' && isUser && team === this.user) sfx.green();
     const made = Math.random() < prob;
