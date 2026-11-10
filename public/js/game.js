@@ -61,8 +61,16 @@ export class Game {
     this.home = mkTeam(homeData, true);
     this.away = mkTeam(awayData, false);
     this.teams = [this.home, this.away];
-    for (const t of this.teams) t.players = t.data.roster.map((d, i) => new Player(d, t, i, scene));
-    for (const p of this.allPlayers) applyCustomPlayer(p);
+    for (const t of this.teams) {
+      t.players = t.data.roster.slice(0, 5).map((d, i) => new Player(d, t, i, scene));
+      t.bench = t.data.roster.slice(5, 10).map((d, i) => new Player(d, t, i, scene));
+      t.pendingSubs = [];
+      for (const p of t.bench) p.root.visible = false;
+      for (const p of [...t.players, ...t.bench]) applyCustomPlayer(p);
+    }
+    this.autoSubs = opts.autoSubs !== false;
+    this.slowT = 0;
+    this.focus = null;
     this.user = this.teams.find((t) => t.isUser);
     this.cpu = this.other(this.user);
 
@@ -169,7 +177,7 @@ export class Game {
   setUserPlayer(p) {
     if (this.userPlayer) this.userPlayer.setControlled(false);
     this.userPlayer = p;
-    p.setControlled(true, 0x35f0ff);
+    p.setControlled(!this.opts.attract, p.data.isMe ? 0xffd60a : 0x35f0ff);
   }
 
   // ---------- Ball ownership ----------
@@ -231,6 +239,8 @@ export class Game {
     else if (!three) { base = 0.45 - (d - 3.2) * 0.012; rating = p.r.mid; }
     else { base = 0.39 - Math.max(0, d - 7.6) * 0.06; rating = p.r.three; }
     base *= 0.55 + rating / 100 * 0.6;
+    base *= 0.88 + 0.12 * p.energy;
+    if (p.onFire) base *= 1.12;
     // Contest
     let contest = 1.08;
     for (const q of this.other(p.team).players) {
@@ -260,6 +270,7 @@ export class Game {
       const canDunk = p.r.dunk >= 68 && (p.sprinting || sp > 3 || d < 1.4) && p.stamina > 0.1;
       p.state = canDunk && Math.random() < 0.4 + p.r.dunk / 200 ? 'dunk' : 'layup';
       p.jump(p.state === 'dunk' ? 0.8 : 0.7, p.state === 'dunk' ? 0.95 : 0.7);
+      if (p.state === 'dunk' && !this.opts.tutorial) { this.slowT = 0.75; this.focus = p; this.emit('dunkStart', { player: p }); }
     } else {
       p.state = 'shoot';
       p.vel.multiplyScalar(0.3);
@@ -409,6 +420,7 @@ export class Game {
       b.reboundable = false;
       p.stats.stl++; h.stats.to++;
       this.hud.feedback('STOLEN!', p.team.isUser ? '#3dff7a' : '#ff3b3b');
+      this.emit('steal', { player: p, victim: h });
       sfx.cheer(0.5);
       this.arena.excitement = Math.min(1, this.arena.excitement + 0.4);
     } else {
@@ -425,6 +437,69 @@ export class Game {
     const bonus = def.team.fouls >= 5 ? ' · BONUS' : '';
     this.hud.toast(label, `#${def.data.number} ${def.data.last} (${def.stats.pf} PF) · Team fouls ${def.team.fouls}${bonus}`, 1.8);
     this.emit('foul', { def, victim, label });
+    if (def.stats.pf >= 6 && !def.fouledOut) {
+      def.fouledOut = true;
+      this.hud.feedback(`${def.data.last.toUpperCase()} FOULED OUT`, '#ff3b3b');
+      this.emit('foulOut', { player: def });
+    }
+  }
+
+  // ---------- Substitutions ----------
+  canSubNow() { return ['dead', 'timeout', 'break', 'intro'].includes(this.state); }
+
+  // Ask for a swap between a court slot and a bench slot; happens at the next whistle if play is live
+  requestSub(team, courtIdx, benchIdx) {
+    const out = team.players[courtIdx], inn = team.bench[benchIdx];
+    if (!out || !inn || inn.fouledOut) return false;
+    if (this.canSubNow()) { this.substitute(team, courtIdx, benchIdx); return true; }
+    team.pendingSubs = team.pendingSubs.filter((q) => q.courtIdx !== courtIdx && q.benchIdx !== benchIdx);
+    team.pendingSubs.push({ courtIdx, benchIdx });
+    return true;
+  }
+
+  substitute(team, courtIdx, benchIdx) {
+    const out = team.players[courtIdx], inn = team.bench[benchIdx];
+    if (!out || !inn || inn.fouledOut) return;
+    if (this.ft && this.ft.shooter === out) return;
+    inn.pos.copy(out.pos); inn.vel.set(0, 0, 0); inn.desired.set(0, 0, 0);
+    inn.facing = inn.targetFacing = out.facing;
+    inn.index = courtIdx; out.index = benchIdx;
+    inn.state = 'idle'; inn.jumpT = -1; inn.y = 0; inn.faceTarget = null; inn.stamina = 1;
+    out.root.visible = false; inn.root.visible = true;
+    out.streak = 0; out.onFire = false;
+    team.players[courtIdx] = inn; team.bench[benchIdx] = out;
+    const b = this.ball;
+    if (b.holder === out) b.holder = inn;
+    if (this.inbounder === out) this.inbounder = inn;
+    if (this.lock === out) this.lock = inn;
+    if (this.userPlayer === out) this.setUserPlayer(inn);
+    out.setControlled(false);
+    this.emit('sub', { team, inn, out });
+  }
+
+  // Apply queued subs, forced foul-out subs, and automatic fatigue subs
+  applySubs() {
+    if (this.opts.tutorial) return;
+    for (const team of this.teams) {
+      for (const q of team.pendingSubs) this.substitute(team, q.courtIdx, q.benchIdx);
+      team.pendingSubs = [];
+      const auto = team.isUser ? (this.autoSubs || this.autoplay) : true;
+      for (let i = 0; i < 5; i++) {
+        const cur = team.players[i];
+        // Best available bench player (prefer the same position slot)
+        const options = team.bench.map((p, j) => ({ p, j })).filter((o) => !o.p.fouledOut);
+        if (!options.length) continue;
+        const same = options.find((o) => o.j === i) || options.sort((a, c) => c.p.energy - a.p.energy)[0];
+        if (cur.fouledOut) { this.substitute(team, i, same.j); continue; }
+        if (!auto) continue;
+        if (cur.data.isMe && cur.energy > 0.3) continue; // career: your own player stays in unless exhausted
+        const alt = team.bench[i];
+        if (!alt || alt.fouledOut) continue;
+        const tired = cur.energy < 0.6 && alt.energy > cur.energy + 0.25;
+        const starterBack = !cur.starter && alt.starter && alt.energy > 0.9 && !(alt.stats.pf >= 5 && this.period < 4);
+        if (tired || starterBack) this.substitute(team, i, i);
+      }
+    }
   }
 
   nonShootingFoul(def, victim, label) {
@@ -446,6 +521,7 @@ export class Game {
     if (b.state === 'shot') { b.state = 'free'; b.vel.set(rand(-1, 1), 1, rand(-1, 1)); }
     this.state = 'ft';
     this.ft = { shooter, team: shooter.team, remaining: n, total: n, t: 1.4, phase: 'setup' };
+    this.applySubs();
     this.meter.visible = false;
     for (const p of this.allPlayers) { p.state = 'idle'; p.faceTarget = null; p.burstT = 0; }
   }
@@ -575,7 +651,8 @@ export class Game {
     this.stateT = team.isUser ? 600 : 6;
     this.run = { team: null, pts: 0 };
     this.meter.visible = false;
-    for (const p of this.allPlayers) { p.stamina = 1; p.state = 'idle'; p.vel.set(0, 0, 0); p.desired.set(0, 0, 0); p.faceTarget = null; }
+    for (const p of this.allPlayers) { p.stamina = 1; p.energy = Math.min(1, p.energy + 0.12); p.state = 'idle'; p.vel.set(0, 0, 0); p.desired.set(0, 0, 0); p.faceTarget = null; }
+    this.applySubs();
     this.hud.timeout(this, team);
     this.emit('timeout', { team });
     return true;
@@ -647,6 +724,8 @@ export class Game {
     this.inbounder = this.closestTo(newOff.players, spot);
     this.pendingInbound = { team: newOff, spot, shotClock };
     for (const p of this.allPlayers) { p.state = 'idle'; p.faceTarget = null; }
+    this.applySubs();
+    this.inbounder = this.closestTo(newOff.players, spot);
   }
 
   finishInbound() {
@@ -674,13 +753,19 @@ export class Game {
     this.netAnim[sideIdx] = 1;
     if (shot.kind === 'dunk') { sfx.dunk(); this.cameraShake = 0.5; this.hud.feedback('SLAM!', '#ff2e88'); }
     else sfx.swish();
+    p.streak++;
+    if (p.streak >= 3 && !p.onFire) { p.onFire = true; this.hud.feedback(`${p.data.last.toUpperCase()} IS ON FIRE!`, '#ff8c1a'); this.emit('onFire', { player: p }); }
+    else if (p.streak === 2) this.emit('heatingUp', { player: p });
+    const buzzer = this.gameClock <= 0;
+    if (buzzer) { this.slowT = 1.6; this.focus = p; }
+    shot.buzzer = buzzer;
     const loud = shot.pts === 3 ? 1 : 0.7;
     if (team.isHome) sfx.cheer(loud); else sfx.cheer(0.25);
     this.arena.excitement = Math.min(1, this.arena.excitement + (team.isHome ? loud : 0.3));
     this.hud.scored(team, shot.pts, p);
     this.trackRun(team, shot.pts);
     this.celebrateTeam = team;
-    this.emit('score', { team, pts: shot.pts, player: p });
+    this.emit('score', { team, pts: shot.pts, player: p, kind: shot.kind, buzzer: shot.buzzer, assist: passer && passer !== p && passer.team === team && this.time - this.ball.lastPassTime < 4 ? passer : null });
     this.ball.pos.set(team.dir * C.HOOP_X, C.RIM_H - 0.15, 0);
     this.ball.vel.set(0, -2, 0);
     this.ball.state = 'free';
@@ -696,7 +781,17 @@ export class Game {
 
   // ---------- Main update ----------
   update(dt) {
+    // Slow-motion highlight moments (dunks, blocks, buzzer beaters)
+    if (this.slowT > 0) { this.slowT -= dt; dt *= 0.32; if (this.slowT <= 0) this.focus = null; }
     this.time += dt;
+    if (this.state === 'live') {
+      // Fatigue: players tire on the court (faster when sprinting) and recover on the bench
+      const k = dt / Math.max(60, this.quarterLen);
+      for (const t of this.teams) {
+        for (const p of t.players) { p.energy = Math.max(0.05, p.energy - k * (p.sprinting ? 1.1 : 0.5)); p.stats.sec += dt; }
+        for (const p of t.bench) p.energy = Math.min(1, p.energy + k * 0.7);
+      }
+    }
     // Buttons that work in any game state
     if (!this.autoplay) {
       if (this.state === 'timeout' && this.timeoutTeam === this.user && (input.pressed.shoot || input.pressed.pass)) this.endTimeout();
@@ -711,7 +806,9 @@ export class Game {
     for (const p of this.allPlayers) { p.moveCd = Math.max(0, (p.moveCd || 0) - dt); }
     this.contactCd = Math.max(0, this.contactCd - dt);
 
-    if (this.state === 'timeout') {
+    if (this.state === 'intro') {
+      /* frozen while the pre-game intro plays */
+    } else if (this.state === 'timeout') {
       this.stateT -= dt;
       if (this.stateT <= 0) this.endTimeout();
     } else if (this.state === 'break') {
@@ -798,15 +895,20 @@ export class Game {
       this.ball.holder = null;
       const winner = this.home.score > this.away.score ? this.home : this.away;
       if (winner.isHome) sfx.cheer(1);
+      this.emit('gameOver', { winner });
       this.hud.gameOver(this);
       return;
     }
     const label = this.period === 2 ? 'HALFTIME' : this.period >= 4 ? 'END OF REGULATION' : `END OF ${this.periodName()}`;
     this.hud.toast(label, `${this.away.data.id} ${this.away.score} - ${this.home.score} ${this.home.data.id}`, 3);
     if (this.period === 2) for (const t of this.teams) t.dir *= -1;
+    this.emit('periodEnd', { period: this.period });
+    const rest = this.period === 2 ? 0.5 : 0.2;
+    for (const t of this.teams) for (const p of [...t.players, ...t.bench]) p.energy = Math.min(1, p.energy + rest);
     this.period++;
     this.state = 'break';
-    this.stateT = 3.2;
+    this.stateT = this.period === 3 ? 5 : 3.2;
+    this.applySubs();
     this.ball.state = 'free';
     this.ball.holder = null;
   }
@@ -987,6 +1089,9 @@ export class Game {
               b.lastTouch = q.team;
               q.stats.blk++;
               this.hud.feedback('REJECTED!', q.team.isUser ? '#3dff7a' : '#ff3b3b');
+              s.shooter.streak = 0; s.shooter.onFire = false;
+              this.slowT = 0.5; this.focus = q;
+              this.emit('block', { player: q, victim: s.shooter });
               sfx.board(); sfx.cheer(0.8);
               this.arena.excitement = Math.min(1, this.arena.excitement + 0.6);
               this.cameraShake = 0.25;
@@ -1003,6 +1108,9 @@ export class Game {
         if (s.fouled) { sfx.rim(); this.startFreeThrows(s.shooter, s.pts); return; }
         b.state = 'loose';
         b.reboundable = true;
+        s.shooter.streak = 0;
+        if (s.shooter.onFire) { s.shooter.onFire = false; this.emit('fireOut', { player: s.shooter }); }
+        this.emit('miss', { player: s.shooter, airball: s.airball, pts: s.pts });
         if (!s.airball) {
           this.shotClockFrozen = true;
           sfx.rim();
@@ -1276,7 +1384,7 @@ export class Game {
   }
 
   dispose() {
-    for (const p of this.allPlayers) this.scene.remove(p.root);
+    for (const t of this.teams) for (const p of [...t.players, ...t.bench]) this.scene.remove(p.root);
     this.scene.remove(this.ball.mesh);
   }
 }

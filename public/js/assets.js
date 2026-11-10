@@ -88,7 +88,7 @@ function tintColor(player, kind) {
     case 'jersey': return player.team.jerseyColor;
     case 'trim': return player.team.trimColor;
     case 'skin': return player.data.skin;
-    case 'hair': return player.data.hair;
+    case 'hair': return player.data.hairStyle === 0 ? player.data.skin : player.data.hair; // style 0 = bald
     case 'shoe': return player.index % 2 ? '#ffffff' : player.team.data.secondary;
     default: return null;
   }
@@ -201,4 +201,56 @@ export function placeCustomCourt(scene) {
   if (!custom.courtModel) return false;
   placeModel(scene, custom.courtModel.scene, custom.courtModel.cfg);
   return true;
+}
+
+// ---------- Player portraits (used on cards) ----------
+// Renders a head-and-shoulders picture of the 3D player model with the given colors.
+let pRenderer = null, pScene = null, pCam = null;
+const portraitCache = new Map();
+export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff' }) {
+  const cp = custom.player;
+  if (!cp) return null;
+  const key = [skin, hair, hairStyle, jersey, trim].join('|');
+  if (portraitCache.has(key)) return portraitCache.get(key);
+  try {
+    if (!pRenderer) {
+      pRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+      pRenderer.setSize(320, 320, false);
+      pRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      pScene = new THREE.Scene();
+      pScene.add(new THREE.HemisphereLight(0xffffff, 0x334466, 1.7));
+      const key1 = new THREE.DirectionalLight(0xffffff, 2.4); key1.position.set(1.5, 2.5, 3); pScene.add(key1);
+      const rim = new THREE.DirectionalLight(0x88ccff, 1.6); rim.position.set(-2, 2, -2); pScene.add(rim);
+      pCam = new THREE.PerspectiveCamera(26, 1, 0.1, 20);
+    }
+    const model = SkeletonUtils.clone(cp.scene);
+    model.rotation.y = THREE.MathUtils.degToRad((cp.cfg.rotationY || 0) + 18);
+    fitToHeight(model, 2);
+    const fake = { team: { jerseyColor: jersey, trimColor: trim, data: { secondary: trim } }, data: { skin, hair, hairStyle }, index: 1 };
+    const rules = Object.entries(cp.cfg.tint || {}).map(([k, v]) => [k.toLowerCase(), v]);
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      o.frustumCulled = false;
+      const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
+        const c = mt.clone();
+        const rule = rules.find(([k]) => (mt.name || '').toLowerCase().includes(k));
+        const col = rule && tintColor(fake, rule[1]);
+        if (col && c.color) c.color.set(col);
+        return c;
+      });
+      o.material = mats.length === 1 ? mats[0] : mats;
+    });
+    pScene.add(model);
+    pCam.position.set(0.25, 1.78, 1.75);
+    pCam.lookAt(0, 1.7, 0);
+    pRenderer.render(pScene, pCam);
+    const url = pRenderer.domElement.toDataURL('image/png');
+    pScene.remove(model);
+    portraitCache.set(key, url);
+    return url;
+  } catch (e) {
+    note(`portrait failed: ${e.message || e}`);
+    portraitCache.set(key, null);
+    return null;
+  }
 }

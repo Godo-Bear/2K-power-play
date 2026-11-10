@@ -25,18 +25,35 @@
     <p id="loadText">Loading arena…</p>
   </div>
 
-  <!-- Main menu -->
+  <!-- Home hub -->
   <div id="menu" class="screen">
-    <div class="menu-left">
-      <div class="logo small"><span>2K</span><b>POWER PLAY</b></div>
-      <nav>
-        <button data-go="select" class="primary">Play Now</button>
-        <button id="tutorialBtn" class="tut">Tutorial <small>Learn the controls</small></button>
-        <button data-go="controls">Controls</button>
-        <button data-go="settings">Settings</button>
-      </nav>
-      <p class="foot">An original basketball game. Fictional league, teams and players.</p>
+    <header class="hub-top">
+      <div class="logo mini"><span>2K</span><b>POWER PLAY</b></div>
+      <div class="hub-live" id="hubLive"></div>
+      <div class="hub-clock" id="hubClock"></div>
+    </header>
+    <div class="hub-grid">
+      <button class="tile hero" data-go="select">
+        <span class="t-kicker">Quick game</span>
+        <span class="t-title">Play Now</span>
+        <span class="t-sub" id="tilePlaySub"></span>
+        <span class="t-art" id="tilePlayArt"></span>
+      </button>
+      <button class="tile career" id="tileCareer">
+        <span class="t-kicker">Create a player · Earn upgrades</span>
+        <span class="t-title">My Career</span>
+        <span class="t-sub" id="tileCareerSub"></span>
+      </button>
+      <button class="tile season" id="tileSeason">
+        <span class="t-kicker">14 games + playoffs</span>
+        <span class="t-title">Season</span>
+        <span class="t-sub" id="tileSeasonSub"></span>
+      </button>
+      <button class="tile small" id="tutorialBtn"><span class="t-title">Tutorial</span><span class="t-sub">Learn every move</span></button>
+      <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Remap keys &amp; buttons</span></button>
+      <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics, sound, camera</span></button>
     </div>
+    <footer class="hub-foot"><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span><span class="grow"></span><span>An original basketball game · Fictional league</span></footer>
   </div>
 
   <!-- Team select -->
@@ -93,7 +110,7 @@
   <!-- Controls (remappable) -->
   <div id="controls" class="screen">
     <h2>Controls</h2>
-    <p class="hint">Click a binding, then press the key or controller button you want. <kbd>Esc</kbd> cancels, <kbd>Backspace</kbd> clears.</p>
+    <p class="hint">Click a binding, then press the key, mouse button or controller button you want. <kbd>Esc</kbd> cancels, <kbd>Backspace</kbd> clears.</p>
     <div class="remap-wrap">
       <table class="remap">
         <thead><tr><th>Action</th><th>Key</th><th>Alt key</th><th>Controller</th></tr></thead>
@@ -123,7 +140,9 @@
       <label id="courtStyleWrap" hidden>Court
         <select id="optCourt"><option value="arena">Pro Arena (team court)</option><option value="classic">Classic Court (3D model)</option></select>
       </label>
-      <label class="check"><input type="checkbox" id="optMute"> Mute sound</label>
+      <label class="check"><input type="checkbox" id="optVoice"> Announcer voice (spoken play-by-play)</label>
+      <label class="check"><input type="checkbox" id="optMusic"> Menu music</label>
+      <label class="check"><input type="checkbox" id="optMute"> Mute all sound</label>
     </div>
     <div id="credits" class="credits" hidden></div>
     <div class="row"><button data-go="back" class="primary">Done</button></div>
@@ -136,11 +155,13 @@
       <div class="sb-mid"><span class="period"></span><span class="clock"></span><span class="shot"></span></div>
       <div class="sb-team home"><span class="tos"></span><span class="score"></span><span class="abbr"></span><i class="sw"></i></div>
     </div>
-    <div id="ptag"><b class="num"></b><div><span class="name"></span><small class="meta"></small><div class="stam"><i></i></div></div></div>
+    <div id="ptag"><b class="num"></b><div><span class="name"></span><small class="meta"></small><div class="stam"><i></i></div><div class="stam energy" title="Energy"><i></i></div></div></div>
     <div id="meter"><div class="fill"></div><div class="zone"></div><div class="mark"></div></div>
     <div id="feedback"></div>
     <div id="toast"><b></b><span></span></div>
     <div id="scorePop"></div>
+    <div id="caption"></div>
+    <div id="vignette"></div>
     <div id="hudBtns">
       <button id="pauseBtn" aria-label="Pause">❚❚</button>
       <button id="switchBtn" title="Switch player">⇄ <span>Switch</span></button>
@@ -174,7 +195,7 @@
     <h2 id="toTitle">Timeout</h2>
     <p id="toSub" class="hint"></p>
     <div id="toStats" class="to-stats"></div>
-    <div class="row"><button id="toContinue" class="primary">Continue</button></div>
+    <div class="row"><button class="openSubs">Substitutions</button><button id="toContinue" class="primary">Continue</button></div>
   </div>
 
   <!-- Pause -->
@@ -182,6 +203,7 @@
     <h2>Paused</h2>
     <nav>
       <button id="resumeBtn" class="primary">Resume</button>
+      <button class="openSubs">Substitutions</button>
       <button id="pauseTimeout">Call Timeout</button>
       <button data-go="controls">Controls</button>
       <button data-go="settings">Settings</button>
@@ -203,11 +225,91 @@
   <div id="over" class="screen overlay">
     <h2 id="overTitle">Final</h2>
     <div id="finalScore"></div>
+    <div id="overExtras" class="over-extras"></div>
     <div id="boxscore"></div>
     <div class="row">
+      <button id="overContinue" class="primary" hidden>Continue</button>
       <button id="rematchBtn" class="primary">Rematch</button>
       <button id="menuBtn">Main Menu</button>
     </div>
+  </div>
+
+  <!-- Substitutions -->
+  <div id="subs" class="screen overlay">
+    <h2>Substitutions</h2>
+    <p class="hint" id="subsHint">Pick a player on the court, then a player on the bench to swap them.</p>
+    <div class="subs-grid">
+      <div class="box"><h4>On the court</h4><div id="subsCourt"></div></div>
+      <div class="box"><h4>Bench</h4><div id="subsBench"></div></div>
+    </div>
+    <div class="options"><label class="check"><input type="checkbox" id="optAutoSubs"> Coach subs tired players automatically</label></div>
+    <div class="row"><button id="subsDone" class="primary">Done</button></div>
+  </div>
+
+  <!-- Pre-game intro -->
+  <div id="intro">
+    <div class="intro-banner">
+      <div class="intro-team" id="introAway"></div>
+      <div class="intro-mid"><span id="introStage"></span><b>VS</b><small>Press any button to skip</small></div>
+      <div class="intro-team" id="introHome"></div>
+    </div>
+  </div>
+
+  <!-- New season -->
+  <div id="seasonNew" class="screen">
+    <h2 id="snTitle">New Season</h2>
+    <p class="hint">Pick your team. You'll play 14 games, then the top 4 teams make the playoffs.</p>
+    <div class="team-grid" id="snTeams"></div>
+    <div class="options">
+      <label>Difficulty<select id="snDiff"><option value="rookie">Rookie</option><option value="pro" selected>Pro</option><option value="allstar">All-Star</option><option value="hof">Hall of Fame</option></select></label>
+      <label>Quarter length<select id="snQ"><option value="1">1 min</option><option value="2" selected>2 min</option><option value="3">3 min</option><option value="5">5 min</option><option value="12">12 min</option></select></label>
+    </div>
+    <div class="row"><button data-go="menu">Back</button><button id="snStart" class="primary">Start Season</button></div>
+  </div>
+
+  <!-- Create career player -->
+  <div id="careerNew" class="screen">
+    <h2>Create Your Player</h2>
+    <div class="create">
+      <div class="create-form">
+        <div class="two"><label>First name<input type="text" id="cnFirst" maxlength="12" placeholder="First"></label><label>Last name<input type="text" id="cnLast" maxlength="14" placeholder="Last"></label></div>
+        <div class="two"><label>Position<select id="cnPos"><option value="0">Point Guard</option><option value="1">Shooting Guard</option><option value="2">Small Forward</option><option value="3">Power Forward</option><option value="4">Center</option></select></label>
+          <label>Jersey number<input type="number" id="cnNum" min="0" max="99" value="7"></label></div>
+        <label>Play style</label>
+        <div class="chips" id="cnArch"></div>
+        <label>Skin tone</label><div class="swatches" id="cnSkin"></div>
+        <label>Hair</label><div class="swatches" id="cnHair"></div>
+        <label>Hair style</label><div class="chips" id="cnHairStyle"></div>
+      </div>
+      <div class="create-side"><div id="cnCard"></div></div>
+    </div>
+    <div class="row"><button data-go="menu">Back</button><button id="cnNext" class="primary">Choose Team</button></div>
+  </div>
+
+  <!-- Season / Career hub -->
+  <div id="hub" class="screen">
+    <div class="hub-head">
+      <div><h2 id="hubTitle">Season</h2><p class="hint" id="hubSub"></p></div>
+      <div class="row"><button id="hubBack">Main Menu</button></div>
+    </div>
+    <div class="hub-body">
+      <aside class="hub-side">
+        <div id="hubCard"></div>
+        <div class="next box" id="hubNext"></div>
+      </aside>
+      <section class="hub-main">
+        <div class="tabs" id="hubTabs"></div>
+        <div class="tab-body box" id="hubTab"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Champion -->
+  <div id="champ" class="screen overlay">
+    <div class="trophy">🏆</div>
+    <h2 id="champTitle"></h2>
+    <p class="hint" id="champSub"></p>
+    <div class="row"><button id="champOk" class="primary">Continue</button></div>
   </div>
 
   <script type="module" src="js/main.js"></script>

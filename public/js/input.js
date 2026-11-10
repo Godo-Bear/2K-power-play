@@ -53,8 +53,10 @@ export function resetBindings() {
 }
 
 const KEY_NAMES = { Space: 'Space', ShiftLeft: 'L-Shift', ShiftRight: 'R-Shift', ControlLeft: 'L-Ctrl', ControlRight: 'R-Ctrl', AltLeft: 'L-Alt', AltRight: 'R-Alt', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Escape: 'Esc', Enter: 'Enter', Tab: 'Tab', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\', CapsLock: 'Caps' };
+const MOUSE_NAMES = ['Left Click', 'Middle Click', 'Right Click', 'Mouse 4', 'Mouse 5'];
 export function keyName(code) {
   if (!code) return '—';
+  if (code.startsWith('Mouse')) return MOUSE_NAMES[Number(code.slice(5))] || code;
   if (KEY_NAMES[code]) return KEY_NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
@@ -93,6 +95,20 @@ window.addEventListener('keydown', (e) => {
   if (bound || ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
+
+// Mouse buttons act like keys ("Mouse0" = left, "Mouse2" = right ...) when pressed on the game view
+const mouseBound = (code) => Object.values(bindings.keys).some((arr) => arr.includes(code));
+window.addEventListener('mousedown', (e) => {
+  if (input.capturing || e.target.tagName !== 'CANVAS') return;
+  const code = `Mouse${e.button}`;
+  if (!mouseBound(code)) return;
+  keys.add(code); tapped.add(code);
+  input.usingGamepad = false;
+  e.preventDefault();
+});
+window.addEventListener('mouseup', (e) => keys.delete(`Mouse${e.button}`));
+window.addEventListener('contextmenu', (e) => { if (e.target.tagName === 'CANVAS' && mouseBound('Mouse2')) e.preventDefault(); });
+window.addEventListener('auxclick', (e) => { if (e.target.tagName === 'CANVAS') e.preventDefault(); });
 window.addEventListener('blur', () => { keys.clear(); tapped.clear(); });
 
 export function firstGamepad() {
@@ -154,9 +170,11 @@ export function pollInput() {
 
 // ---------- Touch controls ----------
 export function setupTouch(root) {
-  const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-  if (!isTouch) return;
-  root.classList.add('show');
+  // Hidden until the screen is actually touched; hidden again when keyboard, mouse or controller is used
+  window.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') root.classList.add('show'); }, true);
+  window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && (Math.abs(e.movementX) + Math.abs(e.movementY) > 2)) root.classList.remove('show'); });
+  window.addEventListener('keydown', () => root.classList.remove('show'));
+  setInterval(() => { if (input.usingGamepad) root.classList.remove('show'); }, 500);
   const stick = root.querySelector('.stick');
   const knob = root.querySelector('.knob');
   let stickId = null, cx = 0, cy = 0;

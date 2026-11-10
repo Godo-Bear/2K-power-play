@@ -5,18 +5,30 @@ built with Three.js and deployed on Cloudflare Workers.
 
 ## Features
 
-- **Full 5-on-5** with quarters, overtime, a 24-second shot clock (it resets to 14 on offensive rebounds), and out-of-bounds and shot-clock violations
-- **Fouls**: shooting fouls (2 or 3 free throws, plus and-ones), reach-ins, blocking fouls and charges. Team fouls put the other team in the bonus after 5 in a quarter, and fouls show in the box score.
-- **Free throws** with the same timed shot meter. A missed last free throw is a live rebound.
-- **Timeouts**: 5 per team. They stop the clock, restore stamina and show team stats. The CPU calls one when you go on a run.
-- **Timed shot meter**: hold shoot and release in the green for an "Excellent" release. The meter disappears as soon as you shoot.
-- Layups, dunks, passing aimed with the stick, crossovers that can break ankles, steals, interceptions, blocks, contests and rebounds
-- **Interactive tutorial** that teaches every control, step by step
-- **Choose your team** and **switch players** at any time, or use **Player Lock** to play the whole game as one player
-- **Remappable controls** for keyboard and controller (Controls menu)
-- **CPU AI** on both ends, with 4 difficulty levels
-- **Graphics**: PBR materials, shadows, a subtle glow effect, an animated crowd, LED boards and a jumbotron. There's a brightness slider in Settings.
-- Keyboard, **gamepad** (Xbox/PlayStation) and **touch** controls
+**Game modes**
+- **Play Now**: pick any two teams and which one you control
+- **My Career**: create a player (name, position, look, one of 12 play styles), join a team, and earn Rep Points from your game grades to upgrade your ratings. Your player card goes from Bronze to Legend as you improve.
+- **Season**: 14-game schedule, standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
+- **Tutorial**: 13 interactive steps covering every control
+
+**On the court**
+- Full 5-on-5 with quarters, overtime, a 24-second shot clock (14 on offensive rebounds), fouls, free throws, the bonus, and timeouts
+- **Substitutions**: 10-player rosters with benches, player fatigue, foul-outs, an auto-sub coach you can turn off, and a manual substitutions screen (from Pause or a timeout)
+- Timed shot meter, layups, dunks, aimed passes, crossovers, steals, blocks and rebounds
+- **On Fire**: hit three shots in a row and your player heats up, with a flaming ball and a shooting boost until they miss
+- Player switching, Player Lock, and CPU AI with 4 difficulty levels
+
+**Presentation**
+- Home hub with a live CPU game playing behind the menus, and original menu music
+- Pre-game intro with a camera fly-in and matchup banner
+- **Announcer**: spoken play-by-play (browser speech) with captions; can be turned off in Settings
+- Slow-motion highlight camera on dunks, blocks and buzzer beaters; a behind-the-shooter free-throw camera
+- Ball trails, crowd camera flashes, sparks, confetti for the winners, light beams, and a Player of the Game card
+- Brightness slider, 3 cameras, 3 graphics levels
+
+**Controls**
+- Keyboard, mouse buttons, **gamepad** and **touch** (touch controls appear when you touch the screen)
+- Every action can be remapped, including to mouse buttons
 - **Custom 3D models and textures**: see [`public/assets/README.md`](public/assets/README.md)
 
 ## Controls (defaults, all remappable in the Controls menu)
@@ -69,6 +81,9 @@ public/
   js/player.js              player model and animation
   js/arena.js               court, hoops, crowd, lights
   js/assets.js              custom model/texture loader
+  js/season.js              season, playoffs and career progression
+  js/fx.js                  particles, crowd flashes, confetti
+  js/announcer.js           play-by-play commentary
   js/tutorial.js            interactive tutorial
   js/input.js, audio.js     remappable controls and synthesized sound
   assets/                   your uploaded models and textures

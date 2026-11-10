@@ -46,13 +46,16 @@ function clampRating(v) { return Math.max(40, Math.min(99, Math.round(v))); }
 function buildRoster(team, teamIndex) {
   const rnd = seeded(1337 + teamIndex * 7919);
   const usedNums = new Set();
-  return POSITIONS.map((p, i) => {
+  // 5 starters followed by 5 bench players (one backup per position)
+  return [...POSITIONS, ...POSITIONS].map((p, j) => {
+    const i = j % 5;
+    const bench = j >= 5;
     const ratings = {};
     for (const [k, b] of Object.entries(p.bias)) {
-      ratings[k] = clampRating(team.ovr - 6 + b + (rnd() - 0.5) * 14 + (i === teamIndex % 5 ? 5 : 0));
+      ratings[k] = clampRating(team.ovr - 6 + b + (rnd() - 0.5) * 14 + (!bench && i === teamIndex % 5 ? 5 : 0) - (bench ? 8 : 0));
     }
     let num;
-    do { num = Math.floor(rnd() * 55); } while (usedNums.has(num));
+    do { num = Math.floor(rnd() * (bench ? 99 : 55)); } while (usedNums.has(num));
     usedNums.add(num);
     const vals = Object.values(ratings);
     const ovr = clampRating(vals.reduce((a, b) => a + b, 0) / vals.length + 6);
@@ -60,6 +63,7 @@ function buildRoster(team, teamIndex) {
       first: FIRST[Math.floor(rnd() * FIRST.length)],
       last: LAST[Math.floor(rnd() * LAST.length)],
       pos: p.pos,
+      bench,
       number: num,
       height: p.height + (rnd() - 0.5) * 0.08,
       skin: SKIN[Math.floor(rnd() * SKIN.length)],

@@ -397,6 +397,15 @@ export function buildArena(scene, home, away, opts = {}) {
     }
   }
 
+  // Soft light beams from the rafters
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xcfe4ff, transparent: true, opacity: 0.03, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  for (const [x, z] of [[-10, -3], [-3.5, 3], [3.5, -3], [10, 3]]) {
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(5.5, 18, 28, 1, true), beamMat);
+    beam.position.set(x, 9, z);
+    beam.renderOrder = 4;
+    root.add(beam);
+  }
+
   return {
     hoops,
     crowd, seats, dummy,

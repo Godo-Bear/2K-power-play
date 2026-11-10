@@ -58,12 +58,17 @@ export class Player {
     this.stealCooldown = 0;
     this.phase = Math.random() * 6;
     this.stamina = 1;
+    this.energy = 1;     // long-term fatigue: drains on court, recovers on the bench
+    this.streak = 0;     // consecutive made field goals
+    this.onFire = false;
+    this.fouledOut = false;
+    this.starter = !data.bench;
     this.sprinting = false;
-    this.stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, to: 0, pf: 0 };
+    this.stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, to: 0, pf: 0, sec: 0 };
     this.build(scene);
   }
 
-  get maxSpeed() { return 4.6 + this.r.speed * 0.022; }
+  get maxSpeed() { return (4.6 + this.r.speed * 0.022) * (0.84 + 0.16 * this.energy); }
 
   build(scene) {
     const d = this.data, t = this.team.data;
