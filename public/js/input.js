@@ -57,6 +57,8 @@ const MOUSE_NAMES = ['Left Click', 'Middle Click', 'Right Click', 'Mouse 4', 'Mo
 export function keyName(code) {
   if (!code) return '—';
   if (code.startsWith('Mouse')) return MOUSE_NAMES[Number(code.slice(5))] || code;
+  if (code === 'WheelUp') return 'Scroll Up';
+  if (code === 'WheelDown') return 'Scroll Down';
   if (KEY_NAMES[code]) return KEY_NAMES[code];
   if (code.startsWith('Key')) return code.slice(3);
   if (code.startsWith('Digit')) return code.slice(5);
@@ -108,6 +110,18 @@ window.addEventListener('mousedown', (e) => {
 });
 window.addEventListener('mouseup', (e) => keys.delete(`Mouse${e.button}`));
 window.addEventListener('contextmenu', (e) => { if (e.target.tagName === 'CANVAS' && mouseBound('Mouse2')) e.preventDefault(); });
+// The scroll wheel counts as a quick button tap ("WheelUp" / "WheelDown")
+const wheelTimers = {};
+window.addEventListener('wheel', (e) => {
+  if (input.capturing || e.target.tagName !== 'CANVAS' || !e.deltaY) return;
+  const code = e.deltaY < 0 ? 'WheelUp' : 'WheelDown';
+  if (!mouseBound(code)) return;
+  e.preventDefault();
+  keys.add(code); tapped.add(code);
+  input.usingGamepad = false;
+  clearTimeout(wheelTimers[code]);
+  wheelTimers[code] = setTimeout(() => keys.delete(code), 140);
+}, { passive: false });
 window.addEventListener('auxclick', (e) => { if (e.target.tagName === 'CANVAS') e.preventDefault(); });
 window.addEventListener('blur', () => { keys.clear(); tapped.clear(); });
 

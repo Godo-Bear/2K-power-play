@@ -7,12 +7,14 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Game modes**
 - **Play Now**: pick any two teams and which one you control
-- **My Career**: create a player (name, position, look, one of 12 play styles), join a team, and earn Rep Points from your game grades to upgrade your ratings. Your player card goes from Bronze to Legend as you improve.
+- **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, one of 12 play styles), join a team, and earn Rep Points from your game grades to upgrade your ratings. Your player card goes from Bronze to Legend as you improve.
 - **Season**: 14-game schedule, standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
+- **Online**: play a friend. One player creates a room and shares the 5-letter code, the other joins with it. If your friend leaves, the CPU takes over their team.
+- **Practice**: no clock and no fouls. Choose how many players are on your team (1-5) and how many opponents (0-5), easy or real defense, with a shot tracker.
 - **Tutorial**: 13 interactive steps covering every control
 
 **On the court**
-- Full 5-on-5 with quarters, overtime, a 24-second shot clock (14 on offensive rebounds), fouls, free throws, the bonus, and timeouts
+- Opening **jump ball**, then full 5-on-5 with quarters, overtime, a 24-second shot clock (14 on offensive rebounds), fouls, free throws, the bonus, and timeouts
 - **Substitutions**: 10-player rosters with benches, player fatigue, foul-outs, an auto-sub coach you can turn off, and a manual substitutions screen (from Pause or a timeout)
 - Timed shot meter, layups, dunks, aimed passes, crossovers, steals, blocks and rebounds
 - **On Fire**: hit three shots in a row and your player heats up, with a flaming ball and a shooting boost until they miss
@@ -28,7 +30,7 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Controls**
 - Keyboard, mouse buttons, **gamepad** and **touch** (touch controls appear when you touch the screen)
-- Every action can be remapped, including to mouse buttons
+- Every action can be remapped, including to mouse buttons and the scroll wheel
 - **Custom 3D models and textures**: see [`public/assets/README.md`](public/assets/README.md)
 
 ## Controls (defaults, all remappable in the Controls menu)
@@ -61,9 +63,23 @@ npx wrangler dev
 
 ## Deploying (Cloudflare Workers)
 
-`wrangler.jsonc` serves the `public/` folder as static assets. With the Worker connected to this
-GitHub repo (Workers Builds), every push to `main` redeploys. If your Worker in the Cloudflare
-dashboard has a different name than `2k-power-play`, change `"name"` in `wrangler.jsonc` to match.
+`wrangler.jsonc` does two things:
+
+- serves the `public/` folder (the game) as static assets
+- runs `src/worker.js`, which hosts the **online rooms**: each room code is a Durable Object that relays
+  WebSocket messages between the two players. This works on the Workers free plan.
+
+With the Worker connected to this GitHub repo (Workers Builds), every push to `main` redeploys.
+If your Worker in the Cloudflare dashboard has a different name than `2k-power-play`, change `"name"`
+in `wrangler.jsonc` to match.
+
+Online play only works on the deployed site or under `npx wrangler dev`. A plain static server
+(`npx serve public`) runs everything else.
+
+### How online play works
+
+The host's browser runs the match. The guest's browser sends its controls about 30 times a second and
+receives the game state back, which it smooths and draws. Nothing is stored on the server.
 
 ## Adding your own 3D models and textures
 
@@ -82,12 +98,15 @@ public/
   js/arena.js               court, hoops, crowd, lights
   js/assets.js              custom model/texture loader
   js/season.js              season, playoffs and career progression
+  js/net.js                 online play (room connection, state sync)
+  js/hair.js                hair styles
   js/fx.js                  particles, crowd flashes, confetti
   js/announcer.js           play-by-play commentary
   js/tutorial.js            interactive tutorial
   js/input.js, audio.js     remappable controls and synthesized sound
   assets/                   your uploaded models and textures
   vendor/three/             Three.js (MIT)
+src/worker.js               Cloudflare Worker: static site + online room relay
 ```
 
 ## 3D model credits

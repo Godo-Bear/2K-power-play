@@ -65,6 +65,14 @@ export class Game {
       t.players = t.data.roster.slice(0, 5).map((d, i) => new Player(d, t, i, scene));
       t.bench = t.data.roster.slice(5, 10).map((d, i) => new Player(d, t, i, scene));
       t.pendingSubs = [];
+      t.players.forEach((p, i) => { p.rid = i; });
+      t.bench.forEach((p, i) => { p.rid = i + 5; });
+      // Controller: which input drives this team (null = CPU), the player it controls, and its shot meter
+      t.human = t.isUser || !!opts.versus;
+      t.input = t.isUser ? input : (opts.versus ? opts.remoteInput || null : null);
+      t.cp = null;
+      t.lock = null;
+      t.meter = { visible: false, value: 0, target: METER_TARGET, win: this.diff.greenWindow, result: null };
       for (const p of t.bench) p.root.visible = false;
       for (const p of [...t.players, ...t.bench]) applyCustomPlayer(p);
     }
@@ -97,8 +105,7 @@ export class Game {
     this.stateT = 0;
     this.possession = this.home;
     this.firstPossession = Math.random() < 0.5 ? this.home : this.away;
-    this.userPlayer = this.user.players[0];
-    this.meter = { visible: false, value: 0, target: METER_TARGET, win: this.diff.greenWindow, result: null };
+    this.user.cp = this.user.players[0];
     this.buzzerPlayed = false;
     this.cameraShake = 0;
     this.netAnim = [0, 0];
@@ -111,13 +118,103 @@ export class Game {
     this.ft = null;
     this.celebrateTeam = null;
     this.tutorialPossession = null;
-    this.lock = opts.playerLock >= 0 ? this.user.players[opts.playerLock] : null;
+    this.user.lock = opts.playerLock >= 0 ? this.user.players[opts.playerLock] : null;
 
     this.startPeriod();
+    if (!opts.tutorial && !opts.guest) this.setupTipoff();
+  }
+
+  // Start play after the intro (or straight away): a jump ball if one is set up
+  begin() { this.state = this.tip ? 'tipoff' : 'live'; }
+
+  // ---------- Opening jump ball ----------
+  setupTipoff() {
+    const b = this.ball;
+    for (const t of this.teams) {
+      const d = t.dir;
+      // Centers face each other at mid-court, everyone else rings the circle
+      const spots = [[-4.2, 0], [-1.2, -3.6], [1.4, 3.6], [-1.6, 3.4], [-0.62, 0]];
+      t.players.forEach((p, i) => {
+        p.pos.set(d * spots[i][0], 0, d * spots[i][1]);
+        p.vel.set(0, 0, 0); p.desired.set(0, 0, 0); p.state = 'idle'; p.jumpT = -1; p.y = 0;
+        p.facing = p.targetFacing = Math.atan2(-p.pos.x, -p.pos.z);
+      });
+      if (t.human) this.setCtl(t, t.players[4]);
+    }
+    b.state = 'tip'; b.holder = null; b.shot = null; b.pass = null;
+    b.pos.set(0, 1.25, 0); b.vel.set(0, 0, 0);
+    this.tip = { t: 0, jumped: [null, null], done: false };
+    this.shotClockFrozen = true;
+    this.state = 'tipoff';
+  }
+
+  updateTipoff(dt) {
+    const tip = this.tip, b = this.ball;
+    const TOSS = 1.3, HIT = 1.02; // seconds: when the ball goes up, and when it can be tipped after that
+    const before = tip.t;
+    tip.t += dt;
+    if (before === 0) this.hud.toast('JUMP BALL', 'Press SHOOT to jump for it', 2);
+    const tt = tip.t - TOSS;
+    if (tt < 0) { b.pos.set(0, 1.25, 0); return; }
+    if (before - TOSS < 0) sfx.whistle();
+    b.pos.set(0, 1.25 + 6.9 * tt - 0.5 * G * tt * tt, 0);
+    b.spin = 5;
+    this.teams.forEach((t, i) => {
+      const c = t.players[4] || t.players[t.players.length - 1];
+      if (tip.jumped[i] !== null || !c) return;
+      const human = t.human && t.input && !this.autoplay;
+      if (human ? t.input.pressed.shoot || tt > HIT + 0.05 : tt >= c.tipAt) {
+        tip.jumped[i] = tt;
+        c.jump(0.62, 0.8);
+      }
+      if (c.tipAt === undefined) c.tipAt = HIT - 0.3 + (Math.random() - 0.5) * (0.34 - c.r.block / 400);
+    });
+    if (tt >= HIT && !tip.done) {
+      tip.done = true;
+      // Whoever is highest when the ball comes down wins the tap
+      const score = this.teams.map((t) => {
+        const c = t.players[4] || t.players[t.players.length - 1];
+        return c ? c.reach + c.r.reb / 400 + Math.random() * 0.06 : -1;
+      });
+      const winner = this.teams[score[0] >= score[1] ? 0 : 1];
+      const c = winner.players[4] || winner.players[winner.players.length - 1];
+      const pg = winner.players[0];
+      this.firstPossession = winner;
+      this.possession = winner;
+      b.state = 'pass'; b.lastTouch = winner;
+      b.pass = { from: c, to: pg, t: 0, dur: 0.55, start: b.pos.clone(), arc: 0.25, checked: new Set(this.other(winner).players) };
+      this.shotClock = 24; this.shotClockFrozen = false;
+      this.tip = null;
+      this.state = 'live';
+      sfx.pass(); sfx.cheer(0.5);
+      this.hud.toast('TIP-OFF', `${winner.data.name} win the jump ball`, 1.8);
+      this.emit('tipoff', { team: winner, player: c });
+    }
   }
 
   other(team) { return team === this.home ? this.away : this.home; }
+  // The local player's view of the controllers (kept for the HUD and single-player code)
+  get userPlayer() { return this.user.cp; }
+  set userPlayer(p) { this.user.cp = p; }
+  get lock() { return this.user.lock; }
+  set lock(p) { this.user.lock = p; }
+  get meter() { return this.user.meter; }
+  // True when `p` is the player a human is currently controlling
+  ctl(p) { return !this.autoplay && p.team.human && p.team.cp === p && !!p.team.input; }
+  playerById(id) { const t = this.teams[id >= 10 ? 1 : 0]; return [...t.players, ...t.bench].find((p) => p.rid === id % 10) || null; }
+  idOf(p) { return p ? (p.team === this.home ? 0 : 10) + p.rid : -1; }
   on(fn) { this.listeners.push(fn); }
+  // Tutorial/practice: the CPU defense doesn't contest or steal unless practice sets it to "live"
+  passive() { return !!this.opts.tutorial && this.practiceDefense !== 'live'; }
+  // Practice: how many players each team has on the floor (0-5)
+  setTeamSize(team, n) {
+    team.full = team.full || team.players.slice();
+    n = Math.max(team === this.user ? 1 : 0, Math.min(5, n));
+    team.full.forEach((p, i) => { p.root.visible = i < n; p.setControlled(false); p.index = i; });
+    team.players = team.full.slice(0, n);
+    if (team.human) this.setCtl(team, team.players.includes(team.cp) ? team.cp : team.players[0]);
+    if (!this.ball.holder || !this.user.players.includes(this.ball.holder)) this.forcePossession(this.user.cp || this.user.players[0]);
+  }
   emit(type, data = {}) { for (const fn of this.listeners) fn(type, data); }
   // Tutorial can force who gets the ball after dead balls
   nextOffense(team) {
@@ -141,7 +238,8 @@ export class Game {
       p.vel.set(0, 0, 0); p.state = 'idle'; p.jumpT = -1; p.y = 0;
     });
     def.players.forEach((p, i) => {
-      const m = off.players[i];
+      const m = off.players[i % Math.max(1, off.players.length)];
+      if (!m) return;
       p.pos.set(m.pos.x + off.dir * 2.2, 0, m.pos.z * 0.8);
       p.vel.set(0, 0, 0); p.state = 'idle'; p.jumpT = -1; p.y = 0;
     });
@@ -152,33 +250,33 @@ export class Game {
     this.buzzerPlayed = false;
     this.state = 'live';
     for (const t of this.teams) t.fouls = 0;
-    if (this.lock) this.setUserPlayer(this.lock);
-    else if (off === this.user) this.setUserPlayer(off.players[0]);
-    else this.setUserPlayer(this.user.players[0]);
+    for (const t of this.teams) if (t.human) this.setCtl(t, t.lock || t.players[0]);
   }
 
   // Manual player switch (button). Works on offense and defense.
-  switchPlayer() {
-    const ps = this.user.players;
+  switchPlayer(team = this.user) {
+    const ps = team.players;
     let next;
-    if (this.lock) {
-      next = ps[(this.lock.index + 1) % 5];
-      this.lock = next;
-    } else if (this.possession !== this.user || !this.ball.holder) {
+    if (team.lock) {
+      next = ps[(team.lock.index + 1) % ps.length];
+      team.lock = next;
+    } else if (this.possession !== team || !this.ball.holder) {
       const target = this.ball.holder ? this.ball.holder.pos : this.ball.pos;
-      const sorted = ps.filter((q) => q !== this.userPlayer).sort((a, c) => hdist(a.pos, target) - hdist(c.pos, target));
+      const sorted = ps.filter((q) => q !== team.cp).sort((a, c) => hdist(a.pos, target) - hdist(c.pos, target));
       next = sorted[0];
     } else {
-      next = ps[(this.userPlayer.index + 1) % 5];
+      next = ps[((team.cp ? team.cp.index : 0) + 1) % ps.length];
     }
-    if (next) { this.setUserPlayer(next); this.emit('switch', { player: next }); }
+    if (next) { this.setCtl(team, next); this.emit('switch', { player: next }); }
   }
 
-  setUserPlayer(p) {
-    if (this.userPlayer) this.userPlayer.setControlled(false);
-    this.userPlayer = p;
-    p.setControlled(!this.opts.attract, p.data.isMe ? 0xffd60a : 0x35f0ff);
+  // Give a human team control of a player. Only the local user's player gets the ring marker.
+  setCtl(team, p) {
+    if (team === this.user && team.cp) team.cp.setControlled(false);
+    team.cp = p;
+    if (team === this.user) p.setControlled(!this.opts.attract, p.data.isMe ? 0xffd60a : 0x35f0ff);
   }
+  setUserPlayer(p) { this.setCtl(this.user, p); }
 
   // ---------- Ball ownership ----------
   setHolder(p, { silent = false, steal = false } = {}) {
@@ -200,11 +298,11 @@ export class Game {
       if (this.shotClockFrozen) this.shotClock = Math.max(this.shotClock, 14);
       this.shotClockFrozen = false;
     }
-    if (this.lock) { /* player lock: never auto-switch */ }
-    else if (p.team.isUser) this.setUserPlayer(p);
-    else if (prevTeam === this.user && p.team !== this.user) {
-      // User now on defense: control the defender closest to the ball
-      this.setUserPlayer(this.closestTo(this.user.players, p.pos));
+    for (const t of this.teams) {
+      if (!t.human || t.lock) continue; // player lock: never auto-switch
+      if (p.team === t) this.setCtl(t, p);
+      // Now on defense: control the defender closest to the ball
+      else if (prevTeam === t) this.setCtl(t, this.closestTo(t.players, p.pos));
     }
     void steal;
   }
@@ -269,13 +367,13 @@ export class Game {
     if (d < 2.6) {
       const canDunk = p.r.dunk >= 68 && (p.sprinting || sp > 3 || d < 1.4) && p.stamina > 0.1;
       p.state = canDunk && Math.random() < 0.4 + p.r.dunk / 200 ? 'dunk' : 'layup';
-      p.jump(p.state === 'dunk' ? 0.8 : 0.7, p.state === 'dunk' ? 0.95 : 0.7);
+      p.jump(p.state === 'dunk' ? 0.9 : 0.74, p.state === 'dunk' ? 1.12 : 0.78);
       if (p.state === 'dunk' && !this.opts.tutorial) { this.slowT = 0.75; this.focus = p; this.emit('dunkStart', { player: p }); }
     } else {
       p.state = 'shoot';
       p.vel.multiplyScalar(0.3);
-      p.jump(0.78, 0.45);
-      p.aiRelease = p.team.isUser && p === this.userPlayer && !this.autoplay ? null
+      p.jump(0.86, 0.62);
+      p.aiRelease = this.ctl(p) ? null
         : METER_TARGET + (Math.random() - 0.5) * 0.3 * (1.15 - p.r[this.isThree(p.team, p.pos.x, p.pos.z) ? 'three' : 'mid'] / 100);
     }
   }
@@ -290,7 +388,7 @@ export class Game {
     let prob = info.p;
     let label = null, color = '#fff';
     let airball = false;
-    const isUser = team.isUser && p === this.userPlayer;
+    const isUser = this.ctl(p);
     if (p.state === 'shoot') {
       const val = Math.min(1.25, p.actionT / METER_TIME);
       const err = val - METER_TARGET;
@@ -303,15 +401,15 @@ export class Game {
       else if (ae <= w * 5) { label = err < 0 ? 'EARLY' : 'LATE'; color = '#ff8c1a'; prob *= 0.4; }
       else { label = err < 0 ? 'VERY EARLY' : 'VERY LATE'; color = '#ff3b3b'; prob *= 0.08; airball = Math.random() < 0.5; }
       if (isUser) {
-        this.meter.result = { label, color, value: val };
-        this.meter.hideT = 0.15;
+        team.meter.result = { label, color, value: val };
+        team.meter.hideT = 0.15;
       }
     } else {
       // Layup / dunk
       prob = Math.max(prob, p.state === 'dunk' ? 0.9 : 0.62) * (0.7 + p.r.inside / 330);
       if (p.state === 'dunk') prob = Math.min(0.97, prob * Math.min(1.05, info.contest + 0.25));
     }
-    if (!team.isUser) prob *= this.diff.aiShot;
+    if (!team.human) prob *= this.diff.aiShot;
     // Shooting fouls: a defender too close on the release can get whistled
     let fouled = null;
     if (!this.opts.noFouls) {
@@ -324,7 +422,7 @@ export class Game {
     }
     if (fouled) prob *= 0.55;
     prob = Math.min(1, prob);
-    if (label === 'EXCELLENT' && isUser) sfx.green();
+    if (label === 'EXCELLENT' && isUser && team === this.user) sfx.green();
     const made = Math.random() < prob;
     const pts = info.three ? 3 : 2;
     p.stats.fga++; if (pts === 3) p.stats.tpa++;
@@ -373,7 +471,7 @@ export class Game {
     p.faceTarget = null;
     sfx.pass();
     b.lastPasser = p; b.lastPassTime = this.time;
-    this.emit('pass', { player: p, user: p === this.userPlayer && p.team.isUser });
+    this.emit('pass', { player: p, user: this.ctl(p) });
   }
 
   pickPassTarget(p, dirX, dirZ) {
@@ -404,13 +502,13 @@ export class Game {
     if (p.stealCooldown > 0 || p.airborne) return;
     p.stealCooldown = 0.9;
     p.state = 'steal'; p.actionT = 0;
-    this.emit('stealAttempt', { player: p, user: p === this.userPlayer && p.team.isUser });
+    this.emit('stealAttempt', { player: p, user: this.ctl(p) });
     const h = this.ball.holder;
     if (!h || h.team === p.team) return;
     const d = hdist(p.pos, h.pos);
     if (d > 1.6 || h.state !== 'idle') { p.stumbleT = 0.25; return; }
     let chance = 0.12 + (p.r.steal - h.r.handle) / 260 + (Math.hypot(h.vel.x, h.vel.z) > 3 ? 0.04 : 0);
-    if (!p.team.isUser) chance *= this.diff.aiSteal * 0.7;
+    if (!p.team.human) chance *= this.diff.aiSteal * 0.7;
     if (Math.random() < chance) {
       const b = this.ball;
       b.state = 'loose'; b.holder = null;
@@ -471,8 +569,8 @@ export class Game {
     const b = this.ball;
     if (b.holder === out) b.holder = inn;
     if (this.inbounder === out) this.inbounder = inn;
-    if (this.lock === out) this.lock = inn;
-    if (this.userPlayer === out) this.setUserPlayer(inn);
+    if (team.lock === out) team.lock = inn;
+    if (team.cp === out) this.setCtl(team, inn);
     out.setControlled(false);
     this.emit('sub', { team, inn, out });
   }
@@ -483,7 +581,7 @@ export class Game {
     for (const team of this.teams) {
       for (const q of team.pendingSubs) this.substitute(team, q.courtIdx, q.benchIdx);
       team.pendingSubs = [];
-      const auto = team.isUser ? (this.autoSubs || this.autoplay) : true;
+      const auto = team.isUser ? (this.autoSubs || this.autoplay || !!this.opts.guest) : true;
       for (let i = 0; i < 5; i++) {
         const cur = team.players[i];
         // Best available bench player (prefer the same position slot)
@@ -522,7 +620,7 @@ export class Game {
     this.state = 'ft';
     this.ft = { shooter, team: shooter.team, remaining: n, total: n, t: 1.4, phase: 'setup' };
     this.applySubs();
-    this.meter.visible = false;
+    for (const t of this.teams) t.meter.visible = false;
     for (const p of this.allPlayers) { p.state = 'idle'; p.faceTarget = null; p.burstT = 0; }
   }
 
@@ -549,7 +647,7 @@ export class Game {
     const f = this.ft;
     if (!f) return;
     const sh = f.shooter;
-    const userShoots = sh.team.isUser && !this.autoplay;
+    const userShoots = sh.team.human && !!sh.team.input && !this.autoplay;
     if (f.phase === 'setup' || f.phase === 'between') {
       f.t -= dt;
       if (f.t <= 0) {
@@ -561,7 +659,7 @@ export class Game {
     }
     if (f.phase === 'ready') {
       f.t -= dt;
-      if (f.t <= 0 && (!userShoots || input.pressed.shoot)) {
+      if (f.t <= 0 && (!userShoots || sh.team.input.pressed.shoot)) {
         sh.state = 'ft'; sh.actionT = 0; sh.released = false;
         sh.aiRelease = METER_TARGET + (Math.random() - 0.5) * 0.25 * (1.2 - this.ftRating(sh) / 100);
         f.phase = 'shooting';
@@ -572,7 +670,7 @@ export class Game {
   releaseFT(p) {
     if (p.released) return;
     p.released = true;
-    const userShoots = p.team.isUser && !this.autoplay;
+    const userShoots = p.team.human && !!p.team.input && !this.autoplay;
     const val = Math.min(1.25, p.actionT / METER_TIME);
     const err = val - METER_TARGET, ae = Math.abs(err);
     const w = this.diff.greenWindow * 1.2;
@@ -583,9 +681,9 @@ export class Game {
     else if (ae <= w * 5) { label = err < 0 ? 'EARLY' : 'LATE'; color = '#ff8c1a'; prob *= 0.55; }
     else { label = err < 0 ? 'VERY EARLY' : 'VERY LATE'; color = '#ff3b3b'; prob *= 0.15; }
     if (userShoots) {
-      this.meter.result = { label, color, value: val };
-      this.meter.hideT = 0.15;
-      if (label === 'EXCELLENT') sfx.green();
+      p.team.meter.result = { label, color, value: val };
+      p.team.meter.hideT = 0.15;
+      if (label === 'EXCELLENT' && p.team === this.user) sfx.green();
     } else {
       prob = Math.min(0.95, (this.ftRating(p) / 100) * (0.84 + 0.08 * this.diff.aiShot));
     }
@@ -648,9 +746,9 @@ export class Game {
     this.timeoutTeam = team;
     this.savedShotClock = this.state === 'dead' ? 24 : this.shotClock;
     this.state = 'timeout';
-    this.stateT = team.isUser ? 600 : 6;
+    this.stateT = this.opts.versus ? 10 : team.isUser ? 600 : 6;
     this.run = { team: null, pts: 0 };
-    this.meter.visible = false;
+    for (const t of this.teams) t.meter.visible = false;
     for (const p of this.allPlayers) { p.stamina = 1; p.energy = Math.min(1, p.energy + 0.12); p.state = 'idle'; p.vel.set(0, 0, 0); p.desired.set(0, 0, 0); p.faceTarget = null; }
     this.applySubs();
     this.hud.timeout(this, team);
@@ -697,7 +795,7 @@ export class Game {
       }
     }
     sfx.squeak();
-    this.emit('move', { player: p, user: p === this.userPlayer && p.team.isUser });
+    this.emit('move', { player: p, user: this.ctl(p) });
   }
 
   // ---------- Possession changes / dead balls ----------
@@ -740,7 +838,7 @@ export class Game {
     this.ball.reboundable = false;
     this.state = 'live';
     this.pendingInbound = null;
-    if (team === this.user && !this.lock) this.setUserPlayer(p);
+    if (team.human && !team.lock) this.setCtl(team, p);
   }
 
   scored(shot) {
@@ -794,20 +892,29 @@ export class Game {
     }
     // Buttons that work in any game state
     if (!this.autoplay) {
-      if (this.state === 'timeout' && this.timeoutTeam === this.user && (input.pressed.shoot || input.pressed.pass)) this.endTimeout();
-      else if (input.pressed.timeout && this.state !== 'timeout') this.callTimeout(this.user);
-      if (input.pressed.switch && ['live', 'dead'].includes(this.state)) this.switchPlayer();
+      for (const t of this.teams) {
+        const inp = t.human && t.input;
+        if (!inp) continue;
+        if (this.state === 'timeout' && this.timeoutTeam === t && (inp.pressed.shoot || inp.pressed.pass)) this.endTimeout();
+        else if (inp.pressed.timeout && this.state !== 'timeout') this.callTimeout(t);
+        if (inp.pressed.switch && ['live', 'dead'].includes(this.state)) this.switchPlayer(t);
+      }
     }
     this.cameraShake = Math.max(0, this.cameraShake - dt);
-    if (this.meter.hideT !== undefined) {
-      this.meter.hideT -= dt;
-      if (this.meter.hideT <= 0) { this.meter.visible = false; this.meter.result = null; this.meter.hideT = undefined; }
+    for (const t of this.teams) {
+      const m = t.meter;
+      if (m.hideT === undefined) continue;
+      m.hideT -= dt;
+      if (m.hideT <= 0) { m.visible = false; m.result = null; m.hideT = undefined; }
     }
     for (const p of this.allPlayers) { p.moveCd = Math.max(0, (p.moveCd || 0) - dt); }
     this.contactCd = Math.max(0, this.contactCd - dt);
 
     if (this.state === 'intro') {
       /* frozen while the pre-game intro plays */
+    } else if (this.state === 'tipoff') {
+      this.updateTipoff(dt);
+      for (const p of this.allPlayers) { p.desired.set(0, 0, 0); p.update(dt); }
     } else if (this.state === 'timeout') {
       this.stateT -= dt;
       if (this.stateT <= 0) this.endTimeout();
@@ -838,7 +945,11 @@ export class Game {
       if (this.state === 'live') this.checkRules();
     }
 
-    // Animate players
+    this.animateAll(dt);
+  }
+
+  // Poses, ball and nets. Separate from the simulation so an online guest can render received state.
+  animateAll(dt) {
     for (const p of this.allPlayers) {
       const hasBall = this.ball.holder === p;
       p.animate(dt, {
@@ -855,7 +966,11 @@ export class Game {
       else if (sp > 0.5) animState = 'walk';
       else if (this.state === 'dead' && this.celebrateTeam === p.team) animState = 'celebrate';
       else animState = hasBall ? 'dribble' : 'idle';
-      updateCustomPlayer(p, dt, animState, sp);
+      updateCustomPlayer(p, dt, animState, sp, {
+        hasBall, released: p.released, airborne: p.airborne,
+        defending: p.team !== this.possession && this.state === 'live',
+        ballPos: this.ball.pos, ballSide: (p.crossSide || 1) * (p.burstT > 0.25 ? -1 : 1),
+      });
     }
     // Ball mesh
     this.ball.mesh.position.copy(this.ball.pos);
@@ -888,7 +1003,7 @@ export class Game {
   endPeriod() {
     for (const t of this.teams) t.quarterScores.push(t.score - t.quarterScores.reduce((a, b) => a + b, 0));
     for (const p of this.allPlayers) { p.state = 'idle'; p.faceTarget = null; }
-    this.meter.visible = false;
+    for (const t of this.teams) t.meter.visible = false;
     if (this.period >= 4 && this.home.score !== this.away.score) {
       this.state = 'over';
       this.ball.state = 'free';
@@ -964,7 +1079,7 @@ export class Game {
 
   cpuTimeoutCheck() {
     const cpu = this.cpu, b = this.ball;
-    if (this.autoplay) return;
+    if (this.autoplay || this.opts.versus) return;
     if (this.run.team === this.user && this.run.pts >= 8 && cpu.timeouts > 0 && b.state === 'held' && b.holder && b.holder.team === cpu && b.holder.state === 'idle' && b.holder.holdT > 0.8) {
       this.callTimeout(cpu);
     }
@@ -974,26 +1089,28 @@ export class Game {
     const b = this.ball;
     if (p.state === 'steal' && p.actionT > 0.3) p.state = 'idle';
     if (p.state === 'shoot') {
-      const isUser = p === this.userPlayer && p.team.isUser && !this.autoplay;
+      const isUser = this.ctl(p);
       if (isUser) {
-        this.meter.visible = true;
-        this.meter.player = p;
-        this.meter.value = Math.min(1.2, p.actionT / METER_TIME);
-        this.meter.win = this.diff.greenWindow;
-        this.meter.hideT = undefined;
-        if (!p.released && (!input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseShot(p);
+        const m = p.team.meter;
+        m.visible = true;
+        m.player = p;
+        m.value = Math.min(1.2, p.actionT / METER_TIME);
+        m.win = this.diff.greenWindow;
+        m.hideT = undefined;
+        if (!p.released && (!p.team.input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseShot(p);
       } else if (!p.released && p.actionT / METER_TIME >= p.aiRelease) this.releaseShot(p);
       if (p.released && !p.airborne) { p.state = 'idle'; p.faceTarget = null; }
     }
     if (p.state === 'ft') {
-      const isUser = p.team.isUser && !this.autoplay;
+      const isUser = p.team.human && !!p.team.input && !this.autoplay;
       if (isUser) {
-        this.meter.visible = true;
-        this.meter.player = p;
-        this.meter.value = Math.min(1.2, p.actionT / METER_TIME);
-        this.meter.win = this.diff.greenWindow * 1.2;
-        this.meter.hideT = undefined;
-        if (!p.released && (!input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseFT(p);
+        const m = p.team.meter;
+        m.visible = true;
+        m.player = p;
+        m.value = Math.min(1.2, p.actionT / METER_TIME);
+        m.win = this.diff.greenWindow * 1.2;
+        m.hideT = undefined;
+        if (!p.released && (!p.team.input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseFT(p);
       } else if (!p.released && p.actionT / METER_TIME >= p.aiRelease) this.releaseFT(p);
       if (p.released && p.actionT > 0.9) p.state = 'idle';
     }
@@ -1055,7 +1172,7 @@ export class Game {
         if (d < 0.75 && b.pos.y < q.reach + 0.2 && u > 0.15 && u < 0.9) {
           ps.checked.add(q);
           let chance = 0.04 + q.r.steal / 700;
-          if (!q.team.isUser) chance *= this.diff.aiSteal;
+          if (!q.team.human) chance *= this.diff.aiSteal;
           if (d < 0.4) chance += 0.12;
           if (Math.random() < chance) {
             q.stats.stl++; ps.from.stats.to++;
@@ -1080,7 +1197,7 @@ export class Game {
           if (hand.distanceTo(b.pos) < 0.6) {
             s.checked.add(q);
             let chance = 0.25 + q.r.block / 220 - (s.kind === 'shoot' ? 0.05 : 0);
-            if (!q.team.isUser) chance *= this.diff.aiDef;
+            if (!q.team.human) chance *= this.diff.aiDef;
             if (Math.random() < chance) {
               b.state = 'loose';
               const away = tmp2.set(b.pos.x - q.pos.x, 0, b.pos.z - q.pos.z).normalize();
@@ -1169,15 +1286,15 @@ export class Game {
     const live = this.state === 'live';
     for (const p of this.allPlayers) {
       p.sprinting = false;
-      if (p !== this.userPlayer || !live || !p.team.isUser || this.autoplay) this.aiControl(p, off, def, dt);
+      if (!live || !this.ctl(p)) this.aiControl(p, off, def, dt);
     }
-    if (live && this.userPlayer && !this.autoplay) this.userControl(this.userPlayer, dt);
+    if (live) for (const t of this.teams) if (t.cp && this.ctl(t.cp)) this.userControl(t.cp, dt);
     // Loose-ball chasing: closest two from each team chase
     if (live && b.state === 'loose') {
       for (const t of this.teams) {
         const sorted = [...t.players].sort((a, c) => hdist(a.pos, b.pos) - hdist(c.pos, b.pos));
         for (const p of sorted.slice(0, 2)) {
-          if (p === this.userPlayer && t.isUser) continue;
+          if (this.ctl(p)) continue;
           const land = tmp.set(b.pos.x + b.vel.x * 0.35, 0, b.pos.z + b.vel.z * 0.35);
           this.moveTo(p, land, true);
           const d = hdist(p.pos, b.pos);
@@ -1204,6 +1321,7 @@ export class Game {
   userControl(p, dt) {
     const b = this.ball;
     // Screen-relative movement: camera looks toward -z, so screen-right = +x, screen-up = -z
+    const input = p.team.input; // this team's controller (local keyboard/pad, or the remote player)
     let mx = input.moveX, mz = input.moveY;
     p.desired.set(mx, 0, mz);
     p.sprinting = input.sprint;
@@ -1225,8 +1343,8 @@ export class Game {
         const target = b.holder ? b.holder.pos : b.pos;
         const next = this.closestTo(p.team.players, target, p);
         if (next) {
-          if (this.lock) this.lock = next;
-          this.setUserPlayer(next);
+          if (p.team.lock) p.team.lock = next;
+          this.setCtl(p.team, next);
           this.emit('switch', { player: next });
         }
       }
@@ -1269,17 +1387,18 @@ export class Game {
       return;
     }
     // Defense
-    const man = off.players[p.index];
+    const man = off.players[p.index] || off.players[p.index % off.players.length]; // extra defenders double-team
+    if (!man) { p.desired.set(0, 0, 0); return; }
     const hoop = this.hoopOf(off);
     const toHoop = tmp2.set(hoop.x - man.pos.x, 0, -man.pos.z);
     const dh = toHoop.length();
     toHoop.normalize();
     const onBall = b.holder === man;
-    const tut = this.opts.tutorial && !p.team.isUser;
+    const tut = this.passive() && !p.team.human;
     let gap = onBall ? 1.0 + (1 - this.diff.aiDef) * 0.8 : 1.5 + Math.min(2.2, hdist(man.pos, b.pos) / 5);
     if (tut) gap += 1.4;
     gap = Math.min(gap, Math.max(0.5, dh - 0.6));
-    if (p.team.isUser) gap = onBall ? 1.1 : gap; // teammates of the user play solid D
+    if (p.team.human) gap = onBall ? 1.1 : gap; // teammates of a human play solid D
     const target = tmp.set(man.pos.x + toHoop.x * gap, 0, man.pos.z + toHoop.z * gap);
     // Help defense: if ball handler is driving into the paint, the nearest helper steps in
     if (b.holder && b.holder !== man && b.holder.team === off && hdist(b.holder.pos, hoop) < 3.5 && p.index >= 3) {
@@ -1291,16 +1410,16 @@ export class Game {
     this.moveTo(p, p.defTarget, hdist(p.pos, p.defTarget) > 3);
     if (hdist(p.pos, man.pos) < 3) p.faceTarget = man.pos;
 
-    if (!live || this.opts.tutorial) return;
+    if (!live || this.passive()) return;
     // Contest shots
     const shooter = b.holder && b.holder.team === off && b.holder.state !== 'idle' ? b.holder : null;
     if (shooter && !p.airborne && hdist(p.pos, shooter.pos) < 2.3 && shooter.actionT > this.diff.react * 0.7) {
       p.desired.set(shooter.pos.x - p.pos.x, 0, shooter.pos.z - p.pos.z).normalize();
-      if (Math.random() < (p.team.isUser ? 0.6 : this.diff.aiDef)) p.jump(0.65, 0.55 + p.r.block / 300);
+      if (Math.random() < (p.team.human ? 0.6 : this.diff.aiDef)) p.jump(0.65, 0.55 + p.r.block / 300);
       else p.jump(0.4, 0.2);
     }
     // Steal attempts
-    if (onBall && man.state === 'idle' && hdist(p.pos, man.pos) < 1.3 && Math.random() < dt * 0.1 * (p.team.isUser ? 0.5 : this.diff.aiSteal)) {
+    if (onBall && man.state === 'idle' && hdist(p.pos, man.pos) < 1.3 && Math.random() < dt * 0.1 * (p.team.human ? 0.5 : this.diff.aiSteal)) {
       this.attemptSteal(p);
     }
   }
@@ -1314,7 +1433,7 @@ export class Game {
     const dHoop = Math.hypot(p.pos.x - hoop.x, p.pos.z);
     const backcourt = p.pos.x * dir < 0.5;
 
-    if (this.opts.tutorial && !p.team.isUser) {
+    if (this.opts.tutorial && !p.team.human) {
       // Tutorial: CPU just dribbles around the top of the key
       if (!p.aiTarget || p.decT <= 0 || hdist(p.pos, p.aiTarget) < 0.5) {
         p.decT = rand(1.5, 2.5);
@@ -1384,7 +1503,7 @@ export class Game {
   }
 
   dispose() {
-    for (const t of this.teams) for (const p of [...t.players, ...t.bench]) this.scene.remove(p.root);
+    for (const t of this.teams) for (const p of [...(t.full || t.players), ...t.bench]) this.scene.remove(p.root);
     this.scene.remove(this.ball.mesh);
   }
 }

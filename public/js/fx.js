@@ -13,6 +13,8 @@ function glowTexture() {
   return new THREE.CanvasTexture(cv);
 }
 
+const r2 = () => Math.random() - 0.5;
+
 class Particles {
   constructor(scene, count, size) {
     this.n = count;
@@ -82,8 +84,20 @@ export class FX {
     if (onFire) {
       for (let i = 0; i < 3; i++) this.glow.emit(pos.x + r() * 0.1, pos.y + r() * 0.1, pos.z + r() * 0.1, r() * 0.6, 0.6 + Math.random(), r() * 0.6, 1, 0.35 + Math.random() * 0.3, 0.05, 0.45);
     } else {
-      this.glow.emit(pos.x, pos.y, pos.z, 0, 0, 0, 0.5, 0.42, 0.34, 0.22);
+      // A clear glowing streak so every shot is easy to follow
+      this.glow.emit(pos.x, pos.y, pos.z, 0, 0, 0, 1, 0.82, 0.5, 0.4);
+      this.glow.emit(pos.x + r() * 0.06, pos.y + r() * 0.06, pos.z + r() * 0.06, 0, 0, 0, 0.9, 0.6, 0.25, 0.28);
     }
+  }
+
+  // Expanding ring on the floor under a shooter, plus a burst at the release point
+  shotPulse(p, color = [1, 0.85, 0.4]) {
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2;
+      this.glow.emit(p.pos.x + Math.cos(a) * 0.45, 0.06, p.pos.z + Math.sin(a) * 0.45, Math.cos(a) * 2.6, 0, Math.sin(a) * 2.6, color[0], color[1], color[2], 0.45);
+    }
+    const h = p.data.height * 1.15 + p.y;
+    for (let i = 0; i < 10; i++) this.glow.emit(p.pos.x, h, p.pos.z, r2() * 1.6, 0.5 + Math.random() * 1.5, r2() * 1.6, 1, 1, 0.9, 0.3);
   }
 
   // Flames around a player who is on fire

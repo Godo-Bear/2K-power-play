@@ -1,11 +1,21 @@
 {
-  // Cloudflare Workers static-assets deploy. Workers Builds runs `npx wrangler deploy`.
+  // Cloudflare Workers config. Workers Builds runs `npx wrangler deploy`.
   // If your Worker in the Cloudflare dashboard has a different name, change "name" to match it.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "2k-power-play",
+  "main": "src/worker.js",
   "compatibility_date": "2026-10-01",
+  // The game itself: static files
   "assets": {
     "directory": "./public",
-    "not_found_handling": "single-page-application"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // /api/* goes to the Worker code (online rooms) instead of the static files
+    "run_worker_first": ["/api/*"]
+  },
+  // Online multiplayer rooms: one Durable Object per room code (works on the free plan)
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
 }

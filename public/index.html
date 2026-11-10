@@ -34,26 +34,49 @@
     </header>
     <div class="hub-grid">
       <button class="tile hero" data-go="select">
-        <span class="t-kicker">Quick game</span>
+        <span class="t-badge">Tonight's game</span>
+        <span class="t-match" id="tilePlayArt"></span>
         <span class="t-title">Play Now</span>
         <span class="t-sub" id="tilePlaySub"></span>
-        <span class="t-art" id="tilePlayArt"></span>
+        <span class="t-cta">Tip off ›</span>
       </button>
       <button class="tile career" id="tileCareer">
+        <span class="t-portrait" id="tileCareerArt"></span>
         <span class="t-kicker">Create a player · Earn upgrades</span>
         <span class="t-title">My Career</span>
         <span class="t-sub" id="tileCareerSub"></span>
       </button>
+      <button class="tile online" id="tileOnline">
+        <span class="t-icon">⇄</span>
+        <span class="t-kicker">Play a friend</span>
+        <span class="t-title">Online</span>
+        <span class="t-sub">Host a room or join with a code</span>
+      </button>
       <button class="tile season" id="tileSeason">
+        <span class="t-icon">🏆</span>
         <span class="t-kicker">14 games + playoffs</span>
         <span class="t-title">Season</span>
         <span class="t-sub" id="tileSeasonSub"></span>
       </button>
+      <button class="tile practice" id="tilePractice">
+        <span class="t-icon">◎</span>
+        <span class="t-kicker">No clock · Any team size</span>
+        <span class="t-title">Practice</span>
+        <span class="t-sub">Work on your game</span>
+      </button>
       <button class="tile small" id="tutorialBtn"><span class="t-title">Tutorial</span><span class="t-sub">Learn every move</span></button>
-      <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Remap keys &amp; buttons</span></button>
-      <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics, sound, camera</span></button>
+      <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
+      <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
     </div>
-    <footer class="hub-foot"><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span><span class="grow"></span><span>An original basketball game · Fictional league</span></footer>
+    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
+  </div>
+
+  <!-- Career slots -->
+  <div id="slots" class="screen">
+    <h2>My Career</h2>
+    <p class="hint">You can have up to 3 different players. Pick a slot.</p>
+    <div class="slot-grid" id="slotGrid"></div>
+    <div class="row"><button data-go="menu">Back</button></div>
   </div>
 
   <!-- Team select -->
@@ -110,7 +133,7 @@
   <!-- Controls (remappable) -->
   <div id="controls" class="screen">
     <h2>Controls</h2>
-    <p class="hint">Click a binding, then press the key, mouse button or controller button you want. <kbd>Esc</kbd> cancels, <kbd>Backspace</kbd> clears.</p>
+    <p class="hint">Click a binding, then press the key, mouse button, scroll wheel or controller button you want. <kbd>Esc</kbd> cancels, <kbd>Backspace</kbd> clears.</p>
     <div class="remap-wrap">
       <table class="remap">
         <thead><tr><th>Action</th><th>Key</th><th>Alt key</th><th>Controller</th></tr></thead>
@@ -166,6 +189,15 @@
       <button id="pauseBtn" aria-label="Pause">❚❚</button>
       <button id="switchBtn" title="Switch player">⇄ <span>Switch</span></button>
       <button id="timeoutBtn" title="Call timeout">TO <span></span></button>
+    </div>
+    <!-- Practice panel -->
+    <div id="pracPanel">
+      <div class="tut-head"><span>Practice</span><button id="pracExit">Exit</button></div>
+      <div class="prac-row"><span>Your team</span><div class="seg" id="pracMine"></div></div>
+      <div class="prac-row"><span>Opponents</span><div class="seg" id="pracOpp"></div></div>
+      <div class="prac-row"><span>Defense</span><div class="seg" id="pracDef"><button data-v="passive">Easy</button><button data-v="live">Real</button></div></div>
+      <div class="prac-stats" id="pracStats"></div>
+      <div class="tut-row"><button id="pracFT">Free throws</button><button id="pracReset">Reset stats</button></div>
     </div>
     <!-- Tutorial panel -->
     <div id="tutPanel">
@@ -252,6 +284,47 @@
       <div class="intro-team" id="introAway"></div>
       <div class="intro-mid"><span id="introStage"></span><b>VS</b><small>Press any button to skip</small></div>
       <div class="intro-team" id="introHome"></div>
+    </div>
+  </div>
+
+  <!-- Online -->
+  <div id="online" class="screen">
+    <h2>Play Online</h2>
+    <div id="onStart">
+      <div class="on-cols">
+        <div class="box">
+          <h4>Host a game</h4>
+          <p class="hint">Create a room, then send the code to your friend.</p>
+          <button id="onCreate" class="primary">Create Room</button>
+        </div>
+        <div class="box">
+          <h4>Join a game</h4>
+          <p class="hint">Type the 5-letter code your friend gave you.</p>
+          <input type="text" id="onCode" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button id="onJoin" class="primary">Join Room</button>
+        </div>
+      </div>
+      <p class="hint on-error" id="onError"></p>
+      <div class="row"><button data-go="menu">Back</button></div>
+    </div>
+    <div id="onLobby" hidden>
+      <div class="on-code"><span>Room code</span><b id="onRoomCode"></b><button id="onCopy">Copy</button></div>
+      <p class="hint" id="onStatus"></p>
+      <div class="matchup">
+        <div class="team-card" id="onAway">
+          <div class="tag">AWAY · <span class="who"></span></div>
+          <button class="arrow l" aria-label="Previous team">‹</button><button class="arrow r" aria-label="Next team">›</button>
+          <div class="crest"></div><h3></h3><div class="ovr"></div>
+        </div>
+        <div class="vs">VS</div>
+        <div class="team-card" id="onHome">
+          <div class="tag">HOME · <span class="who"></span></div>
+          <button class="arrow l" aria-label="Previous team">‹</button><button class="arrow r" aria-label="Next team">›</button>
+          <div class="crest"></div><h3></h3><div class="ovr"></div>
+        </div>
+      </div>
+      <div class="options"><label>Quarter length<select id="onQ"><option value="1">1 min</option><option value="2" selected>2 min</option><option value="3">3 min</option><option value="5">5 min</option></select></label></div>
+      <div class="row"><button id="onLeave">Leave Room</button><button id="onGo" class="primary">Start Game</button></div>
     </div>
   </div>
 

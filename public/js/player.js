@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { C } from './arena.js';
+import { buildHair } from './hair.js';
 
 const tmpV = new THREE.Vector3();
 
@@ -119,15 +120,8 @@ export class Player {
     const skull = new THREE.Mesh(new THREE.SphereGeometry(0.115, 20, 16), skin);
     skull.scale.set(0.92, 1.08, 1); skull.castShadow = true;
     head.add(skull);
-    if (d.hairStyle > 0) {
-      const hairGeo = d.hairStyle === 3
-        ? new THREE.SphereGeometry(0.15, 16, 12)
-        : new THREE.SphereGeometry(0.12, 16, 12, 0, Math.PI * 2, 0, Math.PI * (d.hairStyle === 1 ? 0.45 : 0.55));
-      const hair = new THREE.Mesh(hairGeo, hairMat);
-      hair.position.y = d.hairStyle === 3 ? 0.04 : 0.015;
-      if (d.hairStyle === 3) hair.scale.set(1, 0.85, 1);
-      head.add(hair);
-    }
+    // Hair (shared styles with the 3D-model players)
+    head.add(buildHair(d.hairStyle ?? 2, d.hair, 0.115, { cap: true }));
     if (d.headband) {
       const hb = new THREE.Mesh(new THREE.TorusGeometry(0.112, 0.018, 8, 24), trim);
       hb.rotation.x = Math.PI / 2; hb.position.y = 0.04;

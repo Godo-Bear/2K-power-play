@@ -4,26 +4,34 @@
     "model": "models/Man by Quaternius - HMnuH5geEG.glb",
     "scale": 1,
     "rotationY": 0,
-    "tint": { "Shirt": "jersey", "Pants": "jersey", "Socks": "trim", "Skin": "skin", "Hair": "hair" },
+    "tint": {
+      "Shirt": "jersey",
+      "Pants": "jersey",
+      "Socks": "trim",
+      "Skin": "skin",
+      "Hair": "hair"
+    },
     "animations": {
       "idle": "HumanArmature|Man_Idle",
       "walk": "HumanArmature|Man_Walk",
       "run": "HumanArmature|Man_Run",
-      "dribble": "HumanArmature|Man_Standing",
-      "jump": "HumanArmature|Man_Jump",
-      "shoot": "HumanArmature|Man_Jump",
-      "layup": "HumanArmature|Man_RunningJump",
-      "dunk": "HumanArmature|Man_RunningJump",
       "celebrate": "HumanArmature|Man_Clapping"
     }
   },
-  "ball": { "model": "models/Basket Ball by J-Toastie - blRgRaL56h.glb", "texture": "" },
+  "ball": {
+    "model": "models/Basket Ball by J-Toastie - blRgRaL56h.glb",
+    "texture": ""
+  },
   "court": {
     "texture": "",
     "model": "models/Basketball court by Poly by Google - 85FpUr2fHkH.glb",
     "scale": 1.022,
     "rotationY": 90,
-    "position": [0, 0, 0]
+    "position": [
+      0,
+      0,
+      0
+    ]
   },
   "arena": {
     "models": [
@@ -32,8 +40,20 @@
         "scale": 2.4,
         "rotationY": 0,
         "copies": [
-          { "position": [-9, 0.65, -8.9] },
-          { "position": [9, 0.65, -8.9] }
+          {
+            "position": [
+              -9,
+              0.65,
+              -8.9
+            ]
+          },
+          {
+            "position": [
+              9,
+              0.65,
+              -8.9
+            ]
+          }
         ]
       }
     ]

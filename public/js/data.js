@@ -68,7 +68,7 @@ function buildRoster(team, teamIndex) {
       height: p.height + (rnd() - 0.5) * 0.08,
       skin: SKIN[Math.floor(rnd() * SKIN.length)],
       hair: HAIR[Math.floor(rnd() * HAIR.length)],
-      hairStyle: Math.floor(rnd() * 4),
+      hairStyle: Math.floor(rnd() * 10),
       headband: rnd() < 0.2,
       sleeve: rnd() < 0.35,
       ratings,

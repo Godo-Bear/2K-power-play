@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { buildHair, scalpTint } from './hair.js';
 
 const BASE = 'assets/';
 const gltfLoader = new GLTFLoader();
@@ -94,6 +95,66 @@ function tintColor(player, kind) {
   }
 }
 
+// ---------- Skeleton helpers ----------
+function findBones(model) {
+  const b = {};
+  const want = { upperarml: 'uaL', lowerarml: 'laL', upperarmr: 'uaR', lowerarmr: 'laR', upperlegl: 'ulL', lowerlegl: 'llL', upperlegr: 'ulR', lowerlegr: 'llR', head: 'head', headend: 'headEnd', torso: 'torso' };
+  model.traverse((o) => {
+    if (!o.isBone) return;
+    const key = want[o.name.toLowerCase().replace(/[^a-z]/g, '')];
+    if (key && !b[key]) b[key] = o;
+  });
+  for (const k of Object.keys(b)) {
+    const child = b[k].children.find((c) => c.isBone) || b[k].children[0];
+    b[k].userData.rest = child ? child.position.clone().normalize() : new THREE.Vector3(0, 1, 0);
+  }
+  return b;
+}
+
+// Colour for the model's own scalp hair, depending on the hair style
+function scalpColor(data) {
+  const kind = scalpTint(data.hairStyle ?? 2);
+  if (kind === 'skin') return data.skin;
+  if (kind === 'buzz') return '#' + new THREE.Color(data.skin).lerp(new THREE.Color(data.hair), 0.55).getHexString();
+  return data.hair;
+}
+
+// Put styled hair on the model's head bone so it follows the head
+function attachHair(holder, model, bones, data) {
+  if (!bones.head) return;
+  holder.updateMatrixWorld(true);
+  // The head runs from the head bone (base of the skull) up to the top of the model
+  const a = bones.head.getWorldPosition(new THREE.Vector3());
+  const top = new THREE.Box3().setFromObject(model).max.y;
+  const r = (top - a.y) * 0.56;
+  if (!(r > 0.01)) return;
+  const hair = buildHair(data.hairStyle ?? 2, data.hair, r);
+  if (!hair.children.length) return;
+  hair.position.set(a.x, a.y + r * 0.9, a.z);
+  hair.rotation.y = model.rotation.y;
+  holder.add(hair);
+  holder.updateMatrixWorld(true);
+  bones.head.attach(hair);
+}
+
+function tintModel(model, cfg, fake) {
+  const tint = { ...(cfg.tint || {}) };
+  if (cfg.jerseyMaterial && !Object.keys(tint).length) tint[cfg.jerseyMaterial] = 'jersey';
+  const rules = Object.entries(tint).map(([k, v]) => [k.toLowerCase(), v]);
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false; // skinned meshes can be culled wrongly when animated
+    const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
+      const c = mt.clone();
+      const rule = rules.find(([k]) => (mt.name || '').toLowerCase().includes(k));
+      const col = rule && (rule[1] === 'hair' ? scalpColor(fake.data) : tintColor(fake, rule[1]));
+      if (col && c.color) c.color.set(col);
+      return c;
+    });
+    o.material = mats.length === 1 ? mats[0] : mats;
+  });
+}
+
 // Replace a procedural player's look with the custom model (keeps the hidden rig for gameplay).
 export function applyCustomPlayer(player) {
   const cp = custom.player;
@@ -101,26 +162,14 @@ export function applyCustomPlayer(player) {
   const cfg = cp.cfg;
   const model = SkeletonUtils.clone(cp.scene);
   const holder = new THREE.Group();
+  holder.rotation.order = 'YXZ';
   holder.add(model);
   model.rotation.y = THREE.MathUtils.degToRad(cfg.rotationY || 0);
   fitToHeight(model, player.data.height * (cfg.scale || 1));
-  const tint = { ...(cfg.tint || {}) };
-  if (cfg.jerseyMaterial && !Object.keys(tint).length) tint[cfg.jerseyMaterial] = 'jersey';
-  const rules = Object.entries(tint).map(([k, v]) => [k.toLowerCase(), v]);
-  model.traverse((o) => {
-    if (!o.isMesh) return;
-    o.frustumCulled = false; // skinned meshes can be culled wrongly when animated
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    const out = mats.map((mt) => {
-      const c = mt.clone();
-      const name = (mt.name || '').toLowerCase();
-      const rule = rules.find(([k]) => name.includes(k));
-      const col = rule && tintColor(player, rule[1]);
-      if (col && c.color) c.color.set(col);
-      return c;
-    });
-    o.material = out.length === 1 ? out[0] : out;
-  });
+  tintModel(model, cfg, player);
+  player.bones = findBones(model);
+  attachHair(holder, model, player.bones, player.data);
+  player.limb = { aL: { w: 0 }, aR: { w: 0 }, lL: { w: 0 }, lR: { w: 0 } };
   player.body.visible = false;
   player.root.add(holder);
   player.customModel = holder;
@@ -138,32 +187,102 @@ export function applyCustomPlayer(player) {
   }
 }
 
-const ONE_SHOT = new Set(['jump', 'shoot', 'layup', 'dunk']);
+// ---------- Procedural poses layered on top of the model's clips ----------
+// Directions are in player space: +x = the player's left, +y = up, +z = forward.
+const _pq = new THREE.Quaternion(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _e = new THREE.Vector3();
+function toWorld(d, facing, out) {
+  const c = Math.cos(facing), s = Math.sin(facing);
+  return out.set(d[0] * c + d[2] * s, d[1], -d[0] * s + d[2] * c);
+}
+function aim(bone, dirWorld, w) {
+  bone.parent.updateWorldMatrix(true, false);
+  bone.parent.getWorldQuaternion(_pq).invert();
+  _v.copy(dirWorld).applyQuaternion(_pq).normalize();
+  _q.setFromUnitVectors(bone.userData.rest, _v);
+  bone.quaternion.slerp(_q, w);
+}
 
-export function updateCustomPlayer(player, dt, state, speed) {
-  if (!player.customModel) return;
-  player.customModel.rotation.y = player.facing;
-  if (!player.mixer) return;
-  // Fallbacks so partial animation sets still work
-  const fallback = { walk: ['run'], dribble: ['idle'], shoot: ['jump'], layup: ['jump'], dunk: ['layup', 'jump'], celebrate: ['idle'], jump: ['idle'], run: ['walk', 'idle'] };
-  let want = state;
-  if (!player.clips[want]) want = (fallback[state] || []).find((s) => player.clips[s]) || (player.clips.idle ? 'idle' : null);
-  if (want) {
-    const act = player.clips[want];
-    if (want === 'run' || want === 'walk') act.timeScale = Math.max(0.6, speed / (want === 'run' ? 5 : 1.8));
-    else if (ONE_SHOT.has(want)) act.timeScale = act.getClip().duration / 0.85;
-    else act.timeScale = 1;
-    if (player.currentClip !== want) {
-      const prev = player.currentClip && player.clips[player.currentClip];
-      act.reset();
-      act.setLoop(ONE_SHOT.has(want) ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
-      act.clampWhenFinished = true;
-      act.play();
-      if (prev && prev !== act) prev.crossFadeTo(act, 0.15, false);
-      player.currentClip = want;
-    }
+// Which pose each arm/leg should take. Returns { aL, aR, lL, lR } with [upperDir, lowerDir] or null.
+function choosePose(p, state, ctx) {
+  const out = { aL: null, aR: null, lL: null, lR: null };
+  const mir = (d) => [-d[0], d[1], d[2]];
+  const both = (u, f) => { out.aL = [u, f]; out.aR = [mir(u), mir(f)]; };
+  if (state === 'shoot' || state === 'ft') {
+    if (!ctx.released) both([0.2, 0.5, 0.82], [-0.14, 0.97, 0.12]);          // ball set above the forehead
+    else { out.aR = [[-0.14, 0.86, 0.5], [-0.04, 0.72, 0.7]]; out.aL = [[0.3, 0.35, 0.75], [0.1, 0.85, 0.35]]; } // follow-through
+  } else if (state === 'layup') {
+    out.aR = [[-0.1, 0.96, 0.3], [0, 0.95, 0.32]];
+    out.aL = [[0.35, -0.2, 0.6], [0.1, 0.3, 0.75]];
+    out.lR = [[-0.05, -0.45, 0.9], [0, -0.95, -0.3]];                          // knee drive
+  } else if (state === 'dunk') {
+    if (!ctx.released) out.aR = [[-0.15, 0.95, -0.12], [-0.05, 0.75, -0.6]];   // wind up behind the head
+    else out.aR = [[-0.1, 0.5, 0.88], [0, -0.3, 0.95]];                        // slam it down
+    out.aL = [[0.75, 0.25, 0.3], [0.5, 0.55, 0.4]];
+    out.lL = [[0.1, -0.72, 0.68], [0, -0.75, -0.66]];
+    out.lR = [[-0.1, -0.6, 0.8], [0, -0.8, -0.6]];
+  } else if (state === 'steal') {
+    out.aR = [[-0.2, -0.25, 0.95], [0, -0.12, 1]];
+  } else if (ctx.airborne) {
+    both([0.25, 0.95, 0.2], [0.05, 1, 0.15]);                                  // hands up to contest / rebound
+  } else if (ctx.hasBall) {
+    const s = ctx.ballSide >= 0 ? 1 : -1;
+    const arm = [[s * 0.3, -0.75, 0.35], 'ball'];                              // dribbling hand follows the ball
+    const off = [[-s * 0.5, -0.55, 0.4], [-s * 0.15, 0.05, 0.95]];             // off arm shields
+    if (s > 0) { out.aL = arm; out.aR = off; } else { out.aR = arm; out.aL = off; }
+  } else if (ctx.defending && ctx.speed < 5) {
+    both([0.82, -0.3, 0.35], [0.55, 0.42, 0.6]);                               // wide defensive stance
   }
-  player.mixer.update(dt);
+  return out;
+}
+
+function applyLimb(p, key, upper, lower, pose, dt, ctx) {
+  const L = p.limb[key];
+  if (pose) L.pose = pose;
+  L.w += ((pose ? 1 : 0) - L.w) * Math.min(1, dt * 13);
+  if (L.w < 0.02 || !L.pose || !upper || !lower) return;
+  aim(upper, toWorld(L.pose[0], p.facing, _e), L.w);
+  if (L.pose[1] === 'ball' && ctx.ballPos) {
+    // Point the forearm at the ball (never lower than the knees, so the arm doesn't hyper-extend)
+    lower.parent.updateWorldMatrix(true, false);
+    lower.getWorldPosition(_e);
+    _e.set(ctx.ballPos.x - _e.x, Math.max(ctx.ballPos.y, p.data.height * 0.34 + p.y) - _e.y, ctx.ballPos.z - _e.z).normalize();
+    aim(lower, _e, L.w);
+  } else if (L.pose[1] !== 'ball') aim(lower, toWorld(L.pose[1], p.facing, _e), L.w);
+}
+
+const LOOPING = new Set(['idle', 'walk', 'run', 'celebrate']);
+const FALLBACK = { walk: ['run', 'idle'], run: ['walk', 'idle'], celebrate: ['idle'] };
+
+export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
+  if (!player.customModel) return;
+  const h = player.customModel;
+  h.rotation.y = player.facing;
+  // Lean into sprints, sit into a defensive stance
+  const lean = Math.min(0.16, speed * 0.022) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0);
+  h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
+  if (player.mixer) {
+    // Only body-movement clips come from the model; actions are posed procedurally so they match the gameplay timing
+    let want = LOOPING.has(state) ? state : 'idle';
+    if (!player.clips[want]) want = (FALLBACK[want] || []).find((s) => player.clips[s]) || (player.clips.idle ? 'idle' : null);
+    if (want) {
+      const act = player.clips[want];
+      act.timeScale = want === 'run' ? Math.max(0.7, speed / 5) : want === 'walk' ? Math.max(0.7, speed / 1.8) : 1;
+      if (player.currentClip !== want) {
+        const prev = player.currentClip && player.clips[player.currentClip];
+        act.reset().setLoop(THREE.LoopRepeat, Infinity).play();
+        if (prev && prev !== act) prev.crossFadeTo(act, 0.18, false);
+        player.currentClip = want;
+      }
+    }
+    player.mixer.update(dt);
+  }
+  const b = player.bones;
+  if (!b || !player.limb) return;
+  const pose = choosePose(player, state, { ...ctx, speed });
+  applyLimb(player, 'aL', b.uaL, b.laL, pose.aL, dt, ctx);
+  applyLimb(player, 'aR', b.uaR, b.laR, pose.aR, dt, ctx);
+  applyLimb(player, 'lL', b.ulL, b.llL, pose.lL, dt, ctx);
+  applyLimb(player, 'lR', b.ulR, b.llR, pose.lR, dt, ctx);
 }
 
 export function makeCustomBall(radius) {
@@ -223,26 +342,18 @@ export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim =
       const rim = new THREE.DirectionalLight(0x88ccff, 1.6); rim.position.set(-2, 2, -2); pScene.add(rim);
       pCam = new THREE.PerspectiveCamera(26, 1, 0.1, 20);
     }
-    const model = SkeletonUtils.clone(cp.scene);
-    model.rotation.y = THREE.MathUtils.degToRad((cp.cfg.rotationY || 0) + 18);
+    let model = SkeletonUtils.clone(cp.scene);
+    model.rotation.y = THREE.MathUtils.degToRad(cp.cfg.rotationY || 0);
     fitToHeight(model, 2);
     const fake = { team: { jerseyColor: jersey, trimColor: trim, data: { secondary: trim } }, data: { skin, hair, hairStyle }, index: 1 };
-    const rules = Object.entries(cp.cfg.tint || {}).map(([k, v]) => [k.toLowerCase(), v]);
-    model.traverse((o) => {
-      if (!o.isMesh) return;
-      o.frustumCulled = false;
-      const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
-        const c = mt.clone();
-        const rule = rules.find(([k]) => (mt.name || '').toLowerCase().includes(k));
-        const col = rule && tintColor(fake, rule[1]);
-        if (col && c.color) c.color.set(col);
-        return c;
-      });
-      o.material = mats.length === 1 ? mats[0] : mats;
-    });
+    tintModel(model, cp.cfg, fake);
+    const pHolder = new THREE.Group();
+    pHolder.add(model);
+    attachHair(pHolder, model, findBones(model), fake.data);
+    model = pHolder;
     pScene.add(model);
-    pCam.position.set(0.25, 1.78, 1.75);
-    pCam.lookAt(0, 1.7, 0);
+    pCam.position.set(0.62, 1.82, 1.72);
+    pCam.lookAt(0, 1.72, 0);
     pRenderer.render(pScene, pCam);
     const url = pRenderer.domElement.toDataURL('image/png');
     pScene.remove(model);

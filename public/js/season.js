@@ -1,14 +1,28 @@
 // Season + My Career logic. Everything is saved in the browser (localStorage).
 import { TEAMS } from './data.js';
 
-const KEYS = { season: 'pph-season', career: 'pph-career' };
+export const CAREER_SLOTS = 3;
 const N = TEAMS.length;
+// Seasons have one save; careers have three slots
+const keyFor = (kind, slot = 1) => (kind === 'career' ? `pph-career-${slot}` : 'pph-season');
 
-export function load(kind) {
-  try { const s = JSON.parse(localStorage.getItem(KEYS[kind]) || 'null'); return s && s.v === 1 ? s : null; } catch { return null; }
+// An older version kept a single career: move it into slot 1
+try {
+  const old = localStorage.getItem('pph-career');
+  if (old && !localStorage.getItem('pph-career-1')) localStorage.setItem('pph-career-1', old);
+  if (old) localStorage.removeItem('pph-career');
+} catch { /* ignore */ }
+
+export function load(kind, slot = 1) {
+  try {
+    const s = JSON.parse(localStorage.getItem(keyFor(kind, slot)) || 'null');
+    if (!s || s.v !== 1) return null;
+    s.slot = slot;
+    return s;
+  } catch { return null; }
 }
-export function save(s) { try { localStorage.setItem(KEYS[s.kind], JSON.stringify(s)); } catch { /* ignore */ } }
-export function clear(kind) { try { localStorage.removeItem(KEYS[kind]); } catch { /* ignore */ } }
+export function save(s) { try { localStorage.setItem(keyFor(s.kind, s.slot || 1), JSON.stringify(s)); } catch { /* ignore */ } }
+export function clear(kind, slot = 1) { try { localStorage.removeItem(keyFor(kind, slot)); } catch { /* ignore */ } }
 
 // Double round-robin: everyone plays everyone home and away (14 games each for 8 teams)
 function makeSchedule() {
@@ -28,8 +42,8 @@ function makeSchedule() {
   return [...rounds, ...second].map((g) => g.map((x) => ({ ...x, hs: null, as: null })));
 }
 
-export function newSeason({ kind = 'season', team, diff, q, career = null, year = 1 }) {
-  const s = { v: 1, kind, team, diff, q, year, round: 0, schedule: makeSchedule(), stats: {}, playoffs: null, career };
+export function newSeason({ kind = 'season', team, diff, q, career = null, year = 1, slot = 1 }) {
+  const s = { v: 1, kind, slot, team, diff, q, year, round: 0, schedule: makeSchedule(), stats: {}, playoffs: null, career };
   save(s);
   return s;
 }
@@ -229,5 +243,5 @@ export function careerReward(s, line, won) {
 // Roll into a new season with the same player
 export function nextYear(s) {
   const c = s.career;
-  return newSeason({ kind: s.kind, team: s.team, diff: s.diff, q: s.q, career: c, year: (s.year || 1) + 1 });
+  return newSeason({ kind: s.kind, team: s.team, diff: s.diff, q: s.q, career: c, year: (s.year || 1) + 1, slot: s.slot || 1 });
 }
