@@ -31,6 +31,7 @@
       <div class="logo small"><span>2K</span><b>POWER PLAY</b></div>
       <nav>
         <button data-go="select" class="primary">Play Now</button>
+        <button id="tutorialBtn" class="tut">Tutorial <small>Learn the controls</small></button>
         <button data-go="controls">Controls</button>
         <button data-go="settings">Settings</button>
       </nav>
@@ -41,26 +42,29 @@
   <!-- Team select -->
   <div id="select" class="screen">
     <h2>Matchup</h2>
+    <p class="hint">Use the arrows to pick teams. Tap <b>Play as</b> on the team you want to control.</p>
     <div class="matchup">
       <div class="team-card" id="cardAway" data-side="away">
-        <div class="tag">AWAY</div>
-        <button class="arrow l">‹</button><button class="arrow r">›</button>
+        <div class="tag">AWAY</div><div class="you">YOU</div>
+        <button class="arrow l" aria-label="Previous team">‹</button><button class="arrow r" aria-label="Next team">›</button>
         <div class="crest"></div>
         <h3></h3><div class="ovr"></div>
         <ul class="roster"></ul>
+        <button class="playas">Play as this team</button>
       </div>
       <div class="vs">VS</div>
       <div class="team-card" id="cardHome" data-side="home">
-        <div class="tag">HOME</div>
-        <button class="arrow l">‹</button><button class="arrow r">›</button>
+        <div class="tag">HOME</div><div class="you">YOU</div>
+        <button class="arrow l" aria-label="Previous team">‹</button><button class="arrow r" aria-label="Next team">›</button>
         <div class="crest"></div>
         <h3></h3><div class="ovr"></div>
         <ul class="roster"></ul>
+        <button class="playas">Play as this team</button>
       </div>
     </div>
     <div class="options">
-      <label>You control
-        <select id="optSide"><option value="home">Home</option><option value="away">Away</option></select>
+      <label>Player lock
+        <select id="optLock"><option value="-1">Off (auto switch)</option></select>
       </label>
       <label>Difficulty
         <select id="optDiff">
@@ -86,76 +90,91 @@
     </div>
   </div>
 
-  <!-- Controls -->
+  <!-- Controls (remappable) -->
   <div id="controls" class="screen">
     <h2>Controls</h2>
-    <div class="ctrl-grid">
-      <div>
-        <h4>Offense</h4>
-        <table>
-          <tr><td>Move</td><td><kbd>WASD</kbd> / <kbd>Arrows</kbd></td><td>Left stick</td></tr>
-          <tr><td>Sprint</td><td><kbd>Shift</kbd></td><td>RT / R2</td></tr>
-          <tr><td>Shoot (hold, release at the top)</td><td><kbd>Space</kbd></td><td>X / □</td></tr>
-          <tr><td>Layup / Dunk (near rim)</td><td><kbd>Space</kbd></td><td>X / □</td></tr>
-          <tr><td>Pass (aim with move)</td><td><kbd>J</kbd></td><td>A / ✕</td></tr>
-          <tr><td>Crossover / burst</td><td><kbd>K</kbd></td><td>B / ○</td></tr>
-          <tr><td>Call for ball (off-ball)</td><td><kbd>J</kbd></td><td>A / ✕</td></tr>
-        </table>
-      </div>
-      <div>
-        <h4>Defense</h4>
-        <table>
-          <tr><td>Move / Sprint</td><td><kbd>WASD</kbd> + <kbd>Shift</kbd></td><td>Left stick + RT</td></tr>
-          <tr><td>Block / Contest / Rebound</td><td><kbd>Space</kbd></td><td>X / □</td></tr>
-          <tr><td>Steal</td><td><kbd>J</kbd></td><td>A / ✕</td></tr>
-          <tr><td>Switch player</td><td><kbd>K</kbd></td><td>B / ○</td></tr>
-          <tr><td>Pause</td><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Start</td></tr>
-        </table>
-      </div>
+    <p class="hint">Click a binding, then press the key or controller button you want. <kbd>Esc</kbd> cancels, <kbd>Backspace</kbd> clears.</p>
+    <div class="remap-wrap">
+      <table class="remap">
+        <thead><tr><th>Action</th><th>Key</th><th>Alt key</th><th>Controller</th></tr></thead>
+        <tbody id="remapBody"></tbody>
+      </table>
     </div>
-    <p class="hint">Shot meter: hold shoot, release when the bar hits the green zone for a perfect “Excellent” release. Wide-open greens always go in.</p>
-    <div class="row"><button data-go="back">Back</button></div>
+    <p class="hint">Shot meter: hold Shoot, release when the bar hits the green zone. The same buttons do different things on defense: Shoot = block/contest, Pass = steal, Crossover = switch to the player nearest the ball.</p>
+    <div class="row">
+      <button id="resetKeys">Reset to defaults</button>
+      <button data-go="back" class="primary">Done</button>
+    </div>
   </div>
 
   <!-- Settings -->
   <div id="settings" class="screen">
     <h2>Settings</h2>
     <div class="options column">
+      <label>Brightness <span id="brightVal"></span>
+        <input type="range" id="optBright" min="40" max="140" step="5">
+      </label>
       <label>Camera
         <select id="optCam"><option value="broadcast">Broadcast</option><option value="court">Court Level</option><option value="high">High</option></select>
       </label>
       <label>Graphics quality
-        <select id="optGfx"><option value="high">High (bloom + shadows)</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select>
+        <select id="optGfx"><option value="high">High (glow + shadows)</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select>
+      </label>
+      <label id="courtStyleWrap" hidden>Court
+        <select id="optCourt"><option value="arena">Pro Arena (team court)</option><option value="classic">Classic Court (3D model)</option></select>
       </label>
       <label class="check"><input type="checkbox" id="optMute"> Mute sound</label>
     </div>
-    <div class="row"><button data-go="back">Back</button></div>
+    <div id="credits" class="credits" hidden></div>
+    <div class="row"><button data-go="back" class="primary">Done</button></div>
   </div>
 
   <!-- HUD -->
   <div id="hud">
     <div id="scorebug">
-      <div class="sb-team away"><i class="sw"></i><span class="abbr"></span><span class="score"></span></div>
+      <div class="sb-team away"><i class="sw"></i><span class="abbr"></span><span class="score"></span><span class="tos"></span></div>
       <div class="sb-mid"><span class="period"></span><span class="clock"></span><span class="shot"></span></div>
-      <div class="sb-team home"><span class="score"></span><span class="abbr"></span><i class="sw"></i></div>
+      <div class="sb-team home"><span class="tos"></span><span class="score"></span><span class="abbr"></span><i class="sw"></i></div>
     </div>
     <div id="ptag"><b class="num"></b><div><span class="name"></span><small class="meta"></small><div class="stam"><i></i></div></div></div>
     <div id="meter"><div class="fill"></div><div class="zone"></div><div class="mark"></div></div>
     <div id="feedback"></div>
     <div id="toast"><b></b><span></span></div>
     <div id="scorePop"></div>
-    <button id="pauseBtn" aria-label="Pause">❚❚</button>
+    <div id="hudBtns">
+      <button id="pauseBtn" aria-label="Pause">❚❚</button>
+      <button id="switchBtn" title="Switch player">⇄ <span>Switch</span></button>
+      <button id="timeoutBtn" title="Call timeout">TO <span></span></button>
+    </div>
+    <!-- Tutorial panel -->
+    <div id="tutPanel">
+      <div class="tut-head"><span class="tut-n"></span><button id="tutExit">Exit</button></div>
+      <h3 class="tut-title"></h3>
+      <p class="tut-text"></p>
+      <div class="tut-bar"><i></i></div>
+      <div class="tut-row"><span class="tut-check">✔ Nice!</span><button id="tutSkip">Skip step</button></div>
+    </div>
   </div>
 
   <!-- Touch controls -->
   <div id="touch">
     <div class="stick"><div class="knob"></div></div>
     <div class="tbtns">
+      <button data-btn="switch" class="sm">SWITCH</button>
       <button data-btn="sprint" class="sm">SPRINT</button>
-      <button data-btn="move" class="sm">MOVE<br><small>/SWITCH</small></button>
+      <button data-btn="move" class="sm">MOVE</button>
       <button data-btn="pass">PASS<br><small>/STEAL</small></button>
+      <span></span>
       <button data-btn="shoot" class="big">SHOOT<br><small>/BLOCK</small></button>
     </div>
+  </div>
+
+  <!-- Timeout -->
+  <div id="timeoutScreen" class="screen overlay">
+    <h2 id="toTitle">Timeout</h2>
+    <p id="toSub" class="hint"></p>
+    <div id="toStats" class="to-stats"></div>
+    <div class="row"><button id="toContinue" class="primary">Continue</button></div>
   </div>
 
   <!-- Pause -->
@@ -163,10 +182,21 @@
     <h2>Paused</h2>
     <nav>
       <button id="resumeBtn" class="primary">Resume</button>
+      <button id="pauseTimeout">Call Timeout</button>
       <button data-go="controls">Controls</button>
       <button data-go="settings">Settings</button>
       <button id="quitBtn">Quit to Menu</button>
     </nav>
+  </div>
+
+  <!-- Tutorial complete -->
+  <div id="tutDone" class="screen overlay">
+    <h2>Tutorial Complete</h2>
+    <p class="hint">You know the basics. Time to play a real game.</p>
+    <div class="row">
+      <button id="tutPlay" class="primary">Play Now</button>
+      <button id="tutMenu">Main Menu</button>
+    </div>
   </div>
 
   <!-- Game over -->

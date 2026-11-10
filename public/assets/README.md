@@ -25,10 +25,12 @@ public/assets/
 |------|----------------------|--------|-------|
 | Players | `player.model` | `.glb` | Auto-scaled to each player's height. Feet should be at the bottom. |
 | Player animations | `player.animations` | clip names inside the `.glb` | Map game states to your clip names: `idle`, `run`, `dribble`, `shoot`, `layup`, `dunk`, `jump`. |
-| Jersey color | `player.jerseyMaterial` | material name | Any material whose name contains this text is tinted with the team's jersey color. |
+| Player colors | `player.tint` | `{ "materialName": "jersey" }` | Recolor materials by name: `jersey`, `trim`, `skin`, `hair` or `shoe`. Example: `{ "Shirt": "jersey", "Skin": "skin" }`. |
 | Ball | `ball.model` / `ball.texture` | `.glb` / image | Model is auto-sized to a real ball. A texture alone wraps the default sphere. |
 | Court floor | `court.texture` | image | Covers the full floor including the apron (about 32.7m × 20.4m, so roughly 1.6:1). Paint your own lines. |
-| Extra arena scenery | `arena.model` | `.glb` | Added around the court. Use `scale`, `position` [x, y, z] in meters and `rotationY` in degrees. |
+| Court model | `court.model` | `.glb` | A full court with hoops. Players pick it under **Settings → Court → Classic Court**. Line its rims up with the game's rims (3.05m high, 12.73m from center) using `scale`, `rotationY` and `position`. |
+| Extra arena scenery | `arena.models` | list of `.glb` | Added around the court. Each entry has `model`, `scale`, `rotationY` (degrees) and `copies`: a list of `{ "position": [x, y, z] }` to place it several times. |
+| Credits | `credits` | list of text | Shown in Settings. Put the CC-BY credit lines here. |
 
 ### Example
 

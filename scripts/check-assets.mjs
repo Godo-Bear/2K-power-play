@@ -31,7 +31,8 @@ catch (e) { fail(`assets.json is not valid JSON: ${e.message}`); }
 
 const refs = [
   manifest.player?.model, manifest.ball?.model, manifest.ball?.texture,
-  manifest.court?.texture, manifest.arena?.model,
+  manifest.court?.texture, manifest.court?.model, manifest.arena?.model,
+  ...((manifest.arena?.models || []).map((m) => m.model)),
 ].filter(Boolean);
 for (const r of refs) {
   if (!existsSync(join(ROOT, r))) fail(`assets.json points to "${r}" but public/assets/${r} does not exist (check the spelling and folder, names are case-sensitive)`);

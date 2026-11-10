@@ -15,20 +15,23 @@ export const custom = {
   ballTexture: null, // THREE.Texture
   player: null,      // { scene, animations, cfg }
   courtTexture: null,
-  arena: null,       // { scene, cfg }
+  courtModel: null,  // { scene, cfg }
+  arenaModels: [],   // [{ scene, cfg }]
+  credits: [],
   log: [],
 };
 
 function note(msg) { custom.log.push(msg); console.info('[assets]', msg); }
+const url = (p) => BASE + p.split('/').map(encodeURIComponent).join('/');
 
 async function loadGLTF(path) {
-  const g = await gltfLoader.loadAsync(BASE + path);
+  const g = await gltfLoader.loadAsync(url(path));
   g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
 
 async function loadTex(path, repeat) {
-  const t = await texLoader.loadAsync(BASE + path);
+  const t = await texLoader.loadAsync(url(path));
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 8;
   if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat[0], repeat[1]); }
@@ -48,6 +51,7 @@ export async function loadCustomAssets() {
     m = await res.json();
   } catch { return custom; }
   custom.manifest = m;
+  custom.credits = Array.isArray(m.credits) ? m.credits : [];
   const jobs = [];
   if (m.ball?.model) jobs.push(attempt('ball model', async () => { custom.ball = { scene: (await loadGLTF(m.ball.model)).scene, cfg: m.ball }; }));
   if (m.ball?.texture) jobs.push(attempt('ball texture', async () => { custom.ballTexture = await loadTex(m.ball.texture); }));
@@ -56,18 +60,38 @@ export async function loadCustomAssets() {
     custom.player = { scene: g.scene, animations: g.animations, cfg: m.player };
   }));
   if (m.court?.texture) jobs.push(attempt('court texture', async () => { custom.courtTexture = await loadTex(m.court.texture); }));
-  if (m.arena?.model) jobs.push(attempt('arena model', async () => { custom.arena = { scene: (await loadGLTF(m.arena.model)).scene, cfg: m.arena }; }));
+  if (m.court?.model) jobs.push(attempt('court model', async () => { custom.courtModel = { scene: (await loadGLTF(m.court.model)).scene, cfg: m.court }; }));
+  // `arena` may be a single entry or have a `models` list
+  const arenaList = [...(m.arena?.model ? [m.arena] : []), ...((m.arena?.models) || [])];
+  arenaList.forEach((cfg, i) => {
+    if (!cfg.model) return;
+    jobs.push(attempt(`arena model ${i + 1}`, async () => { custom.arenaModels.push({ scene: (await loadGLTF(cfg.model)).scene, cfg }); }));
+  });
   await Promise.all(jobs);
   return custom;
 }
 
 // Fit a model so its height equals `height` meters and its feet sit at y=0.
 function fitToHeight(obj, height) {
+  obj.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
   if (size.y > 0) obj.scale.multiplyScalar(height / size.y);
+  obj.updateMatrixWorld(true);
   const box2 = new THREE.Box3().setFromObject(obj);
   obj.position.y -= box2.min.y;
+}
+
+// Which player color a material should take: tint map { materialNameContains: 'jersey'|'trim'|'skin'|'hair'|'shoe' }
+function tintColor(player, kind) {
+  switch (kind) {
+    case 'jersey': return player.team.jerseyColor;
+    case 'trim': return player.team.trimColor;
+    case 'skin': return player.data.skin;
+    case 'hair': return player.data.hair;
+    case 'shoe': return player.index % 2 ? '#ffffff' : player.team.data.secondary;
+    default: return null;
+  }
 }
 
 // Replace a procedural player's look with the custom model (keeps the hidden rig for gameplay).
@@ -78,19 +102,24 @@ export function applyCustomPlayer(player) {
   const model = SkeletonUtils.clone(cp.scene);
   const holder = new THREE.Group();
   holder.add(model);
-  fitToHeight(model, player.data.height * (cfg.scale || 1));
   model.rotation.y = THREE.MathUtils.degToRad(cfg.rotationY || 0);
-  // Tint jersey materials: any material whose name contains `jerseyMaterial` (default "jersey")
-  const key = (cfg.jerseyMaterial || 'jersey').toLowerCase();
+  fitToHeight(model, player.data.height * (cfg.scale || 1));
+  const tint = { ...(cfg.tint || {}) };
+  if (cfg.jerseyMaterial && !Object.keys(tint).length) tint[cfg.jerseyMaterial] = 'jersey';
+  const rules = Object.entries(tint).map(([k, v]) => [k.toLowerCase(), v]);
   model.traverse((o) => {
     if (!o.isMesh) return;
+    o.frustumCulled = false; // skinned meshes can be culled wrongly when animated
     const mats = Array.isArray(o.material) ? o.material : [o.material];
-    o.material = mats.map((mt) => {
+    const out = mats.map((mt) => {
       const c = mt.clone();
-      if ((mt.name || '').toLowerCase().includes(key) && c.color) c.color.set(player.team.jerseyColor);
+      const name = (mt.name || '').toLowerCase();
+      const rule = rules.find(([k]) => name.includes(k));
+      const col = rule && tintColor(player, rule[1]);
+      if (col && c.color) c.color.set(col);
       return c;
     });
-    if (o.material.length === 1) o.material = o.material[0];
+    o.material = out.length === 1 ? out[0] : out;
   });
   player.body.visible = false;
   player.root.add(holder);
@@ -100,30 +129,47 @@ export function applyCustomPlayer(player) {
     const names = cfg.animations || {};
     player.clips = {};
     for (const [state, clipName] of Object.entries(names)) {
+      if (!clipName) continue;
       const clip = THREE.AnimationClip.findByName(cp.animations, clipName);
       if (clip) player.clips[state] = player.mixer.clipAction(clip);
     }
     player.currentClip = null;
+    player.mixer.update(Math.random() * 2);
   }
 }
 
-export function updateCustomPlayer(player, dt, state) {
+const ONE_SHOT = new Set(['jump', 'shoot', 'layup', 'dunk']);
+
+export function updateCustomPlayer(player, dt, state, speed) {
   if (!player.customModel) return;
   player.customModel.rotation.y = player.facing;
   if (!player.mixer) return;
+  // Fallbacks so partial animation sets still work
+  const fallback = { walk: ['run'], dribble: ['idle'], shoot: ['jump'], layup: ['jump'], dunk: ['layup', 'jump'], celebrate: ['idle'], jump: ['idle'], run: ['walk', 'idle'] };
+  let want = state;
+  if (!player.clips[want]) want = (fallback[state] || []).find((s) => player.clips[s]) || (player.clips.idle ? 'idle' : null);
+  if (want) {
+    const act = player.clips[want];
+    if (want === 'run' || want === 'walk') act.timeScale = Math.max(0.6, speed / (want === 'run' ? 5 : 1.8));
+    else if (ONE_SHOT.has(want)) act.timeScale = act.getClip().duration / 0.85;
+    else act.timeScale = 1;
+    if (player.currentClip !== want) {
+      const prev = player.currentClip && player.clips[player.currentClip];
+      act.reset();
+      act.setLoop(ONE_SHOT.has(want) ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
+      act.clampWhenFinished = true;
+      act.play();
+      if (prev && prev !== act) prev.crossFadeTo(act, 0.15, false);
+      player.currentClip = want;
+    }
+  }
   player.mixer.update(dt);
-  const want = player.clips[state] ? state : player.clips.idle ? 'idle' : null;
-  if (!want || player.currentClip === want) return;
-  const next = player.clips[want];
-  const prev = player.currentClip && player.clips[player.currentClip];
-  next.reset().play();
-  if (prev) prev.crossFadeTo(next, 0.2, false);
-  player.currentClip = want;
 }
 
 export function makeCustomBall(radius) {
   if (!custom.ball) return null;
   const model = custom.ball.scene.clone();
+  model.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -135,11 +181,24 @@ export function makeCustomBall(radius) {
   return g;
 }
 
-export function placeCustomArena(scene) {
-  if (!custom.arena) return;
-  const { scene: model, cfg } = custom.arena;
-  model.scale.setScalar(cfg.scale || 1);
+function placeModel(scene, model, cfg) {
+  const s = cfg.scale ?? 1;
+  if (Array.isArray(s)) model.scale.fromArray(s); else model.scale.setScalar(s);
   if (cfg.position) model.position.fromArray(cfg.position);
   if (cfg.rotationY) model.rotation.y = THREE.MathUtils.degToRad(cfg.rotationY);
   scene.add(model);
+}
+
+export function placeCustomArena(scene) {
+  for (const { scene: model, cfg } of custom.arenaModels) {
+    const copies = cfg.copies && cfg.copies.length ? cfg.copies : [cfg];
+    copies.forEach((c, i) => placeModel(scene, i === 0 ? model : model.clone(), { ...cfg, ...c }));
+  }
+}
+
+// Returns true when the custom court model was placed (the built-in floor/hoops get hidden)
+export function placeCustomCourt(scene) {
+  if (!custom.courtModel) return false;
+  placeModel(scene, custom.courtModel.scene, custom.courtModel.cfg);
+  return true;
 }

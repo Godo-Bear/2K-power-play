@@ -59,7 +59,7 @@ export class Player {
     this.phase = Math.random() * 6;
     this.stamina = 1;
     this.sprinting = false;
-    this.stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, to: 0 };
+    this.stats = { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0, to: 0, pf: 0 };
     this.build(scene);
   }
 
@@ -287,7 +287,7 @@ export class Player {
       if (ctx.dribble) { rS = -0.55; rE = -0.6; rZ = -0.1; }
       else { lS = -1.0; rS = -1.0; lE = -1.3; rE = -1.3; lZ = -0.25; rZ = 0.25; }
     }
-    if (this.state === 'shoot' || this.state === 'layup') {
+    if (this.state === 'shoot' || this.state === 'layup' || this.state === 'ft') {
       const u = Math.min(1, this.actionT / 0.35);
       lS = rS = -1.2 - 1.6 * u; lE = rE = -1.6 + 1.2 * u; lZ = -0.2; rZ = 0.1;
       if (ctx.released) { rS = -3.0; rE = -0.1; lS = -2.4; lE = -0.6; }

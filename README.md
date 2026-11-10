@@ -6,26 +6,31 @@ built with Three.js and deployed on Cloudflare Workers.
 ## Features
 
 - **Full 5-on-5** with quarters, overtime, a 24-second shot clock (it resets to 14 on offensive rebounds), and out-of-bounds and shot-clock violations
-- **Timed shot meter**: hold shoot and release in the green for an "Excellent" release
+- **Fouls**: shooting fouls (2 or 3 free throws, plus and-ones), reach-ins, blocking fouls and charges. Team fouls put the other team in the bonus after 5 in a quarter, and fouls show in the box score.
+- **Free throws** with the same timed shot meter. A missed last free throw is a live rebound.
+- **Timeouts**: 5 per team. They stop the clock, restore stamina and show team stats. The CPU calls one when you go on a run.
+- **Timed shot meter**: hold shoot and release in the green for an "Excellent" release. The meter disappears as soon as you shoot.
 - Layups, dunks, passing aimed with the stick, crossovers that can break ankles, steals, interceptions, blocks, contests and rebounds
-- **CPU AI** on both ends: spacing, cuts, drives, kick-outs, man-to-man, help defense and contests
-- **4 difficulty levels**: Rookie, Pro, All-Star and Hall of Fame
-- **Modern graphics**: PBR materials, a glossy hardwood floor, soft shadows, bloom, ACES tone mapping, an animated crowd, LED ribbon boards and a jumbotron
-- Broadcast, court-level and high cameras
+- **Interactive tutorial** that teaches every control, step by step
+- **Choose your team** and **switch players** at any time, or use **Player Lock** to play the whole game as one player
+- **Remappable controls** for keyboard and controller (Controls menu)
+- **CPU AI** on both ends, with 4 difficulty levels
+- **Graphics**: PBR materials, shadows, a subtle glow effect, an animated crowd, LED boards and a jumbotron. There's a brightness slider in Settings.
 - Keyboard, **gamepad** (Xbox/PlayStation) and **touch** controls
-- Box score at the end of the game
 - **Custom 3D models and textures**: see [`public/assets/README.md`](public/assets/README.md)
 
-## Controls
+## Controls (defaults, all remappable in the Controls menu)
 
 | Action | Keyboard | Gamepad |
 |---|---|---|
 | Move | WASD / Arrows | Left stick |
 | Sprint | Shift | RT / R2 |
-| Shoot / Layup / Dunk (hold, then release) | Space | X / □ |
+| Shoot / Layup / Dunk / Free throw (hold, then release) | Space | X / □ |
 | Pass, or Steal on defense | J | A / ✕ |
-| Crossover, or Switch player on defense | K | B / ○ |
+| Crossover, or quick switch on defense | K | B / ○ |
+| Switch player | Q | LB / L1 |
 | Block / Rebound (defense) | Space | X / □ |
+| Call timeout | T | Back / Share |
 | Pause | Esc / P | Start |
 
 ## Run locally
@@ -64,7 +69,17 @@ public/
   js/player.js              player model and animation
   js/arena.js               court, hoops, crowd, lights
   js/assets.js              custom model/texture loader
-  js/input.js, audio.js     controls and synthesized sound
+  js/tutorial.js            interactive tutorial
+  js/input.js, audio.js     remappable controls and synthesized sound
   assets/                   your uploaded models and textures
   vendor/three/             Three.js (MIT)
 ```
+
+## 3D model credits
+
+- Man by Quaternius (CC0)
+- Basket Ball by J-Toastie (CC-BY 3.0)
+- Basketball court by Poly by Google (CC-BY 3.0)
+- Low Poly Sports Stands by Cole Brenner (CC-BY 3.0)
+
+All via [Poly Pizza](https://poly.pizza). Credits are also shown in the game's Settings screen.

@@ -128,7 +128,11 @@ kbd { background: rgba(255,255,255,0.1); border: 1px solid var(--line); border-b
 #scorePop.show { opacity: 1; }
 #scorePop b { font-family: var(--display); font-size: 16px; display: block; }
 
-#pauseBtn { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); pointer-events: auto; background: rgba(10,14,24,0.7); border: 1px solid var(--line); border-radius: 8px; width: 40px; height: 40px; font-size: 12px; }
+#hudBtns { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); display: flex; gap: 8px; }
+#hudBtns button { pointer-events: auto; background: rgba(10,14,24,0.7); border: 1px solid var(--line); border-radius: 8px; height: 40px; min-width: 40px; padding: 0 10px; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; }
+#hudBtns button:hover { border-color: var(--accent); }
+#hudBtns button span { color: var(--muted); font-weight: 600; }
+#timeoutBtn:disabled { opacity: 0.4; }
 
 /* ---------- Game over ---------- */
 #finalScore { display: flex; gap: 20px; align-items: center; font-family: var(--display); font-size: clamp(26px, 6vw, 48px); }
@@ -159,6 +163,59 @@ kbd { background: rgba(255,255,255,0.1); border: 1px solid var(--line); border-b
   .sb-team { padding: 0 8px; gap: 6px; }
   .sb-team .score { font-size: 18px; min-width: 28px; }
   .sb-mid { padding: 0 8px; font-size: 13px; gap: 6px; }
-  #pauseBtn { top: auto; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); }
+  #hudBtns { top: auto; bottom: max(12px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); }
+  #hudBtns button span { display: none; }
+  #tutPanel { top: 58px; right: 8px; left: 8px; width: auto; }
   .menu-left { padding-left: 0; }
 }
+
+/* ---------- Additions: tutorial, team pick, remap, timeouts ---------- */
+nav button.tut { border-color: rgba(255,46,136,0.5); }
+nav button.tut small { display: block; font-size: 11px; color: var(--muted); letter-spacing: 0.04em; text-transform: none; font-weight: 500; margin-top: 2px; }
+
+.team-card .you { position: absolute; top: 14px; right: 60px; display: none; background: var(--accent); color: #031018; font-weight: 900; font-size: 11px; letter-spacing: 0.15em; padding: 3px 8px; border-radius: 6px; }
+.team-card.mine { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 12px 40px rgba(53,240,255,0.18); }
+.team-card.mine .you { display: block; }
+.team-card .playas { width: 100%; margin-top: 10px; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 12px; }
+.team-card .playas:hover { border-color: var(--accent); }
+.team-card.mine .playas { background: var(--accent); color: #031018; border-color: transparent; }
+
+.remap-wrap { width: 100%; max-width: 760px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 8px; overflow-x: auto; }
+table.remap { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.remap th { text-align: left; color: var(--muted); font-weight: 600; padding: 6px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+table.remap td { padding: 5px 8px; border-top: 1px solid var(--line); }
+table.remap button.bind { min-width: 96px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,0.07); font-weight: 700; font-size: 12px; }
+table.remap button.bind:hover { border-color: var(--accent); }
+table.remap button.bind.wait { border-color: var(--hot); color: var(--hot); animation: blink 0.8s infinite; }
+table.remap .na { color: var(--muted); font-size: 11px; }
+@keyframes blink { 50% { opacity: 0.45; } }
+
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.credits { max-width: 520px; font-size: 12px; color: var(--muted); text-align: center; line-height: 1.6; }
+.credits b { color: var(--text); display: block; margin-bottom: 2px; letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }
+
+.sb-team .tos { display: flex; gap: 2px; align-self: flex-end; margin-bottom: 7px; }
+.sb-team .tos i { width: 5px; height: 5px; border-radius: 50%; background: #ffd60a; }
+.sb-team .tos i.used { background: rgba(255,255,255,0.15); }
+.sb-team .tos b { font-family: var(--font); font-size: 9px; color: #ff3b3b; margin-left: 4px; line-height: 5px; }
+
+.to-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; width: 100%; max-width: 820px; }
+.to-stats .box { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-size: 13px; }
+.to-stats h4 { margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 13px; }
+.to-stats .line { display: flex; justify-content: space-between; padding: 4px 0; border-top: 1px solid var(--line); }
+.to-stats .line span:last-child { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+#tutPanel { position: absolute; top: 64px; right: max(16px, env(safe-area-inset-right)); width: min(340px, calc(100vw - 32px)); background: rgba(10,14,24,0.92); border: 1px solid var(--line); border-left: 4px solid var(--hot); border-radius: 12px; padding: 12px 14px; display: none; pointer-events: auto; }
+#tutPanel.show { display: block; animation: slide .3s ease-out; }
+.tut-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
+#tutPanel h3 { margin: 6px 0 4px; font-family: var(--display); font-style: italic; text-transform: uppercase; font-size: 20px; }
+#tutPanel p { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
+.tut-bar { height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; overflow: hidden; }
+.tut-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--green), var(--accent)); transition: width .15s; }
+.tut-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+.tut-check { color: var(--green); font-weight: 800; opacity: 0; transition: opacity .2s; }
+#tutPanel.done .tut-check { opacity: 1; }
+#tutPanel.done .tut-bar i { width: 100% !important; }
+#tutPanel button { background: rgba(255,255,255,0.07); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 700; }
+#tutPanel button:hover { border-color: var(--accent); }
+#touch .tbtns { grid-template-columns: repeat(3, auto); }

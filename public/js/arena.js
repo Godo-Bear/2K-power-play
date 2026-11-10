@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { custom, placeCustomArena } from './assets.js';
+import { custom, placeCustomArena, placeCustomCourt } from './assets.js';
 
 // Court dimensions in meters (regulation 94ft x 50ft)
 export const C = {
@@ -219,7 +219,7 @@ function buildHoop(side, mats) {
   return { group: g, net };
 }
 
-export function buildArena(scene, home, away) {
+export function buildArena(scene, home, away, opts = {}) {
   const mats = {
     pad: new THREE.MeshStandardMaterial({ color: home.secondary, roughness: 0.7 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x8a8f99, metalness: 0.9, roughness: 0.3 }),
@@ -322,7 +322,7 @@ export function buildArena(scene, home, away) {
     rt.repeat.set(len / 16, 1);
     const m = new THREE.Mesh(new THREE.BoxGeometry(len, 0.7, 0.2), [
       standMat, standMat, standMat, standMat,
-      new THREE.MeshStandardMaterial({ map: rt, emissive: 0xffffff, emissiveMap: rt, emissiveIntensity: 1.4 }), standMat,
+      new THREE.MeshStandardMaterial({ map: rt, emissive: 0xffffff, emissiveMap: rt, emissiveIntensity: 0.8 }), standMat,
     ]);
     m.position.set(x, 0.35, z);
     m.rotation.y = rotY;
@@ -341,7 +341,7 @@ export function buildArena(scene, home, away) {
 
   // Jumbotron
   const jumbo = textCanvas(1024, 512, () => {});
-  const jumboMat = new THREE.MeshStandardMaterial({ map: jumbo.tex, emissive: 0xffffff, emissiveMap: jumbo.tex, emissiveIntensity: 0.9 });
+  const jumboMat = new THREE.MeshStandardMaterial({ map: jumbo.tex, emissive: 0xffffff, emissiveMap: jumbo.tex, emissiveIntensity: 0.7 });
   const jumboBox = new THREE.Group();
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0d, metalness: 0.6, roughness: 0.4 });
   for (let i = 0; i < 4; i++) {
@@ -353,17 +353,22 @@ export function buildArena(scene, home, away) {
   }
   const core = new THREE.Mesh(new THREE.BoxGeometry(5.2, 3.1, 5.2), darkMat);
   jumboBox.add(core);
-  const ringMesh = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 0.35, 48, 1, true), new THREE.MeshStandardMaterial({ color: home.primary, emissive: home.primary, emissiveIntensity: 1.2, side: THREE.DoubleSide }));
+  const ringMesh = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 0.35, 48, 1, true), new THREE.MeshStandardMaterial({ color: home.primary, emissive: home.primary, emissiveIntensity: 0.7, side: THREE.DoubleSide }));
   ringMesh.position.y = -1.75;
   jumboBox.add(ringMesh);
   jumboBox.position.set(0, 13.5, 0);
   root.add(jumboBox);
 
   placeCustomArena(root);
+  // Optional court model replaces the built-in floor and hoop visuals (physics stay the same)
+  if (opts.courtStyle === 'classic' && placeCustomCourt(root)) {
+    floor.visible = false;
+    hoops.forEach((h) => { h.group.visible = false; });
+  }
 
   // Lighting: bright arena wash
-  scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a1410, 0.55));
-  const key = new THREE.DirectionalLight(0xfff4e5, 1.7);
+  scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x1a1410, 0.4));
+  const key = new THREE.DirectionalLight(0xfff4e5, 1.25);
   key.position.set(6, 22, 9);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -373,11 +378,11 @@ export function buildArena(scene, home, away) {
   key.shadow.normalBias = 0.02;
   key.shadow.radius = 4;
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xcfe0ff, 0.6);
+  const fill = new THREE.DirectionalLight(0xcfe0ff, 0.4);
   fill.position.set(-8, 18, -10);
   scene.add(fill);
   for (const x of [-9, 0, 9]) {
-    const sp = new THREE.SpotLight(0xffffff, 55, 30, 0.7, 0.6, 1.4);
+    const sp = new THREE.SpotLight(0xffffff, 30, 30, 0.7, 0.6, 1.4);
     sp.position.set(x, 16, 0);
     sp.target.position.set(x, 0, 0);
     scene.add(sp); scene.add(sp.target);

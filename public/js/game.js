@@ -55,6 +55,8 @@ export class Game {
       trimColor: isHome ? data.primary : data.accent,
       players: [],
       quarterScores: [],
+      timeouts: 5,
+      fouls: 0,
     });
     this.home = mkTeam(homeData, true);
     this.away = mkTeam(awayData, false);
@@ -95,11 +97,29 @@ export class Game {
     this.inbounder = null;
     this.pendingInbound = null;
     this.events = [];
+    this.listeners = [];
+    this.run = { team: null, pts: 0 };
+    this.contactCd = 0;
+    this.ft = null;
+    this.celebrateTeam = null;
+    this.tutorialPossession = null;
+    this.lock = opts.playerLock >= 0 ? this.user.players[opts.playerLock] : null;
 
     this.startPeriod();
   }
 
   other(team) { return team === this.home ? this.away : this.home; }
+  on(fn) { this.listeners.push(fn); }
+  emit(type, data = {}) { for (const fn of this.listeners) fn(type, data); }
+  // Tutorial can force who gets the ball after dead balls
+  nextOffense(team) {
+    if (this.tutorialPossession) return this.tutorialPossession === 'user' ? this.user : this.cpu;
+    return team;
+  }
+  trackRun(team, pts) {
+    if (this.run.team === team) this.run.pts += pts; else this.run = { team, pts };
+  }
+  ftRating(p) { return Math.max(50, Math.min(95, Math.round(p.r.mid * 0.55 + p.r.three * 0.45 + 4))); }
   hoopOf(team) { return tmp2.set(team.dir * C.HOOP_X, C.RIM_H, 0).clone(); }
   get allPlayers() { return [...this.home.players, ...this.away.players]; }
 
@@ -123,8 +143,27 @@ export class Game {
     this.shotClockFrozen = false;
     this.buzzerPlayed = false;
     this.state = 'live';
-    if (off === this.user) this.setUserPlayer(off.players[0]);
+    for (const t of this.teams) t.fouls = 0;
+    if (this.lock) this.setUserPlayer(this.lock);
+    else if (off === this.user) this.setUserPlayer(off.players[0]);
     else this.setUserPlayer(this.user.players[0]);
+  }
+
+  // Manual player switch (button). Works on offense and defense.
+  switchPlayer() {
+    const ps = this.user.players;
+    let next;
+    if (this.lock) {
+      next = ps[(this.lock.index + 1) % 5];
+      this.lock = next;
+    } else if (this.possession !== this.user || !this.ball.holder) {
+      const target = this.ball.holder ? this.ball.holder.pos : this.ball.pos;
+      const sorted = ps.filter((q) => q !== this.userPlayer).sort((a, c) => hdist(a.pos, target) - hdist(c.pos, target));
+      next = sorted[0];
+    } else {
+      next = ps[(this.userPlayer.index + 1) % 5];
+    }
+    if (next) { this.setUserPlayer(next); this.emit('switch', { player: next }); }
   }
 
   setUserPlayer(p) {
@@ -153,7 +192,8 @@ export class Game {
       if (this.shotClockFrozen) this.shotClock = Math.max(this.shotClock, 14);
       this.shotClockFrozen = false;
     }
-    if (p.team.isUser) this.setUserPlayer(p);
+    if (this.lock) { /* player lock: never auto-switch */ }
+    else if (p.team.isUser) this.setUserPlayer(p);
     else if (prevTeam === this.user && p.team !== this.user) {
       // User now on defense: control the defender closest to the ball
       this.setUserPlayer(this.closestTo(this.user.players, p.pos));
@@ -253,7 +293,7 @@ export class Game {
       else { label = err < 0 ? 'VERY EARLY' : 'VERY LATE'; color = '#ff3b3b'; prob *= 0.08; airball = Math.random() < 0.5; }
       if (isUser) {
         this.meter.result = { label, color, value: val };
-        this.meter.hideT = 0.9;
+        this.meter.hideT = 0.15;
       }
     } else {
       // Layup / dunk
@@ -261,12 +301,32 @@ export class Game {
       if (p.state === 'dunk') prob = Math.min(0.97, prob * Math.min(1.05, info.contest + 0.25));
     }
     if (!team.isUser) prob *= this.diff.aiShot;
+    // Shooting fouls: a defender too close on the release can get whistled
+    let fouled = null;
+    if (!this.opts.noFouls) {
+      const { p: q, d } = this.nearestDefender(p);
+      const close = p.state === 'shoot' ? 0.95 : 1.25;
+      if (q && d < close) {
+        const fc = (close - d) * (p.state === 'shoot' ? 0.45 : 0.65) + (q.airborne ? 0.1 : 0.03) - (q.r.def - 70) / 600;
+        if (Math.random() < fc) fouled = q;
+      }
+    }
+    if (fouled) prob *= 0.55;
     prob = Math.min(1, prob);
     if (label === 'EXCELLENT' && isUser) sfx.green();
     const made = Math.random() < prob;
     const pts = info.three ? 3 : 2;
     p.stats.fga++; if (pts === 3) p.stats.tpa++;
+    if (fouled) this.recordFoul(fouled, p, 'SHOOTING FOUL');
+    this.emit('shot', { player: p, kind: p.state, label, user: isUser });
+    this.launchShot(p, made, pts, p.state, airball);
+    b.shot.fouled = fouled;
+  }
 
+  launchShot(p, made, pts, kind, airball) {
+    const b = this.ball;
+    const team = p.team;
+    const hoop = this.hoopOf(team);
     const start = b.pos.clone();
     const target = new THREE.Vector3(hoop.x, C.RIM_H + 0.05, 0);
     if (!made) {
@@ -280,14 +340,14 @@ export class Game {
       }
     }
     const dist = Math.hypot(target.x - start.x, target.z - start.z);
-    let T = p.state === 'shoot' ? 0.75 + dist * 0.06 : (p.state === 'dunk' ? 0.18 : 0.5);
+    const T = kind === 'shoot' || kind === 'ft' ? 0.75 + dist * 0.06 : (kind === 'dunk' ? 0.18 : 0.5);
     b.state = 'shot';
     b.holder = null;
     b.lastTouch = team;
-    b.shot = { shooter: p, team, made, pts, T, t: 0, target, start, airball, kind: p.state, checked: new Set() };
+    b.shot = { shooter: p, team, made, pts, T, t: 0, target, start, airball, kind, checked: new Set(), fouled: null };
     b.vel.set((target.x - start.x) / T, (target.y - start.y + 0.5 * G * T * T) / T, (target.z - start.z) / T);
     b.spin = -8;
-    if (p.state === 'dunk') { b.vel.set((target.x - start.x) / T, (target.y - start.y) / T - 2, (target.z - start.z) / T); }
+    if (kind === 'dunk') { b.vel.set((target.x - start.x) / T, (target.y - start.y) / T - 2, (target.z - start.z) / T); }
   }
 
   startPass(p, target) {
@@ -302,6 +362,7 @@ export class Game {
     p.faceTarget = null;
     sfx.pass();
     b.lastPasser = p; b.lastPassTime = this.time;
+    this.emit('pass', { player: p, user: p === this.userPlayer && p.team.isUser });
   }
 
   pickPassTarget(p, dirX, dirZ) {
@@ -332,6 +393,7 @@ export class Game {
     if (p.stealCooldown > 0 || p.airborne) return;
     p.stealCooldown = 0.9;
     p.state = 'steal'; p.actionT = 0;
+    this.emit('stealAttempt', { player: p, user: p === this.userPlayer && p.team.isUser });
     const h = this.ball.holder;
     if (!h || h.team === p.team) return;
     const d = hdist(p.pos, h.pos);
@@ -351,7 +413,195 @@ export class Game {
       this.arena.excitement = Math.min(1, this.arena.excitement + 0.4);
     } else {
       p.stumbleT = 0.4;
+      if (!this.opts.noFouls && d < 1.3 && Math.random() < 0.16) this.nonShootingFoul(p, h, 'REACH-IN FOUL');
     }
+  }
+
+  // ---------- Fouls ----------
+  recordFoul(def, victim, label) {
+    def.stats.pf++;
+    def.team.fouls++;
+    sfx.whistle();
+    const bonus = def.team.fouls >= 5 ? ' · BONUS' : '';
+    this.hud.toast(label, `#${def.data.number} ${def.data.last} (${def.stats.pf} PF) · Team fouls ${def.team.fouls}${bonus}`, 1.8);
+    this.emit('foul', { def, victim, label });
+  }
+
+  nonShootingFoul(def, victim, label) {
+    this.recordFoul(def, victim, label);
+    if (def.team.fouls >= 5) { this.startFreeThrows(victim, 2); return; }
+    const spot = new THREE.Vector3(Math.max(-C.HALF_L + 1, Math.min(C.HALF_L - 1, victim.pos.x)), 0, Math.sign(victim.pos.z || 1) * (C.HALF_W - 0.25));
+    this.beginDead(1.4, victim.team, spot, Math.max(this.shotClock, 14));
+  }
+
+  offensiveFoul(holder) {
+    holder.stats.pf++;
+    this.emit('foul', { def: null, victim: null, label: 'OFFENSIVE FOUL' });
+    this.turnover(holder.team, 'OFFENSIVE FOUL');
+  }
+
+  // ---------- Free throws ----------
+  startFreeThrows(shooter, n) {
+    const b = this.ball;
+    if (b.state === 'shot') { b.state = 'free'; b.vel.set(rand(-1, 1), 1, rand(-1, 1)); }
+    this.state = 'ft';
+    this.ft = { shooter, team: shooter.team, remaining: n, total: n, t: 1.4, phase: 'setup' };
+    this.meter.visible = false;
+    for (const p of this.allPlayers) { p.state = 'idle'; p.faceTarget = null; p.burstT = 0; }
+  }
+
+  positionFT() {
+    const f = this.ft, t = f.team, dir = t.dir, hx = dir * C.HOOP_X;
+    const sh = f.shooter;
+    const hoop = new THREE.Vector3(hx, 0, 0);
+    const zs = C.KEY_W / 2 + 0.45;
+    const def = this.other(t);
+    const defSpots = [[1.75, zs], [1.75, -zs], [3.55, zs], [3.55, -zs], [8.6, 2.5]];
+    const offSpots = [[2.65, zs], [2.65, -zs], [8.2, -4], [8.4, 4.5]];
+    sh.pos.set(hx - dir * 4.19, 0, 0);
+    def.players.forEach((p, i) => p.pos.set(hx - dir * defSpots[i][0], 0, defSpots[i][1]));
+    t.players.filter((p) => p !== sh).forEach((p, i) => p.pos.set(hx - dir * offSpots[i][0], 0, offSpots[i][1]));
+    for (const p of this.allPlayers) {
+      p.vel.set(0, 0, 0); p.desired.set(0, 0, 0); p.jumpT = -1; p.y = 0; p.state = 'idle';
+      p.faceTarget = hoop;
+      p.facing = p.targetFacing = Math.atan2(hoop.x - p.pos.x, hoop.z - p.pos.z);
+    }
+    this.setHolder(sh, { silent: true });
+  }
+
+  updateFT(dt) {
+    const f = this.ft;
+    if (!f) return;
+    const sh = f.shooter;
+    const userShoots = sh.team.isUser && !this.autoplay;
+    if (f.phase === 'setup' || f.phase === 'between') {
+      f.t -= dt;
+      if (f.t <= 0) {
+        if (f.phase === 'setup') this.positionFT(); else this.setHolder(sh, { silent: true });
+        f.phase = 'ready'; f.t = userShoots ? 0.3 : 1.0;
+        this.hud.toast(`FREE THROW ${f.total - f.remaining + 1} OF ${f.total}`, `${sh.data.first} ${sh.data.last} · ${this.ftRating(sh)} FT${userShoots ? ' · Hold & release SHOOT' : ''}`, 1.4);
+      }
+      return;
+    }
+    if (f.phase === 'ready') {
+      f.t -= dt;
+      if (f.t <= 0 && (!userShoots || input.pressed.shoot)) {
+        sh.state = 'ft'; sh.actionT = 0; sh.released = false;
+        sh.aiRelease = METER_TARGET + (Math.random() - 0.5) * 0.25 * (1.2 - this.ftRating(sh) / 100);
+        f.phase = 'shooting';
+      }
+    }
+  }
+
+  releaseFT(p) {
+    if (p.released) return;
+    p.released = true;
+    const userShoots = p.team.isUser && !this.autoplay;
+    const val = Math.min(1.25, p.actionT / METER_TIME);
+    const err = val - METER_TARGET, ae = Math.abs(err);
+    const w = this.diff.greenWindow * 1.2;
+    let prob = this.ftRating(p) / 100;
+    let label, color;
+    if (ae <= w) { label = 'EXCELLENT'; color = '#3dff7a'; prob = 1; }
+    else if (ae <= w * 2.5) { label = err < 0 ? 'SLIGHTLY EARLY' : 'SLIGHTLY LATE'; color = '#ffd60a'; prob *= 0.85; }
+    else if (ae <= w * 5) { label = err < 0 ? 'EARLY' : 'LATE'; color = '#ff8c1a'; prob *= 0.55; }
+    else { label = err < 0 ? 'VERY EARLY' : 'VERY LATE'; color = '#ff3b3b'; prob *= 0.15; }
+    if (userShoots) {
+      this.meter.result = { label, color, value: val };
+      this.meter.hideT = 0.15;
+      if (label === 'EXCELLENT') sfx.green();
+    } else {
+      prob = Math.min(0.95, (this.ftRating(p) / 100) * (0.84 + 0.08 * this.diff.aiShot));
+    }
+    p.stats.fta++;
+    this.launchShot(p, Math.random() < prob, 1, 'ft', false);
+    this.ft.phase = 'flight';
+  }
+
+  resolveFT(s) {
+    const f = this.ft, p = s.shooter, b = this.ball;
+    f.remaining--;
+    b.pos.copy(s.target);
+    const hoop = this.hoopOf(p.team);
+    if (s.made) {
+      p.team.score += 1; p.stats.pts += 1; p.stats.ftm++;
+      this.trackRun(p.team, 1);
+      sfx.swish(); if (p.team.isHome) sfx.cheer(0.35);
+      this.netAnim[p.team.dir > 0 ? 1 : 0] = 1;
+      b.state = 'free'; b.vel.set(0, -2, 0);
+    } else {
+      sfx.rim();
+      const out = tmp.set(s.target.x - hoop.x, 0, s.target.z - hoop.z).normalize();
+      b.vel.set(out.x * rand(1.5, 3) - p.team.dir * 1.2, rand(2, 3.5), out.z * rand(1.5, 3));
+      b.state = 'free';
+    }
+    this.emit('ft', { made: s.made, player: p });
+    if (f.remaining > 0) { f.phase = 'between'; f.t = 1.1; return; }
+    this.ft = null;
+    this.emit('ftDone', { player: p });
+    if (s.made) {
+      const spot = new THREE.Vector3(p.team.dir * (C.HALF_L - 0.2), 0, 1.2);
+      this.beginDead(1.3, this.nextOffense(this.other(p.team)), spot);
+    } else {
+      // Live rebound off the last miss
+      b.state = 'loose';
+      b.reboundable = true;
+      b.lastTouch = p.team;
+      this.shotClockFrozen = true;
+      this.state = 'live';
+      for (const q of this.allPlayers) { q.faceTarget = null; q.state = 'idle'; }
+    }
+  }
+
+  // ---------- Timeouts ----------
+  canCallTimeout(team) {
+    if (team.timeouts <= 0 || this.opts.noTimeouts) return false;
+    const b = this.ball;
+    if (this.state === 'live') return b.state === 'held' && b.holder && b.holder.team === team && b.holder.state === 'idle';
+    if (this.state === 'dead') return !!(this.pendingInbound && this.pendingInbound.team === team);
+    return false;
+  }
+
+  callTimeout(team) {
+    if (!this.canCallTimeout(team)) {
+      if (team.isUser) this.hud.feedback(team.timeouts <= 0 ? 'NO TIMEOUTS LEFT' : 'NEED THE BALL TO CALL TIMEOUT', '#ff8c1a');
+      return false;
+    }
+    team.timeouts--;
+    sfx.whistle();
+    this.timeoutTeam = team;
+    this.savedShotClock = this.state === 'dead' ? 24 : this.shotClock;
+    this.state = 'timeout';
+    this.stateT = team.isUser ? 600 : 6;
+    this.run = { team: null, pts: 0 };
+    this.meter.visible = false;
+    for (const p of this.allPlayers) { p.stamina = 1; p.state = 'idle'; p.vel.set(0, 0, 0); p.desired.set(0, 0, 0); p.faceTarget = null; }
+    this.hud.timeout(this, team);
+    this.emit('timeout', { team });
+    return true;
+  }
+
+  endTimeout() {
+    if (this.state !== 'timeout') return;
+    const team = this.timeoutTeam;
+    this.hud.hideTimeout();
+    // Inbound from the frontcourt sideline, keeping the shot clock
+    const spot = new THREE.Vector3(team.dir * 3, 0, C.HALF_W - 0.25);
+    this.beginDead(1.0, team, spot, Math.max(1, this.savedShotClock));
+  }
+
+  // Tutorial helper: hand the ball to a player, clearing any dead-ball state
+  forcePossession(p, pos) {
+    this.state = 'live';
+    this.ft = null;
+    this.pendingInbound = null;
+    this.hud.hideTimeout && this.hud.hideTimeout();
+    if (pos) { p.pos.copy(pos); p.vel.set(0, 0, 0); }
+    for (const q of this.allPlayers) { q.state = 'idle'; q.faceTarget = null; }
+    this.ball.reboundable = false;
+    this.setHolder(p, { silent: true });
+    this.shotClock = 24;
+    this.shotClockFrozen = false;
   }
 
   dribbleMove(p) {
@@ -370,6 +620,7 @@ export class Game {
       }
     }
     sfx.squeak();
+    this.emit('move', { player: p, user: p === this.userPlayer && p.team.isUser });
   }
 
   // ---------- Possession changes / dead balls ----------
@@ -379,7 +630,7 @@ export class Game {
     this.hud.toast(reason, `${this.other(team).data.name} ball`);
     const offender = this.ball.holder || (this.ball.shot && this.ball.shot.shooter);
     if (offender) offender.stats.to++;
-    const newOff = this.other(team);
+    const newOff = this.nextOffense(this.other(team));
     const spot = this.ball.pos.clone();
     spot.x = Math.max(-C.HALF_L + 0.6, Math.min(C.HALF_L - 0.6, spot.x));
     spot.z = Math.sign(spot.z || 1) * (C.HALF_W - 0.25);
@@ -388,28 +639,29 @@ export class Game {
     this.ball.holder = null;
   }
 
-  beginDead(t, newOff, spot) {
+  beginDead(t, newOff, spot, shotClock = 24) {
     this.state = 'dead';
     this.stateT = t;
     this.possession = newOff;
     this.shotClockFrozen = true;
     this.inbounder = this.closestTo(newOff.players, spot);
-    this.pendingInbound = { team: newOff, spot };
+    this.pendingInbound = { team: newOff, spot, shotClock };
     for (const p of this.allPlayers) { p.state = 'idle'; p.faceTarget = null; }
   }
 
   finishInbound() {
-    const { team, spot } = this.pendingInbound;
+    const { team, spot, shotClock } = this.pendingInbound;
     const p = this.inbounder;
     p.pos.x = spot.x; p.pos.z = spot.z;
     p.vel.set(0, 0, 0);
-    this.shotClock = 24;
+    this.shotClock = shotClock ?? 24;
+    this.celebrateTeam = null;
     this.shotClockFrozen = false;
     this.setHolder(p, { silent: true });
     this.ball.reboundable = false;
     this.state = 'live';
     this.pendingInbound = null;
-    if (team === this.user) this.setUserPlayer(p);
+    if (team === this.user && !this.lock) this.setUserPlayer(p);
   }
 
   scored(shot) {
@@ -426,43 +678,65 @@ export class Game {
     if (team.isHome) sfx.cheer(loud); else sfx.cheer(0.25);
     this.arena.excitement = Math.min(1, this.arena.excitement + (team.isHome ? loud : 0.3));
     this.hud.scored(team, shot.pts, p);
-    const newOff = this.other(team);
-    const spot = new THREE.Vector3(team.dir * (C.HALF_L - 0.2), 0, 1.2);
-    this.beginDead(1.7, newOff, spot);
-    this.ball.state = 'free';
+    this.trackRun(team, shot.pts);
+    this.celebrateTeam = team;
+    this.emit('score', { team, pts: shot.pts, player: p });
     this.ball.pos.set(team.dir * C.HOOP_X, C.RIM_H - 0.15, 0);
     this.ball.vel.set(0, -2, 0);
+    this.ball.state = 'free';
+    if (shot.fouled) {
+      this.hud.feedback('AND ONE!', '#ffd60a');
+      this.startFreeThrows(p, 1);
+      return;
+    }
+    const newOff = this.nextOffense(this.other(team));
+    const spot = new THREE.Vector3(team.dir * (C.HALF_L - 0.2), 0, 1.2);
+    this.beginDead(1.7, newOff, spot);
   }
 
   // ---------- Main update ----------
   update(dt) {
     this.time += dt;
+    // Buttons that work in any game state
+    if (!this.autoplay) {
+      if (this.state === 'timeout' && this.timeoutTeam === this.user && (input.pressed.shoot || input.pressed.pass)) this.endTimeout();
+      else if (input.pressed.timeout && this.state !== 'timeout') this.callTimeout(this.user);
+      if (input.pressed.switch && ['live', 'dead'].includes(this.state)) this.switchPlayer();
+    }
     this.cameraShake = Math.max(0, this.cameraShake - dt);
     if (this.meter.hideT !== undefined) {
       this.meter.hideT -= dt;
       if (this.meter.hideT <= 0) { this.meter.visible = false; this.meter.result = null; this.meter.hideT = undefined; }
     }
     for (const p of this.allPlayers) { p.moveCd = Math.max(0, (p.moveCd || 0) - dt); }
+    this.contactCd = Math.max(0, this.contactCd - dt);
 
-    if (this.state === 'break') {
+    if (this.state === 'timeout') {
+      this.stateT -= dt;
+      if (this.stateT <= 0) this.endTimeout();
+    } else if (this.state === 'break') {
       this.stateT -= dt;
       for (const p of this.allPlayers) { p.desired.set(0, 0, 0); p.update(dt); }
       if (this.stateT <= 0) { this.startPeriod(); this.hud.hideToast(); }
     } else if (this.state === 'over') {
       for (const p of this.allPlayers) { p.desired.set(0, 0, 0); p.update(dt); }
     } else {
-      if (this.state === 'live') this.tickClocks(dt);
+      if (this.state === 'live' && !this.opts.tutorial) this.tickClocks(dt);
+      if (this.state === 'live' && !this.opts.tutorial) this.cpuTimeoutCheck();
       if (this.state === 'dead') {
         this.stateT -= dt;
         if (this.stateT <= 0) this.finishInbound();
       }
-      this.controlPlayers(dt);
+      if (this.state === 'ft') {
+        this.updateFT(dt);
+        for (const p of this.allPlayers) { p.desired.set(0, 0, 0); p.sprinting = false; }
+      } else if (this.state !== 'timeout') this.controlPlayers(dt);
       for (const p of this.allPlayers) {
         if (p.state !== 'idle') p.actionT += dt;
         this.updateAction(p);
         p.update(dt);
       }
-      this.separatePlayers();
+      if (this.state !== 'ft') this.separatePlayers();
       this.updateBall(dt);
       if (this.state === 'live') this.checkRules();
     }
@@ -476,10 +750,15 @@ export class Game {
         defending: p.team !== this.possession && this.state === 'live',
         released: p.released,
       });
-      const animState = p.airborne && p.state === 'idle' ? 'jump'
-        : p.state !== 'idle' && p.state !== 'steal' ? p.state
-        : Math.hypot(p.vel.x, p.vel.z) > 0.6 ? 'run' : hasBall ? 'dribble' : 'idle';
-      updateCustomPlayer(p, dt, animState);
+      const sp = Math.hypot(p.vel.x, p.vel.z);
+      let animState;
+      if (p.state !== 'idle' && p.state !== 'steal') animState = p.state;
+      else if (p.airborne) animState = 'jump';
+      else if (sp > 2.6) animState = 'run';
+      else if (sp > 0.5) animState = 'walk';
+      else if (this.state === 'dead' && this.celebrateTeam === p.team) animState = 'celebrate';
+      else animState = hasBall ? 'dribble' : 'idle';
+      updateCustomPlayer(p, dt, animState, sp);
     }
     // Ball mesh
     this.ball.mesh.position.copy(this.ball.pos);
@@ -555,12 +834,37 @@ export class Game {
         const d = Math.hypot(dx, dz);
         const min = 0.6;
         if (d < min && d > 1e-4) {
+          if (this.checkContactFoul(a, c)) return;
           const push = (min - d) / 2;
           const nx = dx / d, nz = dz / d;
           a.pos.x -= nx * push; a.pos.z -= nz * push;
           c.pos.x += nx * push; c.pos.z += nz * push;
         }
       }
+    }
+  }
+
+  // Collisions between a driving ball handler and a defender can draw a charge or a blocking foul
+  checkContactFoul(a, c) {
+    if (this.opts.noFouls || this.contactCd > 0 || this.state !== 'live') return false;
+    const h = this.ball.holder;
+    if (!h || h.state !== 'idle' || (h !== a && h !== c)) return false;
+    const def = h === a ? c : a;
+    if (def.team === h.team) return false;
+    const hs = Math.hypot(h.vel.x, h.vel.z);
+    if (hs < 4.2) return false;
+    this.contactCd = 2.5;
+    const ds = Math.hypot(def.vel.x, def.vel.z);
+    if (ds < 1.0 && Math.random() < 0.05 + def.r.def / 3000) { this.offensiveFoul(h); return true; }
+    if (ds >= 1.6 && Math.random() < 0.05) { this.nonShootingFoul(def, h, 'BLOCKING FOUL'); return true; }
+    return false;
+  }
+
+  cpuTimeoutCheck() {
+    const cpu = this.cpu, b = this.ball;
+    if (this.autoplay) return;
+    if (this.run.team === this.user && this.run.pts >= 8 && cpu.timeouts > 0 && b.state === 'held' && b.holder && b.holder.team === cpu && b.holder.state === 'idle' && b.holder.holdT > 0.8) {
+      this.callTimeout(cpu);
     }
   }
 
@@ -571,12 +875,25 @@ export class Game {
       const isUser = p === this.userPlayer && p.team.isUser && !this.autoplay;
       if (isUser) {
         this.meter.visible = true;
+        this.meter.player = p;
         this.meter.value = Math.min(1.2, p.actionT / METER_TIME);
         this.meter.win = this.diff.greenWindow;
         this.meter.hideT = undefined;
         if (!p.released && (!input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseShot(p);
       } else if (!p.released && p.actionT / METER_TIME >= p.aiRelease) this.releaseShot(p);
       if (p.released && !p.airborne) { p.state = 'idle'; p.faceTarget = null; }
+    }
+    if (p.state === 'ft') {
+      const isUser = p.team.isUser && !this.autoplay;
+      if (isUser) {
+        this.meter.visible = true;
+        this.meter.player = p;
+        this.meter.value = Math.min(1.2, p.actionT / METER_TIME);
+        this.meter.win = this.diff.greenWindow * 1.2;
+        this.meter.hideT = undefined;
+        if (!p.released && (!input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseFT(p);
+      } else if (!p.released && p.actionT / METER_TIME >= p.aiRelease) this.releaseFT(p);
+      if (p.released && p.actionT > 0.9) p.state = 'idle';
     }
     if (p.state === 'layup' || p.state === 'dunk') {
       const hoop = this.hoopOf(p.team);
@@ -598,7 +915,7 @@ export class Game {
     if (b.state === 'held' && b.holder) {
       const p = b.holder;
       b.spin = 0;
-      if (p.state === 'shoot' || p.state === 'layup') {
+      if (p.state === 'shoot' || p.state === 'layup' || p.state === 'ft') {
         const u = Math.min(1, p.actionT / 0.3);
         const fwd = tmp.set(Math.sin(p.facing), 0, Math.cos(p.facing));
         b.pos.set(p.pos.x + fwd.x * 0.2, p.y + p.data.height * (0.62 + 0.42 * u), p.pos.z + fwd.z * 0.2);
@@ -654,7 +971,7 @@ export class Game {
       const s = b.shot;
       s.t += dt;
       // Blocks
-      if (s.t < 0.45 && s.kind !== 'dunk') {
+      if (s.t < 0.45 && s.kind !== 'dunk' && s.kind !== 'ft') {
         for (const q of this.other(s.team).players) {
           if (s.checked.has(q) || !q.airborne) continue;
           const hand = tmp.set(q.pos.x, q.reach, q.pos.z);
@@ -673,14 +990,17 @@ export class Game {
               sfx.board(); sfx.cheer(0.8);
               this.arena.excitement = Math.min(1, this.arena.excitement + 0.6);
               this.cameraShake = 0.25;
+              if (s.fouled) this.startFreeThrows(s.shooter, s.pts);
               return;
             }
           }
         }
       }
       if (s.t >= s.T) {
+        if (s.kind === 'ft') { this.resolveFT(s); return; }
         b.pos.copy(s.target);
         if (s.made) { this.scored(s); return; }
+        if (s.fouled) { sfx.rim(); this.startFreeThrows(s.shooter, s.pts); return; }
         b.state = 'loose';
         b.reboundable = true;
         if (!s.airball) {
@@ -791,13 +1111,16 @@ export class Game {
       if (input.pressed.shoot && !p.airborne) p.jump(0.6, 0.65);
     } else {
       // Defense or loose ball
-      if (input.pressed.shoot && !p.airborne) p.jump(0.65, 0.75);
+      if (input.pressed.shoot && !p.airborne) { p.jump(0.65, 0.75); this.emit('defJump', { player: p }); }
       if (input.pressed.pass && b.holder) this.attemptSteal(p);
       if (input.pressed.move) {
         const target = b.holder ? b.holder.pos : b.pos;
         const next = this.closestTo(p.team.players, target, p);
-        if (next && hdist(next.pos, target) < hdist(p.pos, target) + 3) this.setUserPlayer(next);
-        else if (next) this.setUserPlayer(next);
+        if (next) {
+          if (this.lock) this.lock = next;
+          this.setUserPlayer(next);
+          this.emit('switch', { player: next });
+        }
       }
       // Face the ball handler while defending
       if (b.holder && b.holder.team !== p.team && hdist(p.pos, b.holder.pos) < 3) p.faceTarget = b.holder.pos;
@@ -844,7 +1167,9 @@ export class Game {
     const dh = toHoop.length();
     toHoop.normalize();
     const onBall = b.holder === man;
+    const tut = this.opts.tutorial && !p.team.isUser;
     let gap = onBall ? 1.0 + (1 - this.diff.aiDef) * 0.8 : 1.5 + Math.min(2.2, hdist(man.pos, b.pos) / 5);
+    if (tut) gap += 1.4;
     gap = Math.min(gap, Math.max(0.5, dh - 0.6));
     if (p.team.isUser) gap = onBall ? 1.1 : gap; // teammates of the user play solid D
     const target = tmp.set(man.pos.x + toHoop.x * gap, 0, man.pos.z + toHoop.z * gap);
@@ -858,7 +1183,7 @@ export class Game {
     this.moveTo(p, p.defTarget, hdist(p.pos, p.defTarget) > 3);
     if (hdist(p.pos, man.pos) < 3) p.faceTarget = man.pos;
 
-    if (!live) return;
+    if (!live || this.opts.tutorial) return;
     // Contest shots
     const shooter = b.holder && b.holder.team === off && b.holder.state !== 'idle' ? b.holder : null;
     if (shooter && !p.airborne && hdist(p.pos, shooter.pos) < 2.3 && shooter.actionT > this.diff.react * 0.7) {
@@ -881,6 +1206,16 @@ export class Game {
     const dHoop = Math.hypot(p.pos.x - hoop.x, p.pos.z);
     const backcourt = p.pos.x * dir < 0.5;
 
+    if (this.opts.tutorial && !p.team.isUser) {
+      // Tutorial: CPU just dribbles around the top of the key
+      if (!p.aiTarget || p.decT <= 0 || hdist(p.pos, p.aiTarget) < 0.5) {
+        p.decT = rand(1.5, 2.5);
+        p.aiTarget = new THREE.Vector3(dir * (C.HOOP_X - rand(6.5, 8)), 0, rand(-3, 3));
+      }
+      this.moveTo(p, p.aiTarget, false);
+      p.desired.multiplyScalar(0.45);
+      return;
+    }
     if (p.driveT > 0) {
       p.driveT -= dt;
       this.moveTo(p, tmp.set(hoop.x - dir * 0.8, 0, p.pos.z * 0.3), true);

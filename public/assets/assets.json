@@ -1,13 +1,47 @@
 {
-  "_help": "Point these at files you uploaded to public/assets/models or public/assets/textures. Leave a field out (or empty) to keep the built-in graphics. See public/assets/README.md.",
+  "_help": "Point these at files in public/assets/models or public/assets/textures. Remove or empty a field to use the built-in graphics. See public/assets/README.md.",
   "player": {
-    "model": "",
+    "model": "models/Man by Quaternius - HMnuH5geEG.glb",
     "scale": 1,
     "rotationY": 0,
-    "jerseyMaterial": "jersey",
-    "animations": { "idle": "", "run": "", "dribble": "", "shoot": "", "layup": "", "dunk": "", "jump": "" }
+    "tint": { "Shirt": "jersey", "Pants": "jersey", "Socks": "trim", "Skin": "skin", "Hair": "hair" },
+    "animations": {
+      "idle": "HumanArmature|Man_Idle",
+      "walk": "HumanArmature|Man_Walk",
+      "run": "HumanArmature|Man_Run",
+      "dribble": "HumanArmature|Man_Standing",
+      "jump": "HumanArmature|Man_Jump",
+      "shoot": "HumanArmature|Man_Jump",
+      "layup": "HumanArmature|Man_RunningJump",
+      "dunk": "HumanArmature|Man_RunningJump",
+      "celebrate": "HumanArmature|Man_Clapping"
+    }
   },
-  "ball": { "model": "", "texture": "" },
-  "court": { "texture": "" },
-  "arena": { "model": "", "scale": 1, "position": [0, 0, 0], "rotationY": 0 }
+  "ball": { "model": "models/Basket Ball by J-Toastie - blRgRaL56h.glb", "texture": "" },
+  "court": {
+    "texture": "",
+    "model": "models/Basketball court by Poly by Google - 85FpUr2fHkH.glb",
+    "scale": 1.022,
+    "rotationY": 90,
+    "position": [0, 0, 0]
+  },
+  "arena": {
+    "models": [
+      {
+        "model": "models/Low Poly Sports Stands by Cole Brenner - 26j2bQ3zuUL.glb",
+        "scale": 2.4,
+        "rotationY": 0,
+        "copies": [
+          { "position": [-9, 0.65, -8.9] },
+          { "position": [9, 0.65, -8.9] }
+        ]
+      }
+    ]
+  },
+  "credits": [
+    "Man by Quaternius (CC0) via Poly Pizza",
+    "Basket Ball by J-Toastie (CC-BY 3.0) via Poly Pizza",
+    "Basketball court by Poly by Google (CC-BY 3.0) via Poly Pizza",
+    "Low Poly Sports Stands by Cole Brenner (CC-BY 3.0) via Poly Pizza"
+  ]
 }
