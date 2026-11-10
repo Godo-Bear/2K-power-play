@@ -126,7 +126,7 @@ function courtTexture(home) {
   g.font = `900 ${0.9 * s}px "Arial Black", Impact, sans-serif`;
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText(home.city.toUpperCase(), X(-6), Z(-C.HALF_W - APRON * 0.5));
-  g.fillText('POWER PLAY HOOPS', X(6), Z(-C.HALF_W - APRON * 0.5));
+  g.fillText('2K POWER PLAY', X(6), Z(-C.HALF_W - APRON * 0.5));
   g.save(); g.translate(X(0), Z(C.HALF_W + APRON * 0.5)); g.rotate(Math.PI);
   g.fillText(home.city.toUpperCase() + ' ' + home.name.toUpperCase(), 0, 0); g.restore();
 
@@ -314,7 +314,7 @@ export function buildArena(scene, home, away) {
       g.fillStyle = '#ffffff';
       g.font = '900 40px "Arial Black", Impact, sans-serif';
       g.textBaseline = 'middle';
-      const msgs = ['POWER PLAY HOOPS', `${home.city.toUpperCase()} ${home.name.toUpperCase()}`, 'DEFENSE!', 'MAKE SOME NOISE', `VS ${away.name.toUpperCase()}`];
+      const msgs = ['2K POWER PLAY', `${home.city.toUpperCase()} ${home.name.toUpperCase()}`, 'DEFENSE!', 'MAKE SOME NOISE', `VS ${away.name.toUpperCase()}`];
       let xx = 20;
       for (let i = 0; xx < w; i++) { const m = msgs[i % msgs.length]; g.fillText(m, xx, h / 2); xx += g.measureText(m).width + 90; }
     });

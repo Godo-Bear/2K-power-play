@@ -1,4 +1,4 @@
-# Power Play Hoops 🏀
+# 2K Power Play 🏀
 
 A modern 3D basketball game that runs in the browser. It's an original game with a fictional league of 8 teams,
 built with Three.js and deployed on Cloudflare Workers.

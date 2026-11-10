@@ -312,7 +312,7 @@ function frame() {
     if (jumboT <= 0) {
       jumboT = 0.25;
       if (game) arena.drawJumbo({ home: { ...game.home.data, score: game.home.score }, away: { ...game.away.data, score: game.away.score }, clockText: game.clockText(), periodText: game.periodName() });
-      else arena.drawJumbo({ home: { ...TEAMS[settings.home], score: 0 }, away: { ...TEAMS[settings.away], score: 0 }, clockText: 'TIP-OFF', periodText: 'POWER PLAY HOOPS' });
+      else arena.drawJumbo({ home: { ...TEAMS[settings.home], score: 0 }, away: { ...TEAMS[settings.away], score: 0 }, clockText: 'TIP-OFF', periodText: '2K POWER PLAY' });
     }
   }
   updateCamera(dt, t);
