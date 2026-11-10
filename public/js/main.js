@@ -7,7 +7,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TEAMS, DIFFICULTY } from './data.js';
 import { buildArena, C } from './arena.js';
 import { Game } from './game.js';
-import { input, pollInput, setupTouch, tapAction, ACTIONS, bindings, setKey, setPad, resetBindings, keyName, padName, firstGamepad } from './input.js';
+import { input, pollInput, setupTouch, tapAction, ACTIONS, bindings, setKey, setPad, resetBindings, keyName, padName, firstGamepad, touchLayout, saveTouchLayout, resetTouchLayout, applyTouchLayout } from './input.js';
 import { initAudio, setMuted, setQuiet, sfx, startMusic, stopMusic, audioReady } from './audio.js';
 import { loadCustomAssets, custom, portrait } from './assets.js';
 import { Tutorial } from './tutorial.js';
@@ -353,6 +353,43 @@ function pollPadCapture() {
   if (i >= 0) { setPad(capture.action, i); stopCapture(); renderRemap(); sfx.select(); }
 }
 $('#resetKeys').addEventListener('click', () => { resetBindings(); renderRemap(); sfx.select(); });
+
+// ---------- Touch layout editor: drag each on-screen control where you want it ----------
+{
+  const root = $('#touch');
+  let sel = null, drag = null;
+  const select = (el) => {
+    root.querySelectorAll('.tc').forEach((t) => t.classList.toggle('sel', t === el));
+    sel = el;
+    $('#touchSize').disabled = !el;
+    if (el) $('#touchSize').value = Math.round(touchLayout[el.dataset.tc].s * 100);
+    $('#touchBarHint').textContent = el ? `Selected: ${el.dataset.tc.toUpperCase()}. Drag to move, use the slider to resize.` : 'Drag a control to move it. Tap one to select it, then resize.';
+  };
+  $('#editTouch').addEventListener('click', () => { stopCapture(); sfx.select(); select(null); root.classList.add('edit'); applyTouchLayout(); });
+  $('#touchDone').addEventListener('click', () => { root.classList.remove('edit'); select(null); saveTouchLayout(); sfx.select(); });
+  $('#touchReset').addEventListener('click', () => { resetTouchLayout(); select(null); sfx.menu(); });
+  $('#touchSize').addEventListener('input', (e) => { if (!sel) return; touchLayout[sel.dataset.tc].s = Number(e.target.value) / 100; applyTouchLayout(); saveTouchLayout(); });
+  root.querySelectorAll('.tc').forEach((el) => {
+    el.addEventListener('pointerdown', (e) => {
+      if (!root.classList.contains('edit')) return;
+      e.preventDefault();
+      select(el);
+      const r = el.getBoundingClientRect();
+      drag = { el, id: e.pointerId, ox: e.clientX - (r.left + r.width / 2), oy: e.clientY - (r.top + r.height / 2) };
+      try { el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!drag || drag.el !== el || e.pointerId !== drag.id) return;
+      const L = touchLayout[el.dataset.tc];
+      L.x = Math.max(0.03, Math.min(0.97, (e.clientX - drag.ox) / window.innerWidth));
+      L.y = Math.max(0.05, Math.min(0.97, (e.clientY - drag.oy) / window.innerHeight));
+      applyTouchLayout();
+    });
+    const end = (e) => { if (drag && e.pointerId === drag.id) { drag = null; saveTouchLayout(); } };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  });
+}
 
 // ---------- Buttons ----------
 $('#startBtn').addEventListener('click', () => {

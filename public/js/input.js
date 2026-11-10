@@ -183,7 +183,44 @@ export function pollInput() {
 }
 
 // ---------- Touch controls ----------
+// Each control has a centre position (fractions of the screen) and a size multiplier, saved per browser.
+const TOUCH_STORE = 'pph-touch';
+const TOUCH_BASE = { stick: 130, shoot: 88, pass: 72, move: 62, sprint: 62, switch: 62 }; // px at 100%
+const TOUCH_DEFAULT = {
+  stick: { x: 0.13, y: 0.72, s: 1 }, shoot: { x: 0.9, y: 0.76, s: 1 }, pass: { x: 0.79, y: 0.86, s: 1 },
+  move: { x: 0.8, y: 0.62, s: 1 }, sprint: { x: 0.91, y: 0.52, s: 1 }, switch: { x: 0.7, y: 0.72, s: 1 },
+};
+export const touchLayout = structuredClone(TOUCH_DEFAULT);
+try {
+  const saved = JSON.parse(localStorage.getItem(TOUCH_STORE) || 'null');
+  if (saved) for (const k of Object.keys(TOUCH_DEFAULT)) if (saved[k] && isFinite(saved[k].x) && isFinite(saved[k].y)) touchLayout[k] = { x: saved[k].x, y: saved[k].y, s: saved[k].s || 1 };
+} catch { /* ignore */ }
+let touchRoot = null;
+export function saveTouchLayout() { try { localStorage.setItem(TOUCH_STORE, JSON.stringify(touchLayout)); } catch { /* ignore */ } }
+export function resetTouchLayout() { for (const k of Object.keys(TOUCH_DEFAULT)) touchLayout[k] = { ...TOUCH_DEFAULT[k] }; saveTouchLayout(); applyTouchLayout(); }
+export function applyTouchLayout() {
+  if (!touchRoot) return;
+  const w = window.innerWidth, h = window.innerHeight;
+  // Smaller screens get slightly smaller controls
+  const fit = Math.max(0.72, Math.min(1.15, Math.min(w, h) / 420));
+  touchRoot.querySelectorAll('[data-tc]').forEach((el) => {
+    const k = el.dataset.tc, L = touchLayout[k];
+    const size = TOUCH_BASE[k] * L.s * fit;
+    // Keep every control fully on screen
+    const x = Math.max(size / 2 + 4, Math.min(w - size / 2 - 4, L.x * w));
+    const y = Math.max(size / 2 + 4, Math.min(h - size / 2 - 4, L.y * h));
+    el.style.width = el.style.height = `${size}px`;
+    el.style.left = `${x}px`; el.style.top = `${y}px`;
+    el.style.fontSize = `${Math.max(9, size * 0.155)}px`;
+  });
+}
+window.addEventListener('resize', () => applyTouchLayout());
+export function showTouchControls(on) { if (touchRoot) touchRoot.classList.toggle('show', on); }
+
 export function setupTouch(root) {
+  touchRoot = root;
+  applyTouchLayout();
+  const editing = () => root.classList.contains('edit');
   // Hidden until the screen is actually touched; hidden again when keyboard, mouse or controller is used
   window.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') root.classList.add('show'); }, true);
   window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' && (Math.abs(e.movementX) + Math.abs(e.movementY) > 2)) root.classList.remove('show'); });
@@ -191,15 +228,7 @@ export function setupTouch(root) {
   setInterval(() => { if (input.usingGamepad) root.classList.remove('show'); }, 500);
   const stick = root.querySelector('.stick');
   const knob = root.querySelector('.knob');
-  let stickId = null, cx = 0, cy = 0;
-  const R = 50;
-  stick.addEventListener('pointerdown', (e) => {
-    stickId = e.pointerId;
-    const r = stick.getBoundingClientRect();
-    cx = r.left + r.width / 2; cy = r.top + r.height / 2;
-    stick.setPointerCapture(e.pointerId);
-    moveStick(e);
-  });
+  let stickId = null, cx = 0, cy = 0, R = 50;
   const moveStick = (e) => {
     if (e.pointerId !== stickId) return;
     let dx = e.clientX - cx, dy = e.clientY - cy;
@@ -209,6 +238,15 @@ export function setupTouch(root) {
     touch.x = dx / R; touch.y = dy / R;
     if (Math.hypot(touch.x, touch.y) < 0.15) { touch.x = 0; touch.y = 0; }
   };
+  stick.addEventListener('pointerdown', (e) => {
+    if (editing()) return;
+    stickId = e.pointerId;
+    const r = stick.getBoundingClientRect();
+    cx = r.left + r.width / 2; cy = r.top + r.height / 2;
+    R = r.width * 0.38;
+    try { stick.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+    moveStick(e);
+  });
   stick.addEventListener('pointermove', moveStick);
   const endStick = (e) => {
     if (e.pointerId !== stickId) return;
@@ -220,7 +258,7 @@ export function setupTouch(root) {
 
   root.querySelectorAll('[data-btn]').forEach((el) => {
     const name = el.dataset.btn;
-    el.addEventListener('pointerdown', (e) => { e.preventDefault(); touch.buttons[name] = true; el.classList.add('down'); el.setPointerCapture(e.pointerId); });
+    el.addEventListener('pointerdown', (e) => { if (editing()) return; e.preventDefault(); touch.buttons[name] = true; el.classList.add('down'); try { el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ } });
     const up = () => { touch.buttons[name] = false; el.classList.remove('down'); };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);

@@ -142,6 +142,7 @@
     </div>
     <p class="hint">Shot meter: hold Shoot, release when the bar hits the green zone. The same buttons do different things on defense: Shoot = block/contest, Pass = steal, Crossover = switch to the player nearest the ball.</p>
     <div class="row">
+      <button id="editTouch">Edit touch layout</button>
       <button id="resetKeys">Reset to defaults</button>
       <button data-go="back" class="primary">Done</button>
     </div>
@@ -211,14 +212,19 @@
 
   <!-- Touch controls -->
   <div id="touch">
-    <div class="stick"><div class="knob"></div></div>
-    <div class="tbtns">
-      <button data-btn="switch" class="sm">SWITCH</button>
-      <button data-btn="sprint" class="sm">SPRINT</button>
-      <button data-btn="move" class="sm">MOVE</button>
-      <button data-btn="pass">PASS<br><small>/STEAL</small></button>
-      <span></span>
-      <button data-btn="shoot" class="big">SHOOT<br><small>/BLOCK</small></button>
+    <div class="tc stick" data-tc="stick"><div class="knob"></div></div>
+    <button class="tc" data-tc="switch" data-btn="switch">SWITCH</button>
+    <button class="tc" data-tc="sprint" data-btn="sprint">SPRINT</button>
+    <button class="tc" data-tc="move" data-btn="move">MOVE</button>
+    <button class="tc" data-tc="pass" data-btn="pass">PASS<br><small>/STEAL</small></button>
+    <button class="tc big" data-tc="shoot" data-btn="shoot">SHOOT<br><small>/BLOCK</small></button>
+    <!-- Layout editor toolbar (Controls → Edit touch layout) -->
+    <div id="touchBar">
+      <b>Touch layout</b>
+      <span id="touchBarHint">Drag a control to move it. Tap one to select it, then resize.</span>
+      <label>Size <input type="range" id="touchSize" min="60" max="180" step="5" value="100"></label>
+      <button id="touchReset">Reset</button>
+      <button id="touchDone" class="primary">Done</button>
     </div>
   </div>
 
