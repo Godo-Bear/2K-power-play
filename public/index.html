@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#05070c">
+  <title>Power Play Hoops</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three/build/three.module.js",
+      "three/addons/": "./vendor/three/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <!-- Loading -->
+  <div id="loading" class="screen show">
+    <div class="logo"><span>POWER PLAY</span><b>HOOPS</b></div>
+    <div class="bar"><i></i></div>
+    <p id="loadText">Loading arena…</p>
+  </div>
+
+  <!-- Main menu -->
+  <div id="menu" class="screen">
+    <div class="menu-left">
+      <div class="logo small"><span>POWER PLAY</span><b>HOOPS</b></div>
+      <nav>
+        <button data-go="select" class="primary">Play Now</button>
+        <button data-go="controls">Controls</button>
+        <button data-go="settings">Settings</button>
+      </nav>
+      <p class="foot">An original basketball game. Fictional league, teams and players.</p>
+    </div>
+  </div>
+
+  <!-- Team select -->
+  <div id="select" class="screen">
+    <h2>Matchup</h2>
+    <div class="matchup">
+      <div class="team-card" id="cardAway" data-side="away">
+        <div class="tag">AWAY</div>
+        <button class="arrow l">‹</button><button class="arrow r">›</button>
+        <div class="crest"></div>
+        <h3></h3><div class="ovr"></div>
+        <ul class="roster"></ul>
+      </div>
+      <div class="vs">VS</div>
+      <div class="team-card" id="cardHome" data-side="home">
+        <div class="tag">HOME</div>
+        <button class="arrow l">‹</button><button class="arrow r">›</button>
+        <div class="crest"></div>
+        <h3></h3><div class="ovr"></div>
+        <ul class="roster"></ul>
+      </div>
+    </div>
+    <div class="options">
+      <label>You control
+        <select id="optSide"><option value="home">Home</option><option value="away">Away</option></select>
+      </label>
+      <label>Difficulty
+        <select id="optDiff">
+          <option value="rookie">Rookie</option>
+          <option value="pro" selected>Pro</option>
+          <option value="allstar">All-Star</option>
+          <option value="hof">Hall of Fame</option>
+        </select>
+      </label>
+      <label>Quarter length
+        <select id="optQ">
+          <option value="1">1 min</option>
+          <option value="2" selected>2 min</option>
+          <option value="3">3 min</option>
+          <option value="5">5 min</option>
+          <option value="12">12 min</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <button data-go="menu">Back</button>
+      <button id="startBtn" class="primary">Tip Off</button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls" class="screen">
+    <h2>Controls</h2>
+    <div class="ctrl-grid">
+      <div>
+        <h4>Offense</h4>
+        <table>
+          <tr><td>Move</td><td><kbd>WASD</kbd> / <kbd>Arrows</kbd></td><td>Left stick</td></tr>
+          <tr><td>Sprint</td><td><kbd>Shift</kbd></td><td>RT / R2</td></tr>
+          <tr><td>Shoot (hold, release at the top)</td><td><kbd>Space</kbd></td><td>X / □</td></tr>
+          <tr><td>Layup / Dunk (near rim)</td><td><kbd>Space</kbd></td><td>X / □</td></tr>
+          <tr><td>Pass (aim with move)</td><td><kbd>J</kbd></td><td>A / ✕</td></tr>
+          <tr><td>Crossover / burst</td><td><kbd>K</kbd></td><td>B / ○</td></tr>
+          <tr><td>Call for ball (off-ball)</td><td><kbd>J</kbd></td><td>A / ✕</td></tr>
+        </table>
+      </div>
+      <div>
+        <h4>Defense</h4>
+        <table>
+          <tr><td>Move / Sprint</td><td><kbd>WASD</kbd> + <kbd>Shift</kbd></td><td>Left stick + RT</td></tr>
+          <tr><td>Block / Contest / Rebound</td><td><kbd>Space</kbd></td><td>X / □</td></tr>
+          <tr><td>Steal</td><td><kbd>J</kbd></td><td>A / ✕</td></tr>
+          <tr><td>Switch player</td><td><kbd>K</kbd></td><td>B / ○</td></tr>
+          <tr><td>Pause</td><td><kbd>Esc</kbd> / <kbd>P</kbd></td><td>Start</td></tr>
+        </table>
+      </div>
+    </div>
+    <p class="hint">Shot meter: hold shoot, release when the bar hits the green zone for a perfect “Excellent” release. Wide-open greens always go in.</p>
+    <div class="row"><button data-go="back">Back</button></div>
+  </div>
+
+  <!-- Settings -->
+  <div id="settings" class="screen">
+    <h2>Settings</h2>
+    <div class="options column">
+      <label>Camera
+        <select id="optCam"><option value="broadcast">Broadcast</option><option value="court">Court Level</option><option value="high">High</option></select>
+      </label>
+      <label>Graphics quality
+        <select id="optGfx"><option value="high">High (bloom + shadows)</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select>
+      </label>
+      <label class="check"><input type="checkbox" id="optMute"> Mute sound</label>
+    </div>
+    <div class="row"><button data-go="back">Back</button></div>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="scorebug">
+      <div class="sb-team away"><i class="sw"></i><span class="abbr"></span><span class="score"></span></div>
+      <div class="sb-mid"><span class="period"></span><span class="clock"></span><span class="shot"></span></div>
+      <div class="sb-team home"><span class="score"></span><span class="abbr"></span><i class="sw"></i></div>
+    </div>
+    <div id="ptag"><b class="num"></b><div><span class="name"></span><small class="meta"></small><div class="stam"><i></i></div></div></div>
+    <div id="meter"><div class="fill"></div><div class="zone"></div><div class="mark"></div></div>
+    <div id="feedback"></div>
+    <div id="toast"><b></b><span></span></div>
+    <div id="scorePop"></div>
+    <button id="pauseBtn" aria-label="Pause">❚❚</button>
+  </div>
+
+  <!-- Touch controls -->
+  <div id="touch">
+    <div class="stick"><div class="knob"></div></div>
+    <div class="tbtns">
+      <button data-btn="sprint" class="sm">SPRINT</button>
+      <button data-btn="move" class="sm">MOVE<br><small>/SWITCH</small></button>
+      <button data-btn="pass">PASS<br><small>/STEAL</small></button>
+      <button data-btn="shoot" class="big">SHOOT<br><small>/BLOCK</small></button>
+    </div>
+  </div>
+
+  <!-- Pause -->
+  <div id="pause" class="screen overlay">
+    <h2>Paused</h2>
+    <nav>
+      <button id="resumeBtn" class="primary">Resume</button>
+      <button data-go="controls">Controls</button>
+      <button data-go="settings">Settings</button>
+      <button id="quitBtn">Quit to Menu</button>
+    </nav>
+  </div>
+
+  <!-- Game over -->
+  <div id="over" class="screen overlay">
+    <h2 id="overTitle">Final</h2>
+    <div id="finalScore"></div>
+    <div id="boxscore"></div>
+    <div class="row">
+      <button id="rematchBtn" class="primary">Rematch</button>
+      <button id="menuBtn">Main Menu</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

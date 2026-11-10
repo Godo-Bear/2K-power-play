@@ -1,0 +1,12 @@
+{
+  "name": "2k-power-play",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Power Play Hoops: an original 3D basketball game for the browser.",
+  "scripts": {
+    "dev": "npx wrangler dev",
+    "start": "npx serve public",
+    "deploy": "npx wrangler deploy",
+    "check-assets": "node scripts/check-assets.mjs"
+  }
+}
