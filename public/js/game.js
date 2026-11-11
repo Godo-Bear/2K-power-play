@@ -255,13 +255,16 @@ export class Game {
     this.buzzerPlayed = false;
     this.state = 'live';
     for (const t of this.teams) t.fouls = 0;
-    for (const t of this.teams) if (t.human) this.setCtl(t, t.lock || t.players[0]);
+    for (const t of this.teams) if (t.human && !t.benchedMe) this.setCtl(t, t.lock || t.players[0]);
   }
 
   // Manual player switch (button). Works on offense and defense.
   switchPlayer(team = this.user) {
     // Career "just my player": you stay on your player for the whole game
-    if (team === this.user && this.opts.strictLock && team.lock) { this.hud.feedback('PLAYING AS YOUR PLAYER ONLY', '#ffd60a'); return; }
+    if (team === this.user && this.opts.strictLock) {
+      if (team.lock) this.hud.feedback('PLAYING AS YOUR PLAYER ONLY', '#ffd60a');
+      return; // locked on your player, or he's on the bench
+    }
     const ps = team.players;
     let next;
     if (team.lock) {
@@ -306,7 +309,7 @@ export class Game {
       this.shotClockFrozen = false;
     }
     for (const t of this.teams) {
-      if (!t.human || t.lock) continue; // player lock: never auto-switch
+      if (!t.human || t.lock || t.benchedMe) continue; // player lock: never auto-switch
       if (p.team === t) this.setCtl(t, p);
       // Now on defense: control the defender closest to the ball
       else if (prevTeam === t) this.setCtl(t, this.closestTo(t.players, p.pos));
@@ -380,6 +383,7 @@ export class Game {
     p.faceTarget = hoop;
     p.actionT = 0;
     p.released = false;
+    p.rimChecked = null; // fresh attempt: every defender gets a new chance to block it
     const sp = Math.hypot(p.vel.x, p.vel.z);
     const toHoop = tmp.set(hoop.x - p.pos.x, 0, -p.pos.z).normalize().clone();
     const { p: def, d: dd } = this.nearestDefender(p);
@@ -645,8 +649,16 @@ export class Game {
     const b = this.ball;
     if (b.holder === out) b.holder = inn;
     if (this.inbounder === out) this.inbounder = inn;
-    if (team.lock === out) team.lock = inn;
-    if (team.cp === out) this.setCtl(team, inn);
+    const solo = this.opts.strictLock && team === this.user;
+    if (solo && out.data.isMe) {
+      // Career "just my player": he's on the bench, so you aren't playing. Nobody else gets your controls.
+      team.lock = null; team.benchedMe = true; team.meSlot = courtIdx;
+      if (team.cp === out) team.cp = null;
+    } else {
+      if (team.lock === out) team.lock = inn;
+      if (team.cp === out) this.setCtl(team, inn);
+    }
+    if (solo && inn.data.isMe) { team.benchedMe = false; team.lock = inn; this.setCtl(team, inn); } // back in the game
     out.setControlled(false);
     this.emit('sub', { team, inn, out });
   }
@@ -803,6 +815,45 @@ export class Game {
     }
   }
 
+  // ---------- Sim the rest of the game ----------
+  // Used when a career player is on the bench: both teams' remaining points are generated from their
+  // ratings (like a season sim), shared out among real players so the box score still adds up.
+  simRemainder() {
+    if (this.state === 'over' || this.opts.tutorial || this.opts.versus) return false;
+    const total = this.quarterLen * 4;
+    const played = this.period > 4 ? total : (this.period - 1) * this.quarterLen + (this.quarterLen - this.gameClock);
+    const left = Math.max(0.03, (total - played) / total);
+    const base = (this.quarterLen / 60) * 4 * 5.4 * left;
+    const gauss = () => (Math.random() + Math.random() + Math.random() + Math.random() - 2) / 2;
+    const add = {};
+    for (const t of this.teams) add[t === this.home ? 'h' : 'a'] = Math.max(0, Math.round(base * (1 + (t.data.ovr - 85) / 75) + base * 0.17 * gauss()));
+    while (this.home.score + add.h === this.away.score + add.a) { if (Math.random() < 0.5) add.h += 1 + Math.floor(Math.random() * 4); else add.a += 1 + Math.floor(Math.random() * 4); }
+    for (const t of this.teams) {
+      let pts = add[t === this.home ? 'h' : 'a'];
+      const pool = [...t.players, ...t.bench].filter((p) => !p.fouledOut && !p.data.isMe);
+      const weight = (p) => Math.max(1, p.data.ovr - 50) * (p.starter ? 1.6 : 0.7);
+      const sum = pool.reduce((a, p) => a + weight(p), 0);
+      t.score += pts;
+      while (pts > 0 && pool.length) {
+        let r = Math.random() * sum, pick = pool[0];
+        for (const p of pool) { r -= weight(p); if (r <= 0) { pick = p; break; } }
+        const value = pts >= 3 && Math.random() < 0.3 ? 3 : pts >= 2 && Math.random() < 0.8 ? 2 : 1;
+        pick.stats.pts += value;
+        if (value === 1) { pick.stats.ftm++; pick.stats.fta++; }
+        else { pick.stats.fgm++; pick.stats.fga += Math.random() < 0.45 ? 2 : 1; if (value === 3) { pick.stats.tpm++; pick.stats.tpa++; } }
+        pts -= value;
+      }
+    }
+    this.simmed = true;
+    for (const t of this.teams) t.meter.visible = false;
+    this.state = 'over';
+    this.ball.state = 'free'; this.ball.holder = null;
+    const winner = this.home.score > this.away.score ? this.home : this.away;
+    this.emit('gameOver', { winner });
+    this.hud.gameOver(this);
+    return true;
+  }
+
   // ---------- Timeouts ----------
   canCallTimeout(team) {
     if (team.timeouts <= 0 || this.opts.noTimeouts) return false;
@@ -940,7 +991,7 @@ export class Game {
     this.ball.reboundable = false;
     this.state = 'live';
     this.pendingInbound = null;
-    if (team.human && !team.lock) this.setCtl(team, p);
+    if (team.human && !team.lock && !team.benchedMe) this.setCtl(team, p);
   }
 
   scored(shot) {
@@ -1237,10 +1288,61 @@ export class Game {
       else if (d > 0.6) { p.desired.set(front.x - p.pos.x, 0, front.z - p.pos.z).normalize(); }
       else p.desired.set(0, 0, 0);
       if (p.shotStyle === 'euro' && p.euroDir && p.actionT < 0.24) { p.pos.x += p.euroDir.x * 3.6 * 0.016; p.pos.z += p.euroDir.z * 3.6 * 0.016; }
+      // A defender in the air next to a dunk or layup can still stop it before the ball is released
+      if (!p.released && p.actionT > 0.08 && this.tryRimBlock(p)) return;
       if (!p.released && p.actionT > (p.state === 'dunk' ? 0.38 : 0.3)) this.releaseShot(p);
       if (p.released && !p.airborne) { p.state = 'idle'; p.faceTarget = null; }
     }
     if (b.holder === p && p.state === 'shoot' && p.released) p.state = 'idle';
+  }
+
+  // Block a dunk or layup attempt in progress (before the ball leaves the shooter's hand).
+  // A human defender who jumps at the right moment almost always gets it; the CPU gets it less often.
+  tryRimBlock(p) {
+    const b = this.ball;
+    if (b.holder !== p || p.released) return false;
+    p.rimChecked = p.rimChecked || new Set();
+    for (const q of this.other(p.team).players) {
+      if (!q.airborne || p.rimChecked.has(q)) continue;
+      // Close enough to the ball, with hands up high enough to reach it
+      const dx = q.pos.x - b.pos.x, dz = q.pos.z - b.pos.z;
+      if (Math.hypot(dx, dz) > 1.25) continue;
+      if (q.reach + 0.35 < b.pos.y) continue;
+      p.rimChecked.add(q);
+      const human = q.team.human && this.ctl(q);
+      let chance;
+      if (human) chance = 0.9 - (p.state === 'dunk' ? Math.max(0, p.r.dunk - 80) / 300 : 0);
+      else chance = (0.22 + q.r.block / 260) * (p.state === 'dunk' ? 0.8 : 1) * this.diff.aiDef;
+      chance *= { reverse: 0.7, euro: 0.8, floater: 0.7 }[p.shotStyle] || 1;
+      if (Math.random() >= chance) continue;
+      this.blockAtRim(p, q);
+      return true;
+    }
+    return false;
+  }
+
+  blockAtRim(p, q) {
+    const b = this.ball;
+    p.rimChecked = null;
+    // The attempt is over: the shooter lands empty-handed and the ball is swatted away
+    p.state = 'idle'; p.faceTarget = null; p.released = true; p.streak = 0; p.onFire = false;
+    p.stats.fga++;
+    q.stats.blk++;
+    b.state = 'loose'; b.holder = null; b.shot = null; b.pass = null;
+    const away = tmp2.set(b.pos.x - q.pos.x, 0, b.pos.z - q.pos.z);
+    if (away.lengthSq() < 1e-4) away.set(-p.team.dir, 0, 0);
+    away.normalize();
+    b.vel.set(away.x * rand(4.5, 7), rand(-0.5, 1.5), away.z * rand(4.5, 7));
+    b.spin = 12;
+    b.reboundable = true;
+    b.lastTouch = q.team;
+    b.ignore = p; b.ignoreT = 0.5; // the dunker can't immediately grab his own blocked ball
+    this.hud.feedback('SWATTED AWAY!', q.team === this.user ? '#3dff7a' : '#ff3b3b');
+    this.slowT = 0.6; this.focus = q;
+    this.emit('block', { player: q, victim: p, kind: 'rim' });
+    sfx.board(); sfx.cheer(0.9);
+    this.arena.excitement = Math.min(1, this.arena.excitement + 0.7);
+    this.cameraShake = 0.3;
   }
 
   // ---------- Ball physics ----------
@@ -1327,13 +1429,14 @@ export class Game {
       const s = b.shot;
       s.t += dt;
       // Blocks
-      if (s.t < 0.45 && s.kind !== 'dunk' && s.kind !== 'ft') {
+      if (s.t < (s.kind === 'dunk' ? 0.12 : 0.45) && s.kind !== 'ft') {
         for (const q of this.other(s.team).players) {
           if (s.checked.has(q) || !q.airborne) continue;
           const hand = tmp.set(q.pos.x, q.reach, q.pos.z);
-          if (hand.distanceTo(b.pos) < 0.6) {
+          if (hand.distanceTo(b.pos) < (s.kind === 'dunk' ? 0.9 : 0.6)) {
             s.checked.add(q);
             let chance = 0.1 + q.r.block / 320 - (s.kind === 'shoot' ? 0.03 : 0);
+            if (s.kind === 'dunk') chance = q.team.human && this.ctl(q) ? 0.8 : chance * 0.8; // a late hand can still swat a dunk
             chance *= { fadeaway: 0.45, floater: 0.55, reverse: 0.5, euro: 0.7 }[s.style] || 1;
             if (!q.team.human) chance *= this.diff.aiDef;
             if (Math.random() < chance) {

@@ -518,6 +518,7 @@ const hud = {
       const val = (p) => p.stats.pts + p.stats.reb * 1.2 + p.stats.ast * 1.5 + p.stats.stl * 2 + p.stats.blk * 2 - p.stats.to;
       const pog = everyone(winner).sort((a, b) => val(b) - val(a))[0];
       let extras = `<div class="pog"><span class="big">★</span><div><small>Player of the game</small><b>${esc(pog.data.first)} ${esc(pog.data.last)}</b><br><span>${pog.stats.pts} PTS · ${pog.stats.reb} REB · ${pog.stats.ast} AST</span></div></div>`;
+      if (g.simmed) extras += `<div class="pog"><span class="big">⏩</span><div><small>Simulated</small><b>Rest of the game</b><br><span>You were on the bench, so the rest was simmed</span></div></div>`;
       extras += recordSessionGame(g, winner);
       $('#overExtras').innerHTML = extras;
       $('#boxscore').innerHTML = [g.away, g.home].map((t) => `
@@ -578,6 +579,7 @@ function updateHUD(dt) {
   $('#timeoutBtn span').textContent = `${g.user.timeouts}`;
   $('#timeoutBtn').disabled = g.user.timeouts <= 0;
 
+  updateBenchPrompt(g);
   const p = g.userPlayer;
   if (p) {
     $('#ptag .num').textContent = p.data.number;
@@ -613,6 +615,41 @@ function updateHUD(dt) {
   if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0 && g.state !== 'break') hud.hideToast(); }
   if (popTimer > 0) { popTimer -= dt; if (popTimer <= 0) $('#scorePop').classList.remove('show'); }
 }
+
+// ---------- Career: your player is on the bench ----------
+let benchDismissed = false, benchKey = '';
+function updateBenchPrompt(g) {
+  const el = $('#benchPrompt');
+  const benched = !!(g.user.benchedMe && session.kind === 'career' && !g.opts.attract && g.state !== 'over');
+  if (!benched) { benchDismissed = false; benchKey = ''; el.classList.remove('show'); return; }
+  const me = [...g.user.players, ...g.user.bench].find((q) => q.data.isMe);
+  const out = !!(me && me.fouledOut);
+  const key = out ? 'out' : 'bench';
+  if (key !== benchKey) { benchKey = key; benchDismissed = false; } // a new reason: ask again
+  el.classList.toggle('show', !benchDismissed);
+  if (benchDismissed) return;
+  $('#benchTitle').textContent = out ? `${me.data.first} fouled out` : `${me ? me.data.first : 'Your player'} is on the bench`;
+  $('#benchText').textContent = out
+    ? "You're done for the night, so you can't play any more. Sim the rest of the game, or keep watching."
+    : "You're not playing right now. Sim the rest of the game, sub yourself back in, or keep watching until the coach calls your number.";
+  $('#benchIn').hidden = out;
+}
+$('#benchSim').addEventListener('click', () => { if (game && game.simRemainder()) { sfx.select(); $('#benchPrompt').classList.remove('show'); } });
+$('#benchWatch').addEventListener('click', () => { benchDismissed = true; $('#benchPrompt').classList.remove('show'); sfx.menu(); });
+$('#benchIn').addEventListener('click', () => {
+  const g = game;
+  if (!g) return;
+  const me = g.user.bench.find((q) => q.data.isMe);
+  if (!me) return;
+  const bi = g.user.bench.indexOf(me);
+  let ci = g.user.players.findIndex((q) => q.data.pos === me.data.pos);
+  if (ci < 0) ci = g.user.meSlot ?? 0;
+  g.requestSub(g.user, ci, bi);
+  benchDismissed = true;
+  $('#benchPrompt').classList.remove('show');
+  hud.feedback(g.canSubNow() ? "YOU'RE BACK IN" : 'SUBBING IN AT THE NEXT WHISTLE', '#ffd60a');
+  sfx.select();
+});
 
 // ---------- Substitutions screen ----------
 let subSel = { court: -1, bench: -1 };
