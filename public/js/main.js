@@ -15,6 +15,7 @@ import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
 import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer } from './announcer.js';
 import * as Season from './season.js';
+import { auth, checkSession, register as authRegister, login as authLogin, logout as authLogout } from './auth.js';
 import { Room, makeCode, makeRemoteInput, makeInputSender, packEvent, unpackEvent, snapshot, applySnapshot, guestFrame } from './net.js';
 
 const $ = (s) => document.querySelector(s);
@@ -807,8 +808,19 @@ function openOnline() {
   onlineError('');
   show('online');
 }
-function connectOnline(code, role, tries = 0) {
+async function connectOnline(code, role, tries = 0) {
   onlineError('');
+  if (tries === 0) {
+    // Rooms need a valid login: check it first so an expired login gets a clear message
+    $('#onCreate').disabled = $('#onJoin').disabled = true;
+    const st = await checkSession();
+    if (st !== 'ok') {
+      $('#onCreate').disabled = $('#onJoin').disabled = false;
+      if (st === 'none') { updateAccountUI(); showLogin(false); $('#loginError').textContent = 'Your login has expired. Please log in again.'; }
+      else onlineError("Online play needs the game's login server, which isn't available here.");
+      return;
+    }
+  }
   $('#onCreate').disabled = $('#onJoin').disabled = true;
   const o = { role, peer: false, home: settings.home, away: settings.away, q: Number(settings.q) > 5 ? 2 : Number(settings.q), playing: false, queue: [], acc: 0, statsT: 0, menu: false };
   o.room = new Room(code, role, {
@@ -1478,6 +1490,63 @@ function frame() {
   else renderer.render(scene, camera);
 }
 
+// ---------- Login ----------
+let loginMode = 'login';
+function setLoginMode(m) {
+  loginMode = m;
+  $$('#loginTabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+  $('#loginPass2Wrap').hidden = m !== 'register';
+  $('#loginPass').autocomplete = m === 'register' ? 'new-password' : 'current-password';
+  $('#loginSubmit').textContent = m === 'register' ? 'Create account' : 'Log in';
+  $('#loginError').textContent = '';
+}
+$$('#loginTabs button').forEach((b) => b.addEventListener('click', () => { setLoginMode(b.dataset.mode); sfx.menu(); }));
+$('#loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  initAudio();
+  const u = $('#loginUser').value.trim().toLowerCase(), p = $('#loginPass').value;
+  const fail = (msg) => { $('#loginError').textContent = msg; };
+  if (!u || !p) return fail('Enter a username and password.');
+  if (loginMode === 'register' && p !== $('#loginPass2').value) return fail("The passwords don't match.");
+  $('#loginSubmit').disabled = true;
+  $('#loginError').textContent = '';
+  const r = loginMode === 'register' ? await authRegister(u, p) : await authLogin(u, p);
+  $('#loginSubmit').disabled = false;
+  if (!r.ok) return fail(r.message);
+  $('#loginPass').value = ''; $('#loginPass2').value = '';
+  sfx.select();
+  enterGame();
+});
+$('#loginOffline').addEventListener('click', () => { auth.offline = true; enterGame(); });
+
+function updateAccountUI() {
+  const on = !!auth.user && !auth.offline;
+  $('#hubAcct').hidden = !on;
+  $('#settingsAcct').hidden = !on;
+  $('#acctName').textContent = auth.user || '';
+  $('#settingsAcctName').textContent = auth.user || '';
+}
+function showLogin(unreachable) {
+  setLoginMode('login');
+  $('#loginOffline').hidden = !unreachable;
+  $('#loginHint').textContent = unreachable
+    ? "Can't reach the login server here (this is probably a local copy of the game). You can still play offline."
+    : 'Sign in to play. Accounts are also needed for online games.';
+  mode = 'menu';
+  show('login');
+  setTimeout(() => { try { $('#loginUser').focus(); } catch { /* ignore */ } }, 60);
+}
+function enterGame() { updateAccountUI(); renderHome(); show('menu'); musicMaybe(); }
+async function doLogout() {
+  sfx.menu();
+  quitToMenu();          // leaves any game and online room first
+  await authLogout();
+  updateAccountUI();
+  showLogin(false);
+}
+$('#acctLogout').addEventListener('click', doLogout);
+$('#settingsLogout').addEventListener('click', doLogout);
+
 // ---------- Boot ----------
 (async () => {
   setupTouch($('#touch'));
@@ -1500,7 +1569,9 @@ function frame() {
   resize();
   frame();
   renderHome();
-  show('menu');
+  // Nothing is playable until you're signed in (the demo game keeps running behind the login screen)
+  const loggedIn = await checkSession();
+  if (loggedIn === 'ok') enterGame(); else showLogin(loggedIn === 'unreachable');
   const first = () => { initAudio(); setQuiet(attract); musicMaybe(); };
   window.addEventListener('pointerdown', first, { once: true });
   window.addEventListener('keydown', first, { once: true });
@@ -1508,7 +1579,7 @@ function frame() {
 
 // Debug handle for testing in the browser console
 window.pph = {
-  manual: false, input, Season, portrait, camera,
+  manual: false, input, Season, portrait, camera, auth,
   get game() { return game; }, get tutorial() { return tutorial; }, get session() { return session; }, get intro() { return intro; },
   endIntro,
   // Step the game with a fixed input state (used by automated tests)

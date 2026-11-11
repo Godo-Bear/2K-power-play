@@ -34,12 +34,31 @@
     <p id="loadText">Loading arena…</p>
   </div>
 
+  <!-- Login -->
+  <div id="login" class="screen">
+    <div class="logo"><span>2K</span><b>POWER PLAY</b></div>
+    <form class="login-card" id="loginForm" autocomplete="on" novalidate>
+      <div class="tabs" id="loginTabs">
+        <button type="button" data-mode="login" class="on">Log in</button>
+        <button type="button" data-mode="register">Create account</button>
+      </div>
+      <label>Username<input type="text" id="loginUser" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="16" placeholder="your_name"></label>
+      <label>Password<input type="password" id="loginPass" autocomplete="current-password" maxlength="128" placeholder="at least 8 characters"></label>
+      <label id="loginPass2Wrap" hidden>Confirm password<input type="password" id="loginPass2" autocomplete="new-password" maxlength="128"></label>
+      <p class="login-error" id="loginError" role="alert"></p>
+      <button type="submit" class="primary" id="loginSubmit">Log in</button>
+      <button type="button" id="loginOffline" hidden>Play offline (no account)</button>
+      <p class="hint" id="loginHint">Sign in to play. Accounts are also needed for online games.</p>
+    </form>
+  </div>
+
   <!-- Home hub -->
   <div id="menu" class="screen">
     <header class="hub-top">
       <div class="logo mini"><span>2K</span><b>POWER PLAY</b></div>
       <div class="hub-live" id="hubLive"></div>
       <div class="hub-clock" id="hubClock"></div>
+      <div class="hub-acct" id="hubAcct" hidden><span id="acctName"></span><button type="button" id="acctLogout">Log out</button></div>
     </header>
     <div class="hub-grid">
       <button class="tile hero" data-go="select">
@@ -179,6 +198,7 @@
       <label class="check"><input type="checkbox" id="optVoice"> Announcer voice (spoken play-by-play)</label>
       <label class="check"><input type="checkbox" id="optMusic"> Menu music</label>
       <label class="check"><input type="checkbox" id="optMute"> Mute all sound</label>
+      <div class="acct-row" id="settingsAcct" hidden><span>Signed in as <b id="settingsAcctName"></b></span><button type="button" id="settingsLogout">Log out</button></div>
     </div>
     <div id="credits" class="credits" hidden></div>
     <div class="row"><button data-go="back" class="primary">Done</button></div>

@@ -122,7 +122,7 @@ export class Player {
     skull.scale.set(0.92, 1.08, 1); skull.castShadow = true;
     head.add(skull);
     // Hair (shared styles with the 3D-model players)
-    head.add(buildHair(d.hairStyle ?? 2, d.hair, 0.115, { cap: true }));
+    head.add(buildHair(d.hairStyle ?? 2, d.hair, 0.115, { cap: true, skin: d.skin }));
     if (d.headband) {
       const hb = new THREE.Mesh(new THREE.TorusGeometry(0.112, 0.018, 8, 24), trim);
       hb.rotation.x = Math.PI / 2; hb.position.y = 0.04;

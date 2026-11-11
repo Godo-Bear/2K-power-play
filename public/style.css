@@ -529,3 +529,24 @@ input[type=text]:focus, input[type=number]:focus { outline: none; border-color: 
 .bench-btns button:hover { border-color: var(--accent); }
 .bench-btns button[hidden] { display: none; }
 @media (max-height: 480px) { #benchPrompt { top: 52px; padding: 8px 12px; } #benchPrompt p { margin: 4px 0 8px; font-size: 12px; } }
+
+/* ---------- Login ---------- */
+#login { background: radial-gradient(circle at 50% 30%, rgba(19,33,58,0.92), rgba(5,7,12,0.96) 70%); z-index: 20; overflow-y: auto; justify-content: center; }
+.login-card { width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+.login-card .tabs { margin: 0; }
+.login-card .tabs button { flex: 1; }
+.login-card label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; }
+.login-card label[hidden], .login-card button[hidden] { display: none; }
+.login-card input { padding: 12px; font-size: 16px; } /* 16px stops phones zooming in on the field */
+.login-card button[type=submit], .login-card #loginOffline { padding: 13px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,0.07); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; font-size: 13px; }
+.login-card button.primary { border-color: transparent; background: linear-gradient(90deg, var(--accent), #3c8bff); color: #031018; }
+.login-card button:disabled { opacity: 0.55; cursor: default; }
+.login-card .hint { margin: 0; text-align: center; }
+.login-error { min-height: 18px; margin: 0; color: #ff7a7a; font-size: 13px; text-align: center; }
+.hub-acct { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-weight: 700; }
+.hub-acct span { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-acct button, .acct-row button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,0.07); font-weight: 800; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; }
+.hub-acct button:hover, .acct-row button:hover { border-color: var(--accent); }
+.acct-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--muted); }
+.acct-row b { color: var(--text); }
+@media (max-width: 760px) { .hub-acct span { display: none; } }

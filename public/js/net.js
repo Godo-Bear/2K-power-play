@@ -1,6 +1,7 @@
 // Online play. The HOST's browser runs the real match; the GUEST sends inputs and
 // receives snapshots of the game state ~30 times a second, which it smooths and draws.
 // A small relay on the Cloudflare Worker (src/worker.js) passes messages between the two.
+import { auth } from './auth.js';
 
 const BTN = ['shoot', 'pass', 'move', 'switch', 'sprint', 'timeout', 'pause'];
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -26,7 +27,7 @@ export class Room {
     this.open = false; this.closed = false; this.joined = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     try {
-      this.ws = new WebSocket(`${proto}://${location.host}/api/room/${code}?role=${role}`);
+      this.ws = new WebSocket(`${proto}://${location.host}/api/room/${code}?role=${role}&token=${encodeURIComponent(auth.token || '')}`);
     } catch (e) { setTimeout(() => this.fail('Could not connect.'), 0); return; }
     this.ws.onopen = () => { this.open = true; };
     this.ws.onmessage = (e) => {

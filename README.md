@@ -71,6 +71,14 @@ npx wrangler dev
 - serves the `public/` folder (the game) as static assets
 - runs `src/worker.js`, which hosts the **online rooms**: each room code is a Durable Object that relays
   WebSocket messages between the two players. This works on the Workers free plan.
+- also in `src/worker.js`: **accounts**. The game opens on a login screen until you sign in. Each username is a
+  Durable Object (`User`) holding a salted PBKDF2 password hash and your sign-in sessions (30 days, up to 8 devices).
+  After 5 wrong passwords an account locks for 5 minutes. Online rooms require a valid login.
+
+Accounts and rooms use Durable Objects, which need no setup: the migrations in `wrangler.jsonc` create them on deploy.
+
+> Good to know: the login protects accounts and online rooms. The game files themselves are an ordinary public
+> website, and saves (careers, seasons, settings) are stored in each browser, not on your account.
 
 With the Worker connected to this GitHub repo (Workers Builds), every push to `main` redeploys.
 If your Worker in the Cloudflare dashboard has a different name than `2k-power-play`, change `"name"`
@@ -101,6 +109,7 @@ public/
   js/arena.js               court, hoops, crowd, lights
   js/assets.js              custom model/texture loader
   js/season.js              season, playoffs and career progression
+  js/auth.js                login screen logic (sign up, log in, log out)
   js/net.js                 online play (room connection, state sync)
   js/hair.js                hair styles
   js/fx.js                  particles, crowd flashes, confetti
@@ -109,7 +118,7 @@ public/
   js/input.js, audio.js     remappable controls and synthesized sound
   assets/                   your uploaded models and textures
   vendor/three/             Three.js (MIT)
-src/worker.js               Cloudflare Worker: static site + online room relay
+src/worker.js               Cloudflare Worker: static site, accounts and the online room relay
 ```
 
 ## 3D model credits

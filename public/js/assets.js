@@ -138,17 +138,47 @@ function scalpColor(data) {
 function attachHair(holder, model, bones, data, cfg = {}) {
   if (!bones.head) return;
   const style = data.hairStyle ?? 2;
-  // Models with a separate hair mesh keep it for the short styles (Buzz, Short) and are given sculpted hair for the others
-  if (cfg.hairMesh && style < 3) return;
+  // A model with its own hair mesh uses it for the Short style. Every other style is built by the game.
+  if (cfg.hairMesh && style === 2) return;
   holder.updateMatrixWorld(true);
-  // The head runs from the head bone (base of the skull) up to the top of the model
-  const a = bones.head.getWorldPosition(new THREE.Vector3());
-  const top = new THREE.Box3().setFromObject(model).max.y;
-  const r = (top - a.y) * 0.56;
-  if (!(r > 0.01)) return;
-  const hair = buildHair(style, data.hair, r, { cap: !!cfg.hairMesh });
+  // Fit the hair to the real skull, measured from the model's head mesh (the top of the head, not the jaw)
+  let dims = null, center = null, headMesh = null;
+  model.traverse((o) => {
+    if (headMesh || !o.isMesh) return;
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+    if (/skin_head/i.test((mat && mat.name) || '')) headMesh = o;
+  });
+  if (headMesh) {
+    // Measure the cranium from the vertices of the upper head (the top ~40%: forehead and skull, no nose or jaw)
+    const box = new THREE.Box3().setFromObject(headMesh);
+    const pos = headMesh.geometry.attributes.position, v = new THREE.Vector3();
+    const yCut = box.max.y - (box.max.y - box.min.y) * 0.4;
+    const hi = { minX: 1e9, maxX: -1e9, minZ: 1e9, maxZ: -1e9 };
+    let foreheadMaxZ = -1e9;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(headMesh.matrixWorld);
+      if (v.y < yCut) continue;
+      hi.minX = Math.min(hi.minX, v.x); hi.maxX = Math.max(hi.maxX, v.x);
+      hi.minZ = Math.min(hi.minZ, v.z); hi.maxZ = Math.max(hi.maxZ, v.z);
+      if (v.y > box.max.y - 0.06) foreheadMaxZ = Math.max(foreheadMaxZ, v.z);
+    }
+    const ry = (box.max.y - box.min.y) * 0.43;
+    const rx = (hi.maxX - hi.minX) / 2;
+    const rz = (hi.maxZ - hi.minZ) / 2;
+    dims = { rx, ry, rz };
+    center = new THREE.Vector3((hi.minX + hi.maxX) / 2, box.max.y - ry, (hi.minZ + hi.maxZ) / 2);
+  } else {
+    // No head mesh to measure: estimate from the head bone and the top of the model
+    const a = bones.head.getWorldPosition(new THREE.Vector3());
+    const top = new THREE.Box3().setFromObject(model).max.y;
+    const r = (top - a.y) * 0.56;
+    if (!(r > 0.01)) return;
+    dims = { rx: r, ry: r, rz: r };
+    center = new THREE.Vector3(a.x, a.y + r * 0.9, a.z);
+  }
+  const hair = buildHair(style, data.hair, dims.ry, { cap: !!cfg.hairMesh, skin: data.skin, dims });
   if (!hair.children.length) return;
-  hair.position.set(a.x, a.y + r * 0.9, a.z);
+  hair.position.copy(center);
   hair.rotation.y = model.rotation.y;
   holder.add(hair);
   holder.updateMatrixWorld(true);
@@ -166,7 +196,7 @@ function tintModel(model, cfg, fake) {
     const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
       const c = mt.clone();
       const rule = rules.find(([k]) => (mt.name || '').toLowerCase().includes(k));
-      if (rule && rule[1] === 'hair' && cfg.hairMesh && (style === 0 || style >= 3)) o.visible = false; // bald, or replaced by sculpted hair
+      if (rule && rule[1] === 'hair' && cfg.hairMesh && style !== 2) o.visible = false; // only the Short style keeps the model's own hair
       const col = rule && (rule[1] === 'hair' ? (cfg.hairMesh ? fake.data.hair : scalpColor(fake.data)) : tintColor(fake, rule[1]));
       if (col && c.color) {
         c.color.set(col);
@@ -422,10 +452,11 @@ export function placeCustomCourt(scene) {
 // Renders a head-and-shoulders picture of the 3D player model with the given colors.
 let pRenderer = null, pScene = null, pCam = null;
 const portraitCache = new Map();
-export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff' }) {
+// `yaw` turns the model (degrees) and `zoom` (0 to 1) moves the camera in on the head; both are for previews
+export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff', yaw = 0, zoom = 0 }) {
   const cp = custom.player;
   if (!cp) return null;
-  const key = [skin, hair, hairStyle, jersey, trim].join('|');
+  const key = [skin, hair, hairStyle, jersey, trim, yaw, zoom].join('|');
   if (portraitCache.has(key)) return portraitCache.get(key);
   try {
     if (!pRenderer) {
@@ -443,17 +474,26 @@ export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim =
     fitToHeight(model, 2);
     const fake = { team: { jerseyColor: jersey, trimColor: trim, data: { secondary: trim } }, data: { skin, hair, hairStyle }, index: 1 };
     tintModel(model, cp.cfg, fake);
+    const pHolder = new THREE.Group();
+    pHolder.add(model);
+    // The hair is fitted while the model is still in its T-pose, then rides on the head bone through the pose below
+    attachHair(pHolder, model, findBones(model), fake.data, cp.cfg);
     // Models are authored in a T-pose: pose the portrait with the idle clip so he stands naturally
     const idleName = cp.cfg.animations && cp.cfg.animations.idle;
     const idleClip = idleName && THREE.AnimationClip.findByName(cp.animations || [], idleName);
     if (idleClip) { const mx = new THREE.AnimationMixer(model); mx.clipAction(idleClip).play(); mx.update(0.4); }
-    const pHolder = new THREE.Group();
-    pHolder.add(model);
-    attachHair(pHolder, model, findBones(model), fake.data, cp.cfg);
+    pHolder.updateMatrixWorld(true);
     model = pHolder;
+    model.rotation.y = THREE.MathUtils.degToRad(yaw);
     pScene.add(model);
-    pCam.position.set(0.62, 1.82, 1.72);
-    pCam.lookAt(0, 1.72, 0);
+    if (zoom > 0) {
+      // Head close-up, looking straight at the face (so yaw shows the side/back)
+      pCam.position.set(0.0, 1.8, 1.5 - 0.15 * zoom);
+      pCam.lookAt(0, 1.79, 0);
+    } else {
+      pCam.position.set(0.62, 1.82, 1.72);
+      pCam.lookAt(0, 1.72, 0);
+    }
     pRenderer.render(pScene, pCam);
     const url = pRenderer.domElement.toDataURL('image/png');
     pScene.remove(model);

@@ -10,12 +10,20 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // /api/* goes to the Worker code (online rooms) instead of the static files
+    // /api/* goes to the Worker code (accounts and online rooms) instead of the static files
     "run_worker_first": ["/api/*"]
   },
-  // Online multiplayer rooms: one Durable Object per room code (works on the free plan)
+  // Durable Objects (all work on the free plan):
+  //  - Room: one per online room code
+  //  - User: one per account (password hash and sign-in sessions)
   "durable_objects": {
-    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+    "bindings": [
+      { "name": "ROOMS", "class_name": "Room" },
+      { "name": "USERS", "class_name": "User" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["User"] }
+  ]
 }
