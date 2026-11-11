@@ -114,9 +114,10 @@ src/worker.js               Cloudflare Worker: static site + online room relay
 
 ## 3D model credits
 
-- Man by Quaternius (CC0)
-- Basket Ball by J-Toastie (CC-BY 3.0)
-- Basketball court by Poly by Google (CC-BY 3.0)
-- Low Poly Sports Stands by Cole Brenner (CC-BY 3.0)
+- Man Player by RiverofCreative (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/man-player-4c7133dbb06e4136891d59231372d818)
+- Basketball Court by Klieg3D (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/basketball-court-d2ea5bc76e094f1a9e6aa15891bd6885)
+- Basketball (shape only) by FIELDFLY3R (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/basketball-80f10af6cb604d7cbbd141050d093b2b)
+- Low Poly Sports Stands by Cole Brenner (CC-BY 3.0), via [Poly Pizza](https://poly.pizza)
 
-All via [Poly Pizza](https://poly.pizza). Credits are also shown in the game's Settings screen.
+The uploaded models were optimized for the web (smaller textures, unused animations and the court's fence removed).
+Credits are also shown in the game's Settings screen.

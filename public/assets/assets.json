@@ -1,37 +1,33 @@
 {
   "_help": "Point these at files in public/assets/models or public/assets/textures. Remove or empty a field to use the built-in graphics. See public/assets/README.md.",
   "player": {
-    "model": "models/Man by Quaternius - HMnuH5geEG.glb",
+    "model": "models/man-player.glb",
     "scale": 1,
     "rotationY": 0,
+    "hairMesh": true,
     "tint": {
-      "Shirt": "jersey",
-      "Pants": "jersey",
-      "Socks": "trim",
-      "Skin": "skin",
-      "Hair": "hair"
+      "T_shirt": "jersey",
+      "Classic_Shorts": "jersey",
+      "Boots": "shoe",
+      "Std_Skin": "skin",
+      "Std_Nails": "skin",
+      "embed_hair": "hair"
     },
     "animations": {
-      "idle": "HumanArmature|Man_Idle",
-      "walk": "HumanArmature|Man_Walk",
-      "run": "HumanArmature|Man_Run",
-      "celebrate": "HumanArmature|Man_Clapping"
+      "idle": "Standing_03",
+      "walk": "Moving_Walk_01",
+      "run": "Moving_Walk_01",
+      "celebrate": "Standing_01"
     }
   },
-  "ball": {
-    "model": "models/Basket Ball by J-Toastie - blRgRaL56h.glb",
-    "texture": ""
-  },
+  "ball": { "model": "models/basketball.glb", "texture": "" },
   "court": {
     "texture": "",
-    "model": "models/Basketball court by Poly by Google - 85FpUr2fHkH.glb",
-    "scale": 1.022,
-    "rotationY": 90,
-    "position": [
-      0,
-      0,
-      0
-    ]
+    "model": "models/street-court.glb",
+    "scale": [6.13, 4.7, 5.28],
+    "rotationY": 0,
+    "position": [0, -1.034, 0],
+    "floor": { "base": "#e8894f", "key": "#2a6a6a", "apron": "#47565f", "lines": "#ffffff" }
   },
   "arena": {
     "models": [
@@ -40,28 +36,16 @@
         "scale": 2.4,
         "rotationY": 0,
         "copies": [
-          {
-            "position": [
-              -9,
-              0.65,
-              -8.9
-            ]
-          },
-          {
-            "position": [
-              9,
-              0.65,
-              -8.9
-            ]
-          }
+          { "position": [-9, 0.65, -8.9] },
+          { "position": [9, 0.65, -8.9] }
         ]
       }
     ]
   },
   "credits": [
-    "Man by Quaternius (CC0) via Poly Pizza",
-    "Basket Ball by J-Toastie (CC-BY 3.0) via Poly Pizza",
-    "Basketball court by Poly by Google (CC-BY 3.0) via Poly Pizza",
+    "Man Player by RiverofCreative (CC-BY 4.0) via Sketchfab",
+    "Basketball Court by Klieg3D (CC-BY 4.0) via Sketchfab",
+    "Basketball (shape only) by FIELDFLY3R (CC-BY 4.0) via Sketchfab",
     "Low Poly Sports Stands by Cole Brenner (CC-BY 3.0) via Poly Pizza"
   ]
 }

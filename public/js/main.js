@@ -1107,6 +1107,16 @@ function renderHub() {
     ? `${cardHTML(s.career, s.team)}<div style="text-align:center;margin-top:10px"><span class="rp">${s.career.rp} Rep Points</span></div>`
     : `<div class="box" style="text-align:center;padding:18px"><div style="display:inline-block">${crest(team, 'crest')}</div><style>#hubCard .crest{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-family:var(--display);font-size:22px;border:4px solid}</style><h3 style="margin:10px 0 2px">${team.city} ${team.name}</h3><span class="hint">${Season.record(s, s.team)} · Team OVR ${team.ovr}</span></div>`;
 
+  // What your player did in the game that was just simmed
+  const ls = session.lastSim, simBox = $('#simResult');
+  if (kind === 'career' && ls && ls.line) {
+    const L = ls.line;
+    simBox.hidden = false;
+    simBox.innerHTML = `<h4 style="margin:2px 0 8px;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:#ffd60a">Simulated game</h4>
+      <div class="reward"><span class="grade">${ls.reward.grade}</span><div><small>${ls.won ? 'Win' : 'Loss'} ${ls.us}-${ls.them} vs ${esc(ls.opp.name)}</small><b>${L.pts} PTS · ${L.reb} REB · ${L.ast} AST</b><br><span class="rp">+${ls.reward.rp} Rep Points</span></div></div>
+      <p class="hint" style="text-align:left;margin:8px 0 0;font-size:12px">FG ${L.fgm}-${L.fga} · 3PT ${L.tpm}-${L.tpa} · FT ${L.ftm}-${L.fta} · ${L.stl} STL · ${L.blk} BLK · ${L.to} TO</p>`;
+  } else simBox.hidden = true;
+
   // Next game panel
   const ng = Season.nextGame(s);
   const nx = $('#hubNext');
@@ -1120,7 +1130,12 @@ function renderHub() {
       <button class="primary" id="hubPlay">Play Game</button><button id="hubSim">Simulate</button>`;
     $$('#hubControl button').forEach((b) => b.addEventListener('click', () => { s.control = b.dataset.v; Season.save(s); sfx.menu(); renderHub(); }));
     $('#hubPlay').onclick = () => playHubGame();
-    $('#hubSim').onclick = () => { Season.simUserGame(s); sfx.menu(); maybeChampion(s) || renderHub(); };
+    $('#hubSim').onclick = () => {
+      const r = Season.simUserGame(s);
+      sfx.menu();
+      if (r && r.line) { const home = r.h === s.team; session.lastSim = { ...r, us: home ? r.hs : r.as, them: home ? r.as : r.hs, opp: TEAMS[home ? r.a : r.h] }; }
+      maybeChampion(s) || renderHub();
+    };
   } else {
     const ch = s.playoffs && s.playoffs.champion != null ? TEAMS[s.playoffs.champion] : null;
     nx.innerHTML = `<h4>Season complete</h4><p style="margin:6px 0;font-size:14px">${ch ? `🏆 ${ch.city} ${ch.name} are champions.` : 'Your season is over.'}</p>
@@ -1287,6 +1302,7 @@ function playHubGame() {
   const s = session.save;
   const ng = Season.nextGame(s);
   if (!ng) return;
+  session.lastSim = null;
   const mine = s.career ? Season.careerTeamData(s) : TEAMS[s.team];
   const home = ng.h === s.team ? mine : TEAMS[ng.h];
   const away = ng.a === s.team ? mine : TEAMS[ng.a];
@@ -1458,8 +1474,11 @@ function frame() {
   initAnnouncer($('#caption'));
   $('#loadText').textContent = 'Loading 3D models…';
   await loadCustomAssets();
-  if (custom.courtModel) $('#courtStyleWrap').hidden = false;
-  else settings.court = 'arena';
+  if (custom.courtModel) {
+    $('#courtStyleWrap').hidden = false;
+    // The first time a court model is available, switch to it once. It can be changed back in Settings → Court.
+    if (settings.courtSeen !== 'street') { settings.court = 'classic'; settings.courtSeen = 'street'; saveSettings(); }
+  } else settings.court = 'arena';
   $('#optCourt').value = settings.court;
   if (custom.credits.length) {
     $('#credits').hidden = false;

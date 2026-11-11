@@ -5,6 +5,7 @@ import { DIFFICULTY } from './data.js';
 import { input } from './input.js';
 import { sfx } from './audio.js';
 import { custom, applyCustomPlayer, updateCustomPlayer, makeCustomBall } from './assets.js';
+import { simCareerLine } from './season.js';
 
 const G = 9.8;
 const BALL_R = 0.12;
@@ -14,6 +15,22 @@ const v3 = () => new THREE.Vector3();
 const tmp = v3(), tmp2 = v3();
 const rand = (a, b) => a + Math.random() * (b - a);
 const hdist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+// Soft additive glow sprite that rides with the ball
+function makeBallHalo() {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,170,70,0.9)');
+  grad.addColorStop(0.35, 'rgba(255,120,30,0.45)');
+  grad.addColorStop(1, 'rgba(255,90,0,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }));
+  s.scale.set(0.62, 0.62, 1);
+  s.renderOrder = 4;
+  return s;
+}
 
 function ballTexture() {
   const cv = document.createElement('canvas');
@@ -96,6 +113,14 @@ export class Game {
     const customBall = makeCustomBall(BALL_R);
     if (customBall) { this.ball.mesh.material.visible = false; this.ball.mesh.add(customBall); }
     scene.add(this.ball.mesh);
+    // Make the ball easy to follow: a slightly bigger ball, a soft glow around it, and a ring on the floor under it
+    this.ball.mesh.scale.setScalar(1.2);
+    this.ball.halo = makeBallHalo();
+    this.ball.mesh.add(this.ball.halo);
+    this.ball.ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.28, 36), new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.8, depthWrite: false }));
+    this.ball.ring.rotation.x = -Math.PI / 2;
+    this.ball.ring.renderOrder = 3;
+    scene.add(this.ball.ring);
 
     this.period = 1;
     this.gameClock = this.quarterLen;
@@ -469,14 +494,22 @@ export class Game {
       const lift = { fadeaway: info.contest < 0.9 ? 1.2 : 0.96, stepback: 1.07, pullup: 0.97, euro: 1.14, reverse: 1.1, floater: 0.92, twohand: 1.05 }[p.shotStyle];
       if (lift) prob *= lift;
     }
-    // Shooting fouls: a defender too close on the release can get whistled
+    // Shooting fouls. Whether there was illegal contact is decided now, but nothing is called until the shot
+    // comes down: a clean block is never a foul. Fouls need real contact: running into the shooter, or chasing
+    // from behind. Standing in front and jumping straight up is a fair contest.
     let fouled = null;
     if (!this.opts.noFouls) {
       const { p: q, d } = this.nearestDefender(p);
-      const close = p.state === 'shoot' ? 0.95 : 1.25;
+      const close = p.state === 'shoot' ? 0.9 : 1.1;
       if (q && d < close) {
-        const fc = (close - d) * (p.state === 'shoot' ? 0.45 : 0.65) + (q.airborne ? 0.1 : 0.03) - (q.r.def - 70) / 600;
-        if (Math.random() < fc) fouled = q;
+        const hx = hoop.x - p.pos.x, hz = -p.pos.z, hl = Math.hypot(hx, hz) || 1;
+        const dx = q.pos.x - p.pos.x, dz = q.pos.z - p.pos.z, dl = Math.hypot(dx, dz) || 1;
+        const behind = (hx * dx + hz * dz) / (hl * dl) < -0.2;                  // chasing from behind or the side
+        const closing = Math.max(0, -((q.vel.x * dx + q.vel.z * dz) / dl));     // how fast he is running into the shooter
+        let fc = (q.team.human ? 0.02 : 0.08) + (close - d) * 0.1 + closing * 0.03 + (behind ? 0.1 : 0) - (q.r.def - 70) / 800;
+        if (q.airborne && !behind && closing < 2.5) fc *= 0.35;                // a clean vertical contest
+        if (q.team.human) fc *= 0.5;                                           // never punish a person's good defense
+        if (Math.random() < Math.max(0.005, Math.min(0.3, fc))) fouled = q;
       }
     }
     if (fouled) prob *= (isUser && label === 'EXCELLENT') ? 0.97 : 0.55; // contact barely affects a perfect release
@@ -485,7 +518,6 @@ export class Game {
     const made = Math.random() < prob;
     const pts = info.three ? 3 : 2;
     p.stats.fga++; if (pts === 3) p.stats.tpa++;
-    if (fouled) this.recordFoul(fouled, p, 'SHOOTING FOUL');
     this.emit('shot', { player: p, kind: p.state, label, user: isUser });
     this.launchShot(p, made, pts, p.state, airball);
     b.shot.fouled = fouled;
@@ -603,7 +635,7 @@ export class Game {
       this.arena.excitement = Math.min(1, this.arena.excitement + 0.4);
     } else {
       p.stumbleT = 0.4;
-      if (!this.opts.noFouls && d < 1.3 && Math.random() < 0.16) this.nonShootingFoul(p, h, 'REACH-IN FOUL');
+      if (!this.opts.noFouls && d < 1.3 && Math.random() < (p.team.human ? 0.07 : 0.14)) this.nonShootingFoul(p, h, 'REACH-IN FOUL');
     }
   }
 
@@ -830,10 +862,17 @@ export class Game {
     while (this.home.score + add.h === this.away.score + add.a) { if (Math.random() < 0.5) add.h += 1 + Math.floor(Math.random() * 4); else add.a += 1 + Math.floor(Math.random() * 4); }
     for (const t of this.teams) {
       let pts = add[t === this.home ? 'h' : 'a'];
+      t.score += pts;
+      // A career player gets a real stat line for the part of the game that was simmed, like he had played it
+      const me = t === this.user ? [...t.players, ...t.bench].find((p) => p.data.isMe) : null;
+      if (me) {
+        const line = simCareerLine({ ratings: me.r }, this.quarterLen / 60, left, pts);
+        pts -= line.pts;
+        for (const k of Object.keys(line)) me.stats[k] = (me.stats[k] || 0) + line[k];
+      }
       const pool = [...t.players, ...t.bench].filter((p) => !p.fouledOut && !p.data.isMe);
       const weight = (p) => Math.max(1, p.data.ovr - 50) * (p.starter ? 1.6 : 0.7);
       const sum = pool.reduce((a, p) => a + weight(p), 0);
-      t.score += pts;
       while (pts > 0 && pool.length) {
         let r = Math.random() * sum, pick = pool[0];
         for (const p of pool) { r -= weight(p); if (r <= 0) { pick = p; break; } }
@@ -1021,6 +1060,7 @@ export class Game {
     this.ball.vel.set(0, -2, 0);
     this.ball.state = 'free';
     if (shot.fouled) {
+      this.recordFoul(shot.fouled, p, 'SHOOTING FOUL');
       this.hud.feedback('AND ONE!', '#ffd60a');
       this.startFreeThrows(p, 1);
       return;
@@ -1134,6 +1174,18 @@ export class Game {
     // Ball mesh
     this.ball.mesh.position.copy(this.ball.pos);
     this.ball.mesh.rotation.x += this.ball.spin * dt;
+    {
+      const b = this.ball, held = b.state === 'held';
+      // Glow: gentle while dribbled, stronger when the ball is in the air or loose
+      if (b.halo) b.halo.material.opacity += ((held ? 0.3 : 0.62) - b.halo.material.opacity) * Math.min(1, dt * 8);
+      // Floor ring: sits under the ball, grows and fades as it rises, so the ball's position (and a shot's arc) is easy to read
+      if (b.ring) {
+        const k = Math.min(1, Math.max(0, b.pos.y - 0.12) / 4);
+        b.ring.position.set(b.pos.x, 0.025, b.pos.z);
+        b.ring.scale.setScalar(1 + k * 1.7);
+        b.ring.material.opacity = (held ? 0.32 : 0.85) * (1 - 0.5 * k);
+      }
+    }
     // Nets
     this.netAnim.forEach((a, i) => {
       const net = this.arena.hoops[i].net;
@@ -1312,7 +1364,7 @@ export class Game {
       const human = q.team.human && this.ctl(q);
       let chance;
       if (human) chance = 0.9 - (p.state === 'dunk' ? Math.max(0, p.r.dunk - 80) / 300 : 0);
-      else chance = (0.22 + q.r.block / 260) * (p.state === 'dunk' ? 0.8 : 1) * this.diff.aiDef;
+      else chance = (0.04 + q.r.block / 900) * (p.state === 'dunk' ? 0.65 : 1) * this.diff.aiDef;
       chance *= { reverse: 0.7, euro: 0.8, floater: 0.7 }[p.shotStyle] || 1;
       if (Math.random() >= chance) continue;
       this.blockAtRim(p, q);
@@ -1338,7 +1390,7 @@ export class Game {
     b.lastTouch = q.team;
     b.ignore = p; b.ignoreT = 0.5; // the dunker can't immediately grab his own blocked ball
     this.hud.feedback('SWATTED AWAY!', q.team === this.user ? '#3dff7a' : '#ff3b3b');
-    this.slowT = 0.6; this.focus = q;
+    if (q.team.human || p.team.human) { this.slowT = 0.6; this.focus = q; } // slow-mo only when a person is involved
     this.emit('block', { player: q, victim: p, kind: 'rim' });
     sfx.board(); sfx.cheer(0.9);
     this.arena.excitement = Math.min(1, this.arena.excitement + 0.7);
@@ -1436,7 +1488,7 @@ export class Game {
           if (hand.distanceTo(b.pos) < (s.kind === 'dunk' ? 0.9 : 0.6)) {
             s.checked.add(q);
             let chance = 0.1 + q.r.block / 320 - (s.kind === 'shoot' ? 0.03 : 0);
-            if (s.kind === 'dunk') chance = q.team.human && this.ctl(q) ? 0.8 : chance * 0.8; // a late hand can still swat a dunk
+            if (s.kind === 'dunk') chance = q.team.human && this.ctl(q) ? 0.8 : chance * 0.4; // a late hand can still swat a dunk
             chance *= { fadeaway: 0.45, floater: 0.55, reverse: 0.5, euro: 0.7 }[s.style] || 1;
             if (!q.team.human) chance *= this.diff.aiDef;
             if (Math.random() < chance) {
@@ -1450,12 +1502,12 @@ export class Game {
               const chase = Math.hypot(q.vel.x, q.vel.z) > 3.5 && (q.pos.x - s.shooter.pos.x) * s.team.dir < 0;
               this.hud.feedback(chase ? 'CHASE-DOWN BLOCK!' : 'REJECTED!', q.team.isUser ? '#3dff7a' : '#ff3b3b');
               s.shooter.streak = 0; s.shooter.onFire = false;
-              this.slowT = 0.5; this.focus = q;
+              if (q.team.human || s.shooter.team.human) { this.slowT = 0.5; this.focus = q; }
               this.emit('block', { player: q, victim: s.shooter });
               sfx.board(); sfx.cheer(0.8);
               this.arena.excitement = Math.min(1, this.arena.excitement + 0.6);
               this.cameraShake = 0.25;
-              if (s.fouled) this.startFreeThrows(s.shooter, s.pts);
+              s.fouled = null; // a clean block is not a foul: no whistle, no free throws
               return;
             }
           }
@@ -1465,7 +1517,7 @@ export class Game {
         if (s.kind === 'ft') { this.resolveFT(s); return; }
         b.pos.copy(s.target);
         if (s.made) { this.scored(s); return; }
-        if (s.fouled) { sfx.rim(); this.startFreeThrows(s.shooter, s.pts); return; }
+        if (s.fouled) { sfx.rim(); this.recordFoul(s.fouled, s.shooter, 'SHOOTING FOUL'); this.startFreeThrows(s.shooter, s.pts); return; }
         b.state = 'loose';
         b.reboundable = true;
         s.shooter.streak = 0;
@@ -1752,6 +1804,7 @@ export class Game {
 
   dispose() {
     for (const t of this.teams) for (const p of [...(t.full || t.players), ...t.bench]) this.scene.remove(p.root);
+    if (this.ball.ring) this.scene.remove(this.ball.ring);
     this.scene.remove(this.ball.mesh);
   }
 }

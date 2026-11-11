@@ -96,17 +96,32 @@ function tintColor(player, kind) {
 }
 
 // ---------- Skeleton helpers ----------
+// Works with different skeletons. Names are reduced to letters only ("CC_Base_L_Upperarm_050" -> "lupperarm",
+// "UpperArm.L" -> "upperarml"), so both the Quaternius-style and Character-Creator-style rigs are recognised.
+const BONE_KEYS = {
+  upperarml: 'uaL', lowerarml: 'laL', upperarmr: 'uaR', lowerarmr: 'laR', upperlegl: 'ulL', lowerlegl: 'llL', upperlegr: 'ulR', lowerlegr: 'llR',
+  lupperarm: 'uaL', lforearm: 'laL', rupperarm: 'uaR', rforearm: 'laR', lthigh: 'ulL', lcalf: 'llL', rthigh: 'ulR', rcalf: 'llR',
+  head: 'head', headend: 'headEnd', torso: 'torso',
+};
+// The bone a limb points toward (its "child"), by name. Rigs with twist bones have several children, so the first one is not reliable.
+const BONE_CHILD = { lupperarm: 'lforearm', lforearm: 'lhand', rupperarm: 'rforearm', rforearm: 'rhand', lthigh: 'lcalf', lcalf: 'lfoot', rthigh: 'rcalf', rcalf: 'rfoot' };
+const boneId = (name) => name.toLowerCase().replace(/^cc_base_/, '').replace(/_\d+$/, '').replace(/[^a-z]/g, '');
+
 function findBones(model) {
   const b = {};
-  const want = { upperarml: 'uaL', lowerarml: 'laL', upperarmr: 'uaR', lowerarmr: 'laR', upperlegl: 'ulL', lowerlegl: 'llL', upperlegr: 'ulR', lowerlegr: 'llR', head: 'head', headend: 'headEnd', torso: 'torso' };
+  const byId = {};
   model.traverse((o) => {
     if (!o.isBone) return;
-    const key = want[o.name.toLowerCase().replace(/[^a-z]/g, '')];
+    const id = boneId(o.name);
+    if (!byId[id]) byId[id] = o;
+    const key = BONE_KEYS[id];
     if (key && !b[key]) b[key] = o;
   });
   for (const k of Object.keys(b)) {
-    const child = b[k].children.find((c) => c.isBone) || b[k].children[0];
-    b[k].userData.rest = child ? child.position.clone().normalize() : new THREE.Vector3(0, 1, 0);
+    const bone = b[k];
+    const named = byId[BONE_CHILD[boneId(bone.name)]];
+    const child = named && named.parent === bone ? named : bone.children.find((c) => c.isBone && c.position.lengthSq() > 1e-8) || bone.children[0];
+    bone.userData.rest = child && child.position.lengthSq() > 1e-8 ? child.position.clone().normalize() : new THREE.Vector3(0, 1, 0);
   }
   return b;
 }
@@ -120,15 +135,18 @@ function scalpColor(data) {
 }
 
 // Put styled hair on the model's head bone so it follows the head
-function attachHair(holder, model, bones, data) {
+function attachHair(holder, model, bones, data, cfg = {}) {
   if (!bones.head) return;
+  const style = data.hairStyle ?? 2;
+  // Models with a separate hair mesh keep it for the short styles (Buzz, Short) and are given sculpted hair for the others
+  if (cfg.hairMesh && style < 3) return;
   holder.updateMatrixWorld(true);
   // The head runs from the head bone (base of the skull) up to the top of the model
   const a = bones.head.getWorldPosition(new THREE.Vector3());
   const top = new THREE.Box3().setFromObject(model).max.y;
   const r = (top - a.y) * 0.56;
   if (!(r > 0.01)) return;
-  const hair = buildHair(data.hairStyle ?? 2, data.hair, r);
+  const hair = buildHair(style, data.hair, r, { cap: !!cfg.hairMesh });
   if (!hair.children.length) return;
   hair.position.set(a.x, a.y + r * 0.9, a.z);
   hair.rotation.y = model.rotation.y;
@@ -141,14 +159,20 @@ function tintModel(model, cfg, fake) {
   const tint = { ...(cfg.tint || {}) };
   if (cfg.jerseyMaterial && !Object.keys(tint).length) tint[cfg.jerseyMaterial] = 'jersey';
   const rules = Object.entries(tint).map(([k, v]) => [k.toLowerCase(), v]);
+  const style = fake.data.hairStyle ?? 2;
   model.traverse((o) => {
     if (!o.isMesh) return;
     o.frustumCulled = false; // skinned meshes can be culled wrongly when animated
     const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
       const c = mt.clone();
       const rule = rules.find(([k]) => (mt.name || '').toLowerCase().includes(k));
-      const col = rule && (rule[1] === 'hair' ? scalpColor(fake.data) : tintColor(fake, rule[1]));
-      if (col && c.color) c.color.set(col);
+      if (rule && rule[1] === 'hair' && cfg.hairMesh && (style === 0 || style >= 3)) o.visible = false; // bald, or replaced by sculpted hair
+      const col = rule && (rule[1] === 'hair' ? (cfg.hairMesh ? fake.data.hair : scalpColor(fake.data)) : tintColor(fake, rule[1]));
+      if (col && c.color) {
+        c.color.set(col);
+        // Kit made from photo textures (a red shirt, say) would stain the team colour: use a flat colour and keep the fabric's normal map
+        if (c.map && ['jersey', 'trim', 'shoe'].includes(rule[1]) && cfg.flatColors !== false) c.map = null;
+      }
       return c;
     });
     o.material = mats.length === 1 ? mats[0] : mats;
@@ -168,7 +192,7 @@ export function applyCustomPlayer(player) {
   fitToHeight(model, player.data.height * (cfg.scale || 1));
   tintModel(model, cfg, player);
   player.bones = findBones(model);
-  attachHair(holder, model, player.bones, player.data);
+  attachHair(holder, model, player.bones, player.data, cfg);
   player.limb = { aL: { w: 0 }, aR: { w: 0 }, lL: { w: 0 }, lR: { w: 0 } };
   player.body.visible = false;
   player.root.add(holder);
@@ -339,6 +363,15 @@ export function makeCustomBall(radius) {
   const s = (radius * 2) / Math.max(size.x, size.y, size.z);
   model.position.sub(center).multiplyScalar(s);
   model.scale.multiplyScalar(s);
+  // Make the ball easy to spot: a warm glow on the surface itself
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.material = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
+      const c = mt.clone();
+      if ('emissive' in c) { c.emissive = new THREE.Color(0xff5a10); c.emissiveIntensity = 0.38; }
+      return c;
+    }).reduce((a, c, _, all) => (all.length === 1 ? c : all), null);
+  });
   const g = new THREE.Group();
   g.add(model);
   return g;
@@ -391,9 +424,13 @@ export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim =
     fitToHeight(model, 2);
     const fake = { team: { jerseyColor: jersey, trimColor: trim, data: { secondary: trim } }, data: { skin, hair, hairStyle }, index: 1 };
     tintModel(model, cp.cfg, fake);
+    // Models are authored in a T-pose: pose the portrait with the idle clip so he stands naturally
+    const idleName = cp.cfg.animations && cp.cfg.animations.idle;
+    const idleClip = idleName && THREE.AnimationClip.findByName(cp.animations || [], idleName);
+    if (idleClip) { const mx = new THREE.AnimationMixer(model); mx.clipAction(idleClip).play(); mx.update(0.4); }
     const pHolder = new THREE.Group();
     pHolder.add(model);
-    attachHair(pHolder, model, findBones(model), fake.data);
+    attachHair(pHolder, model, findBones(model), fake.data, cp.cfg);
     model = pHolder;
     pScene.add(model);
     pCam.position.set(0.62, 1.82, 1.72);

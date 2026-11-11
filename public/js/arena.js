@@ -17,7 +17,8 @@ export const C = {
 };
 const APRON = 2.6;
 
-function courtTexture(home) {
+// `pal` (optional) restyles the floor from a court model: { base, key, apron, lines } colours instead of team-coloured hardwood
+function courtTexture(home, pal = null) {
   const Lx = C.HALF_L * 2 + APRON * 2, Lz = C.HALF_W * 2 + APRON * 2;
   const W = 4096, H = Math.round(W * Lz / Lx);
   const cv = document.createElement('canvas');
@@ -28,13 +29,21 @@ function courtTexture(home) {
   const Z = (z) => (z + Lz / 2) * s;
 
   // Apron
-  g.fillStyle = home.secondary;
+  g.fillStyle = pal ? pal.apron : home.secondary;
   g.fillRect(0, 0, W, H);
 
-  // Hardwood planks
+  // Hardwood planks (or a flat painted surface with a light speckle for a street court)
   const plankW = 0.06 * s;
   const x0 = X(-C.HALF_L), x1 = X(C.HALF_L), z0 = Z(-C.HALF_W), z1 = Z(C.HALF_W);
-  for (let y = z0, row = 0; y < z1; y += plankW, row++) {
+  if (pal) {
+    g.fillStyle = pal.base;
+    g.fillRect(x0, z0, x1 - x0, z1 - z0);
+    for (let i = 0; i < 90000; i++) {
+      g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+      g.fillRect(x0 + Math.random() * (x1 - x0), z0 + Math.random() * (z1 - z0), 3, 3);
+    }
+  }
+  for (let y = z0, row = 0; y < z1 && !pal; y += plankW, row++) {
     let x = x0 - (row * 137) % 400;
     while (x < x1) {
       const len = (2.0 + Math.random() * 2.5) * s;
@@ -61,8 +70,8 @@ function courtTexture(home) {
   }
 
   // Painted keys
-  g.fillStyle = home.primary;
-  g.globalAlpha = 0.88;
+  g.fillStyle = pal ? pal.key : home.primary;
+  g.globalAlpha = pal ? 1 : 0.88;
   for (const side of [-1, 1]) {
     const bx = side * C.HALF_L, fx = side * (C.HALF_L - 5.8);
     g.fillRect(Math.min(X(bx), X(fx)), Z(-C.KEY_W / 2), Math.abs(X(bx) - X(fx)), C.KEY_W * s);
@@ -72,7 +81,7 @@ function courtTexture(home) {
   g.globalAlpha = 1;
 
   // Lines
-  g.strokeStyle = '#ffffff';
+  g.strokeStyle = pal ? pal.lines : '#ffffff';
   g.lineWidth = 0.05 * s;
   g.strokeRect(x0, z0, x1 - x0, z1 - z0);
   g.beginPath(); g.moveTo(X(0), z0); g.lineTo(X(0), z1); g.stroke();
@@ -231,7 +240,9 @@ export function buildArena(scene, home, away, opts = {}) {
   scene.add(root);
 
   // Floor
-  const { tex, Lx, Lz } = courtTexture(home);
+  // A court model can supply a floor palette: its colours are used, but the lines stay accurate to the game's rules
+  const pal = (opts.courtStyle === 'classic' && custom.courtModel && custom.courtModel.cfg.floor) || null;
+  const { tex, Lx, Lz } = courtTexture(home, pal);
   const floorMat = new THREE.MeshPhysicalMaterial({ map: custom.courtTexture || tex, roughness: 0.38, clearcoat: 0.7, clearcoatRoughness: 0.15, envMapIntensity: 0.6 });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(Lx, Lz), floorMat);
   floor.rotation.x = -Math.PI / 2;
@@ -361,7 +372,7 @@ export function buildArena(scene, home, away, opts = {}) {
 
   placeCustomArena(root);
   // Optional court model replaces the built-in floor and hoop visuals (physics stay the same)
-  if (opts.courtStyle === 'classic' && placeCustomCourt(root)) {
+  if (opts.courtStyle === 'classic' && placeCustomCourt(root) && !pal) {
     floor.visible = false;
     hoops.forEach((h) => { h.group.visible = false; });
   }

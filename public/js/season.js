@@ -146,8 +146,53 @@ export function simUserGame(s) {
   if (!g) return null;
   const tmp = { h: g.h, a: g.a };
   simScore(s, tmp);
-  recordGame(s, tmp.hs, tmp.as);
+  if (!s.career) { recordGame(s, tmp.hs, tmp.as); return tmp; }
+  // Career: the player gets a full stat line, as if he had played the game
+  const c = s.career;
+  const mineHome = tmp.h === s.team;
+  const teamPts = mineHome ? tmp.hs : tmp.as;
+  const line = simCareerLine(c, s.q, 1, teamPts);
+  const row = { key: `${c.first} ${c.last}#${c.number}`, name: `${c.first} ${c.last}`, pos: ['PG', 'SG', 'SF', 'PF', 'C'][c.pos], ...line };
+  recordGame(s, tmp.hs, tmp.as, [row]);
+  tmp.won = mineHome ? tmp.hs > tmp.as : tmp.as > tmp.hs;
+  tmp.line = line;
+  tmp.reward = careerReward(s, line, tmp.won);
   return tmp;
+}
+
+// A believable stat line for a career player who didn't play (or only part of) a game, built from his ratings.
+// `fraction` is how much of the game is being simulated (1 = all of it); `teamPts` caps his scoring at a fair share.
+export function simCareerLine(c, q, fraction = 1, teamPts = 999) {
+  const r = c.ratings;
+  const ovr = careerOvr(c);
+  const per8 = (q * 4 / 8) * fraction;                  // the numbers below are per 8 minutes of game time
+  const jitter = (v, spread = 0.32) => Math.max(0, v * (1 - spread + Math.random() * spread * 2));
+  const n = (v) => Math.max(0, Math.round(v));
+  // Small counting stats: an average of 0.4 steals should give a steal in about 4 games in 10, not never
+  const sn = (v) => { const f = Math.floor(Math.max(0, v)); return f + (Math.random() < Math.max(0, v) - f ? 1 : 0); };
+  let pts = n(jitter((3 + (ovr - 50) * 0.3) * per8, 0.4));
+  pts = Math.min(pts, Math.floor(teamPts * 0.45));
+  // Shooting splits follow his ratings
+  const ppa = 0.88 + (ovr - 60) / 130;                  // points per shot attempt
+  const tpa = n(pts / ppa * (0.18 + (r.three - 50) / 160));
+  const tpm = Math.min(tpa, n(tpa * (0.3 + (r.three - 50) / 170)));
+  const ftm = n(pts * 0.1 * (0.6 + Math.random() * 0.8));
+  const twoPts = Math.max(0, pts - tpm * 3 - ftm);
+  const fg2 = Math.floor(twoPts / 2);
+  const fgm = fg2 + tpm;
+  const ftExtra = pts - tpm * 3 - fg2 * 2;              // an odd point is a free throw
+  const ftmAll = ftm + Math.max(0, ftExtra - ftm);
+  const fga = Math.max(fgm, n(pts / ppa) + (Math.random() < 0.5 ? 1 : 0));
+  return {
+    pts, fgm, fga, tpm, tpa, ftm: ftmAll, fta: ftmAll + n(Math.random() * 1.2),
+    reb: sn(jitter((0.5 + (r.reb - 40) / 45) * per8)),
+    ast: sn(jitter((0.4 + (r.pass - 40) / 30) * per8)),
+    stl: sn(jitter((0.1 + (r.steal - 40) / 90) * per8, 0.6)),
+    blk: sn(jitter((0.05 + (r.block - 40) / 90) * per8, 0.6)),
+    to: sn(jitter((0.3 + (80 - r.handle) / 90) * per8, 0.6)),
+    pf: Math.min(5, sn(jitter(0.5 * per8, 0.8))),
+    sec: Math.round(per8 * 8 * 60 * 0.8),
+  };
 }
 
 export function record(s, team) {
