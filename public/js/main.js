@@ -22,7 +22,7 @@ const $$ = (s) => document.querySelectorAll(s);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---------- Settings (remembered per browser) ----------
-const settings = { cam: 'broadcast', gfx: 'high', mute: false, home: 0, away: 3, side: 'home', diff: 'pro', q: '2', bright: 90, lock: -1, court: 'arena', voice: true, music: true, autoSubs: true };
+const settings = { cam: 'broadcast', gfx: 'high', mute: false, home: 0, away: 3, side: 'home', diff: 'pro', q: '2', speed: 0.85, bright: 90, lock: -1, court: 'arena', voice: true, music: true, autoSubs: true };
 try { Object.assign(settings, JSON.parse(localStorage.getItem('pph-settings') || '{}')); } catch { /* ignore */ }
 const saveSettings = () => { try { localStorage.setItem('pph-settings', JSON.stringify(settings)); } catch { /* ignore */ } };
 
@@ -261,6 +261,9 @@ $('#optBright').value = settings.bright;
 $('#brightVal').textContent = `${settings.bright}%`;
 setMuted(settings.mute);
 setVoice(settings.voice && !settings.mute);
+$('#optSpeed').value = String(settings.speed);
+if (!$('#optSpeed').value) { settings.speed = 0.85; $('#optSpeed').value = '0.85'; }
+$('#optSpeed').addEventListener('change', (e) => { settings.speed = Number(e.target.value); saveSettings(); });
 $('#optCam').addEventListener('change', (e) => { settings.cam = e.target.value; saveSettings(); });
 $('#optGfx').addEventListener('change', (e) => { settings.gfx = e.target.value; saveSettings(); applyQuality(); });
 $('#optMute').addEventListener('change', (e) => { settings.mute = e.target.checked; setMuted(settings.mute); setVoice(settings.voice && !settings.mute); saveSettings(); musicMaybe(); });
@@ -1355,7 +1358,7 @@ function stepGame(dt) {
     netGuestTick(dt);
   } else {
     if (netPlaying() && online.remote) online.remote.tick();
-    game.update(dt);
+    game.update(dt * (attract ? 0.9 : settings.speed)); // overall game speed (Settings)
     if (game && netPlaying()) netHostTick(dt);
   }
   if (!game) return;
