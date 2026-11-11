@@ -4,6 +4,7 @@ import { C } from './arena.js';
 import { buildHair } from './hair.js';
 
 const tmpV = new THREE.Vector3();
+const d_height = (p) => p.data.height; // the overhead marker sits just above the head (root already includes the jump)
 
 function numberTexture(num, fg, bg, name) {
   const cv = document.createElement('canvas');
@@ -162,21 +163,49 @@ export class Player {
     };
     this.legL = mkLeg(-1); this.legR = mkLeg(1);
 
-    // Ground marker (for the user-controlled player)
-    const ringGeo = new THREE.RingGeometry(0.5, 0.62, 40);
-    this.marker = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x35f0ff, transparent: true, opacity: 0.9, depthWrite: false }));
-    this.marker.rotation.x = -Math.PI / 2;
-    this.marker.position.y = 0.012;
+    // Marker for the player you control: a bright double ring on the floor, a facing arrow,
+    // and a bobbing pointer with a "YOU" tag above the head that always draws on top.
+    const mk = new THREE.MeshBasicMaterial({ color: 0x35f0ff, transparent: true, opacity: 0.95, depthWrite: false });
+    this.markerMat = mk;
+    this.marker = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.58, 0.74, 48), mk);
+    const ring2 = new THREE.Mesh(new THREE.RingGeometry(0.86, 0.9, 48), mk);
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(0.58, 32), new THREE.MeshBasicMaterial({ color: 0x35f0ff, transparent: true, opacity: 0.2, depthWrite: false }));
+    this.markerGlow = glow.material;
+    for (const m of [glow, ring, ring2]) { m.rotation.x = -Math.PI / 2; this.marker.add(m); }
+    this.markerRing2 = ring2;
+    this.marker.position.y = 0.014;
     this.marker.visible = false;
     root.add(this.marker);
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.25, 3), this.marker.material);
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.32, 3), mk);
     arrow.rotation.x = Math.PI / 2;
-    arrow.position.set(0, 0.013, 0.75);
+    arrow.position.set(0, 0.015, 1.05);
     this.markerArrow = arrow;
     this.markerPivot = new THREE.Group();
     this.markerPivot.add(arrow);
     this.markerPivot.visible = false;
     root.add(this.markerPivot);
+    // Overhead pointer
+    const top = new THREE.MeshBasicMaterial({ color: 0x35f0ff, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false });
+    this.markerTopMat = top;
+    const pointer = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.3, 4), top);
+    pointer.rotation.x = Math.PI; // tip down
+    pointer.renderOrder = 30;
+    const cv = document.createElement('canvas');
+    cv.width = 128; cv.height = 48;
+    const g = cv.getContext('2d');
+    g.font = '900 34px "Arial Black", Impact, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 7; g.strokeStyle = 'rgba(3,10,20,0.9)'; g.strokeText('YOU', 64, 25);
+    g.fillStyle = '#ffffff'; g.fillText('YOU', 64, 25);
+    const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, depthWrite: false, transparent: true }));
+    tag.scale.set(0.95, 0.36, 1);
+    tag.position.y = 0.36;
+    tag.renderOrder = 31;
+    this.markerTop = new THREE.Group();
+    this.markerTop.add(pointer, tag);
+    this.markerTop.visible = false;
+    root.add(this.markerTop);
     // Soft contact shadow
     const cs = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
     cs.rotation.x = -Math.PI / 2; cs.position.y = 0.006;
@@ -189,7 +218,10 @@ export class Player {
   setControlled(on, color = 0x35f0ff) {
     this.marker.visible = on;
     this.markerPivot.visible = on;
-    this.marker.material.color.set(color);
+    this.markerTop.visible = on;
+    this.markerMat.color.set(color);
+    this.markerGlow.color.set(color);
+    this.markerTopMat.color.set(color);
   }
 
   jump(dur = 0.7, peak = 0.75) {
@@ -209,6 +241,7 @@ export class Player {
 
   update(dt) {
     this.stealCooldown = Math.max(0, this.stealCooldown - dt);
+    for (const k of ['moveT', 'spinT', 'rhythmT', 'stealImmuneT', 'hesiT', 'passT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
     this.burstT = Math.max(0, this.burstT - dt);
     this.stumbleT = Math.max(0, this.stumbleT - dt);
 
@@ -218,6 +251,7 @@ export class Player {
     else this.stamina = Math.min(1, this.stamina + dt * 0.09);
     if (this.burstT > 0) max *= 1.35;
     if (this.stumbleT > 0) max *= 0.2;
+    if (this.hesiT > 0) max *= 0.22; // hesitation: freeze, then explode
     if (this.state === 'shoot') max = 0.3;
     if (this.state === 'dunk' || this.state === 'layup') max = 4.2;
 
@@ -252,7 +286,7 @@ export class Player {
     }
     let df = this.targetFacing - this.facing;
     df = Math.atan2(Math.sin(df), Math.cos(df));
-    this.facing += df * Math.min(1, dt * 10);
+    this.facing += df * Math.min(1, dt * 8.5); // turn smoothly instead of snapping
   }
 
   animate(dt, ctx) {
@@ -264,10 +298,15 @@ export class Player {
     this.body.rotation.y = this.facing;
     this.contactShadow.position.y = 0.006 - this.y;
     this.contactShadow.material.opacity = 0.35 * (1 - Math.min(0.7, this.y));
-    this.marker.position.y = 0.012 - this.y;
+    this.marker.position.y = 0.014 - this.y;
+    if (this.marker.visible) {
+      const pulse = 1 + Math.sin(this.phase * 0 + performance.now() * 0.006) * 0.08;
+      this.markerRing2.scale.setScalar(pulse);
+      this.markerTop.position.y = d_height(this) + 0.42 + Math.sin(performance.now() * 0.005) * 0.07;
+    }
     this.markerPivot.position.y = -this.y;
     this.markerPivot.rotation.y = this.facing;
-    this.marker.rotation.z += dt * 1.5;
+    this.marker.rotation.y += dt * 1.5;
 
     const crouch = ctx.defending ? 0.12 : (ctx.hasBall ? 0.05 : 0.02);
     // Legs: running cycle

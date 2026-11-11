@@ -17,6 +17,14 @@ export const TEAMS = [
   { id: 'NSW', city: 'Northshore', name: 'Wolves', primary: '#8fa3b8', secondary: '#0e2a47', accent: '#d8f3ff', ovr: 83 },
   { id: 'MTV', city: 'Metro', name: 'Voltage', primary: '#ffd60a', secondary: '#111111', accent: '#ffffff', ovr: 87 },
   { id: 'RDG', city: 'Redgate', name: 'Phoenix', primary: '#e63946', secondary: '#1d3557', accent: '#f1faee', ovr: 81 },
+  { id: 'ECV', city: 'Emerald Coast', name: 'Vipers', primary: '#19c37d', secondary: '#0a1f17', accent: '#eafff5', ovr: 85 },
+  { id: 'SCA', city: 'Steel City', name: 'Anvils', primary: '#aab4c0', secondary: '#12233f', accent: '#ffb703', ovr: 83 },
+  { id: 'SVC', city: 'Sunset Valley', name: 'Comets', primary: '#ff7b25', secondary: '#3b1466', accent: '#ffe8d6', ovr: 86 },
+  { id: 'GBF', city: 'Glacier Bay', name: 'Frost', primary: '#7fd8ff', secondary: '#0c2f4f', accent: '#ffffff', ovr: 82 },
+  { id: 'GRR', city: 'Granite Ridge', name: 'Rhinos', primary: '#7a7f87', secondary: '#7a1024', accent: '#f3f3f3', ovr: 84 },
+  { id: 'CCK', city: 'Crescent City', name: 'Krewe', primary: '#7b2cbf', secondary: '#1b4332', accent: '#ffd166', ovr: 87 },
+  { id: 'LSH', city: 'Lakeshore', name: 'Herons', primary: '#2ec4b6', secondary: '#33272a', accent: '#ff9f80', ovr: 80 },
+  { id: 'STO', city: 'Star City', name: 'Outlaws', primary: '#1c1c1c', secondary: '#c9a227', accent: '#f5e6b3', ovr: 88 },
 ];
 
 const POSITIONS = [

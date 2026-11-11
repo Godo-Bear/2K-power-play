@@ -24,21 +24,27 @@ export function load(kind, slot = 1) {
 export function save(s) { try { localStorage.setItem(keyFor(s.kind, s.slot || 1), JSON.stringify(s)); } catch { /* ignore */ } }
 export function clear(kind, slot = 1) { try { localStorage.removeItem(keyFor(kind, slot)); } catch { /* ignore */ } }
 
-// Double round-robin: everyone plays everyone home and away (14 games each for 8 teams)
+// Everyone plays everyone once (15 games in a 16-team league). Small leagues play home and away.
+export const SEASON_GAMES = N > 10 ? N - 1 : 2 * (N - 1);
 function makeSchedule() {
   const ids = [...Array(N).keys()].sort(() => Math.random() - 0.5);
   const rounds = [];
   const arr = ids.slice();
+  const homeCount = Array(N).fill(0);
   for (let r = 0; r < N - 1; r++) {
     const games = [];
     for (let i = 0; i < N / 2; i++) {
       const a = arr[i], b = arr[N - 1 - i];
-      games.push((r + i) % 2 ? { h: a, a: b } : { h: b, a });
+      // Whoever has hosted less so far gets the home game, so everyone ends up about even
+      const aHosts = homeCount[a] === homeCount[b] ? Math.random() < 0.5 : homeCount[a] < homeCount[b];
+      const h = aHosts ? a : b;
+      homeCount[h]++;
+      games.push({ h, a: aHosts ? b : a });
     }
     rounds.push(games);
     arr.splice(1, 0, arr.pop());
   }
-  const second = rounds.map((g) => g.map((x) => ({ h: x.a, a: x.h })));
+  const second = N > 10 ? [] : rounds.map((g) => g.map((x) => ({ h: x.a, a: x.h })));
   return [...rounds, ...second].map((g) => g.map((x) => ({ ...x, hs: null, as: null })));
 }
 

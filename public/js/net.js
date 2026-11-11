@@ -122,7 +122,13 @@ export function snapshot(g, withStats) {
       let f = 0;
       if (p.released) f |= 1; if (p.airborne) f |= 2; if (p.onFire) f |= 4; if (p.sprinting) f |= 8;
       if (p.stumbleT > 0) f |= 16; if (p.fouledOut) f |= 32; if (p.burstT > 0.25) f |= 64; if ((p.crossSide || 1) < 0) f |= 128;
-      P.push([p.rid, r2(p.pos.x), r2(p.pos.z), r2(p.y), r2(p.facing), r2(p.vel.x), r2(p.vel.z), p.state, r2(p.actionT), f, r2(p.energy), r2(p.stamina)]);
+      const row = [p.rid, r2(p.pos.x), r2(p.pos.z), r2(p.y), r2(p.facing), r2(p.vel.x), r2(p.vel.z), p.state, r2(p.actionT), f, r2(p.energy), r2(p.stamina)];
+      // Move details, only while something special is happening
+      if (p.state !== 'idle' || (p.moveT || 0) > 0 || (p.passT || 0) > 0) {
+        row.push(p.shotStyle || '', (p.moveT || 0) > 0 ? p.moveName : '', r2(p.moveT || 0), r2(p.spinT || 0), p.spinDir || 1,
+          r2(p.passT || 0), p.passStyle || '', p.passLocal ? r2(p.passLocal[0]) : 0, p.passLocal ? r2(p.passLocal[1]) : 0, p.stealStyle || '');
+      }
+      P.push(row);
     }
   }
   const b = g.ball, away = g.away, m = away.meter;
@@ -170,6 +176,10 @@ export function applySnapshot(g, s) {
     p.released = !!(f & 1); p.jumpT = f & 2 ? 0.01 : -1; p.onFire = !!(f & 4); p.sprinting = !!(f & 8);
     p.stumbleT = f & 16 ? 0.5 : 0; p.fouledOut = !!(f & 32); p.burstT = f & 64 ? 0.4 : 0; p.crossSide = f & 128 ? -1 : 1;
     p.energy = a[10]; p.stamina = a[11];
+    if (a.length > 12) {
+      p.shotStyle = a[12] || p.shotStyle; p.moveName = a[13] || p.moveName; p.moveT = a[14]; p.spinT = a[15]; p.spinDir = a[16];
+      p.passT = a[17]; p.passStyle = a[18]; p.passLocal = [a[19], a[20]]; p.stealStyle = a[21];
+    } else { p.moveT = 0; p.spinT = 0; p.passT = 0; }
   });
   const b = g.ball, sb = s.b;
   if (!b.net) b.pos.set(sb[0], sb[1], sb[2]);

@@ -207,27 +207,62 @@ function choosePose(p, state, ctx) {
   const out = { aL: null, aR: null, lL: null, lR: null };
   const mir = (d) => [-d[0], d[1], d[2]];
   const both = (u, f) => { out.aL = [u, f]; out.aR = [mir(u), mir(f)]; };
-  if (state === 'shoot' || state === 'ft') {
+  const style = ctx.style;
+  if (ctx.passT > 0 && ctx.passLocal) {
+    // Push the ball toward the target: chest pass, low bounce pass or a high lob
+    const [px, pz] = ctx.passLocal;
+    const y = ctx.passStyle === 'bounce' ? -0.5 : ctx.passStyle === 'lob' ? 0.65 : -0.05;
+    const side = Math.abs(px) > 0.75; // passing across the body: one arm
+    const u = [px * 0.8 + 0.18, y - 0.1, pz * 0.8], f = [px, y, pz];
+    if (side) { if (px > 0) out.aL = [u, f]; else out.aR = [[px * 0.8 - 0.18, y - 0.1, pz * 0.8], f]; }
+    else { out.aL = [u, f]; out.aR = [[px * 0.8 - 0.18, y - 0.1, pz * 0.8], f]; }
+  } else if (state === 'shoot' || state === 'ft') {
     if (!ctx.released) both([0.2, 0.5, 0.82], [-0.14, 0.97, 0.12]);          // ball set above the forehead
     else { out.aR = [[-0.14, 0.86, 0.5], [-0.04, 0.72, 0.7]]; out.aL = [[0.3, 0.35, 0.75], [0.1, 0.85, 0.35]]; } // follow-through
+    if (style === 'fadeaway') out.lR = [[-0.05, -0.7, 0.72], [0, -0.9, -0.42]]; // lead knee up as he leans away
   } else if (state === 'layup') {
-    out.aR = [[-0.1, 0.96, 0.3], [0, 0.95, 0.32]];
-    out.aL = [[0.35, -0.2, 0.6], [0.1, 0.3, 0.75]];
-    out.lR = [[-0.05, -0.45, 0.9], [0, -0.95, -0.3]];                          // knee drive
+    if (style === 'floater') {
+      out.aR = [[-0.05, 0.98, 0.2], [0, 0.9, 0.42]];                           // one-hand push shot
+      out.aL = [[0.3, -0.5, 0.3], [0.1, 0.1, 0.8]];
+    } else if (style === 'reverse') {
+      out.aL = [[0.15, 0.9, -0.3], [0.05, 0.85, -0.5]];                        // finish on the far side, arm reaching back
+      out.aR = [[-0.4, -0.3, 0.4], [-0.1, 0.3, 0.7]];
+      out.lL = [[0.05, -0.5, 0.86], [0, -0.95, -0.3]];
+    } else {
+      out.aR = [[-0.1, 0.96, 0.3], [0, 0.95, 0.32]];
+      out.aL = [[0.35, -0.2, 0.6], [0.1, 0.3, 0.75]];
+      out.lR = [[-0.05, -0.45, 0.9], [0, -0.95, -0.3]];                        // knee drive
+    }
   } else if (state === 'dunk') {
-    if (!ctx.released) out.aR = [[-0.15, 0.95, -0.12], [-0.05, 0.75, -0.6]];   // wind up behind the head
-    else out.aR = [[-0.1, 0.5, 0.88], [0, -0.3, 0.95]];                        // slam it down
-    out.aL = [[0.75, 0.25, 0.3], [0.5, 0.55, 0.4]];
+    const wind = !ctx.released;
+    if (style === 'twohand' || style === 'alley') {
+      if (wind) both([0.16, 0.95, style === 'alley' ? 0.25 : -0.12], [0.05, 0.85, style === 'alley' ? 0.3 : -0.5]);
+      else both([0.14, 0.5, 0.86], [0.02, -0.3, 0.95]);
+    } else if (style === 'windmill') {
+      // The arm sweeps a full circle before the slam
+      const a = Math.min(1, (ctx.actionT || 0) / 0.38) * Math.PI * 2 - Math.PI * 0.5;
+      out.aR = wind ? [[-0.25, Math.sin(a), Math.cos(a)], [-0.2, Math.sin(a + 0.5), Math.cos(a + 0.5)]] : [[-0.1, 0.5, 0.88], [0, -0.3, 0.95]];
+      out.aL = [[0.8, 0.2, 0.2], [0.55, 0.5, 0.35]];
+    } else {
+      const deep = style === 'tomahawk';
+      out.aR = wind ? [[-0.15, deep ? 0.8 : 0.95, deep ? -0.5 : -0.12], [-0.05, deep ? 0.25 : 0.75, deep ? -0.95 : -0.6]] : [[-0.1, 0.5, 0.88], [0, -0.3, 0.95]];
+      out.aL = [[0.75, 0.25, 0.3], [0.5, 0.55, 0.4]];
+    }
     out.lL = [[0.1, -0.72, 0.68], [0, -0.75, -0.66]];
     out.lR = [[-0.1, -0.6, 0.8], [0, -0.8, -0.6]];
   } else if (state === 'steal') {
-    out.aR = [[-0.2, -0.25, 0.95], [0, -0.12, 1]];
-  } else if (ctx.airborne) {
+    if (ctx.stealStyle === 'swipe') {
+      const a = Math.min(1, (ctx.actionT || 0) / 0.3) * 1.8 - 0.9;              // arm sweeps across
+      out.aR = [[-Math.cos(a) * 0.6, -0.3, 0.75], [Math.sin(a), -0.2, 0.9]];
+    } else out.aR = [[-0.2, -0.25, 0.95], [0, -0.12, 1]];
+  } else if (ctx.airborne && ctx.move !== 'stepback') {
     both([0.25, 0.95, 0.2], [0.05, 1, 0.15]);                                  // hands up to contest / rebound
   } else if (ctx.hasBall) {
     const s = ctx.ballSide >= 0 ? 1 : -1;
-    const arm = [[s * 0.3, -0.75, 0.35], 'ball'];                              // dribbling hand follows the ball
-    const off = [[-s * 0.5, -0.55, 0.4], [-s * 0.15, 0.05, 0.95]];             // off arm shields
+    const arm = [[s * 0.3, -0.75, ctx.move === 'behind' ? -0.1 : 0.35], 'ball']; // dribbling hand follows the ball
+    let off = [[-s * 0.5, -0.55, 0.4], [-s * 0.15, 0.05, 0.95]];               // off arm shields
+    if (ctx.move === 'spin') off = [[-s * 0.3, -0.7, 0.3], [-s * 0.3, 0.3, 0.5]]; // tucked in while spinning
+    if (ctx.move === 'hesi') off = [[-s * 0.6, -0.2, 0.5], [-s * 0.3, 0.6, 0.6]];  // "hold up" hand
     if (s > 0) { out.aL = arm; out.aR = off; } else { out.aR = arm; out.aL = off; }
   } else if (ctx.defending && ctx.speed < 5) {
     both([0.82, -0.3, 0.35], [0.55, 0.42, 0.6]);                               // wide defensive stance
@@ -256,9 +291,15 @@ const FALLBACK = { walk: ['run', 'idle'], run: ['walk', 'idle'], celebrate: ['id
 export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   if (!player.customModel) return;
   const h = player.customModel;
-  h.rotation.y = player.facing;
+  // Whole-body flourishes: spin moves turn a full circle, reverse layups turn the back to the rim
+  let yaw = player.facing + (ctx.spin || 0) * Math.PI * 2;
+  if (state === 'layup' && ctx.style === 'reverse') yaw += Math.PI * 0.7;
+  h.rotation.y = yaw;
+  const roll = state === 'layup' && ctx.style === 'euro' ? 0.22 : ctx.move === 'crossover' || ctx.move === 'behind' ? (ctx.ballSide || 1) * 0.12 : 0;
+  h.rotation.z += (roll - h.rotation.z) * Math.min(1, dt * 10);
   // Lean into sprints, sit into a defensive stance
-  const lean = Math.min(0.16, speed * 0.022) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0);
+  const lean = Math.min(0.16, speed * 0.022) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
+    + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
   h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
   if (player.mixer) {
     // Only body-movement clips come from the model; actions are posed procedurally so they match the gameplay timing
@@ -279,10 +320,13 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   const b = player.bones;
   if (!b || !player.limb) return;
   const pose = choosePose(player, state, { ...ctx, speed });
+  const realFacing = player.facing;
+  player.facing = yaw; // limbs follow the turned body
   applyLimb(player, 'aL', b.uaL, b.laL, pose.aL, dt, ctx);
   applyLimb(player, 'aR', b.uaR, b.laR, pose.aR, dt, ctx);
   applyLimb(player, 'lL', b.ulL, b.llL, pose.lL, dt, ctx);
   applyLimb(player, 'lR', b.ulR, b.llR, pose.lR, dt, ctx);
+  player.facing = realFacing;
 }
 
 export function makeCustomBall(radius) {

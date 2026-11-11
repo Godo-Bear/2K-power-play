@@ -162,6 +162,7 @@ function renderHome() {
   const s = Season.load('season');
   $('#tileSeasonSub').textContent = s ? `${TEAMS[s.team].name} · ${Season.record(s, s.team)} · Year ${s.year}` : 'Lead a team to the title';
   $('#hubTip').innerHTML = `<b>TIP</b>${TIPS[tipIdx % TIPS.length]}`;
+  $$('.seasonGames').forEach((el) => { el.textContent = Season.SEASON_GAMES; });
 }
 setInterval(() => { if (mode === 'menu' && shown() && shown().id === 'menu') { tipIdx++; $('#hubTip').innerHTML = `<b>TIP</b>${TIPS[tipIdx % TIPS.length]}`; } }, 7000);
 setInterval(() => {

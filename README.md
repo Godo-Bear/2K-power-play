@@ -1,6 +1,6 @@
 # 2K Power Play 🏀
 
-A modern 3D basketball game that runs in the browser. It's an original game with a fictional league of 8 teams,
+A modern 3D basketball game that runs in the browser. It's an original game with a fictional league of 16 teams,
 built with Three.js and deployed on Cloudflare Workers.
 
 ## Features
@@ -8,7 +8,7 @@ built with Three.js and deployed on Cloudflare Workers.
 **Game modes**
 - **Play Now**: pick any two teams and which one you control
 - **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, one of 12 play styles), join a team, and earn Rep Points from your game grades to upgrade your ratings. Your player card goes from Bronze to Legend as you improve.
-- **Season**: 14-game schedule, standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
+- **Season**: a 16-team league where you play every other team once (15 games), with standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
 - **Online**: play a friend. One player creates a room and shares the 5-letter code, the other joins with it. If your friend leaves, the CPU takes over their team.
 - **Practice**: no clock and no fouls. Choose how many players are on your team (1-5) and how many opponents (0-5), easy or real defense, with a shot tracker.
 - **Tutorial**: 13 interactive steps covering every control
@@ -16,7 +16,10 @@ built with Three.js and deployed on Cloudflare Workers.
 **On the court**
 - Opening **jump ball**, then full 5-on-5 with quarters, overtime, a 24-second shot clock (14 on offensive rebounds), fouls, free throws, the bonus, and timeouts
 - **Substitutions**: 10-player rosters with benches, player fatigue, foul-outs, an auto-sub coach you can turn off, and a manual substitutions screen (from Pause or a timeout)
-- Timed shot meter, layups, dunks, aimed passes, crossovers, steals, blocks and rebounds
+- Timed shot meter, layups, dunks, aimed passes, steals, blocks and rebounds
+- **Automatic moves**: the game picks the right move for the situation. Fadeaways, step-backs, pull-ups, floaters,
+  euro-steps, reverse layups, one- and two-hand slams, windmills and tomahawks, spin moves, hesitations,
+  behind-the-back dribbles, bounce passes and alley-oops, each with its own animation
 - **On Fire**: hit three shots in a row and your player heats up, with a flaming ball and a shooting boost until they miss
 - Player switching, Player Lock, and CPU AI with 4 difficulty levels
 
