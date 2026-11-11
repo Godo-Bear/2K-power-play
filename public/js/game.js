@@ -998,9 +998,12 @@ export class Game {
     this.cameraShake = Math.max(0, this.cameraShake - dt);
     for (const t of this.teams) {
       const m = t.meter;
+      // Safety net: if nobody is winding up a shot any more, the meter must not linger
+      const charging = m.player && (m.player.state === 'shoot' || m.player.state === 'ft') && !m.player.released;
+      if (m.visible && m.hideT === undefined && !charging) m.hideT = 0.15;
       if (m.hideT === undefined) continue;
       m.hideT -= dt;
-      if (m.hideT <= 0) { m.visible = false; m.result = null; m.hideT = undefined; }
+      if (m.hideT <= 0) { m.visible = false; m.result = null; m.value = 0; m.hideT = undefined; }
     }
     for (const p of this.allPlayers) { p.moveCd = Math.max(0, (p.moveCd || 0) - dt); }
     this.contactCd = Math.max(0, this.contactCd - dt);
@@ -1189,26 +1192,33 @@ export class Game {
     if (p.state === 'shoot') {
       const isUser = this.ctl(p);
       if (isUser) {
-        const m = p.team.meter;
-        m.visible = true;
-        m.player = p;
-        m.value = Math.min(1.2, p.actionT / METER_TIME);
-        m.win = this.diff.greenWindow;
-        m.hideT = undefined;
-        if (!p.released && (!p.team.input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseShot(p);
+        // The meter only fills until the release; after that it shows the result briefly and hides
+        if (!p.released) {
+          const m = p.team.meter;
+          m.visible = true;
+          m.player = p;
+          m.value = Math.min(1.2, p.actionT / METER_TIME);
+          m.win = this.diff.greenWindow;
+          m.result = null;
+          m.hideT = undefined;
+          if (!p.team.input.held.shoot || p.actionT > METER_TIME * 1.25) this.releaseShot(p);
+        }
       } else if (!p.released && p.actionT / METER_TIME >= p.aiRelease) this.releaseShot(p);
       if (p.released && !p.airborne) { p.state = 'idle'; p.faceTarget = null; }
     }
     if (p.state === 'ft') {
       const isUser = p.team.human && !!p.team.input && !this.autoplay;
       if (isUser) {
-        const m = p.team.meter;
-        m.visible = true;
-        m.player = p;
-        m.value = Math.min(1.2, p.actionT / METER_TIME);
-        m.win = this.diff.greenWindow * 1.2;
-        m.hideT = undefined;
-        if (!p.released && (!p.team.input.held.shoot || p.actionT > METER_TIME * 1.25)) this.releaseFT(p);
+        if (!p.released) {
+          const m = p.team.meter;
+          m.visible = true;
+          m.player = p;
+          m.value = Math.min(1.2, p.actionT / METER_TIME);
+          m.win = this.diff.greenWindow * 1.2;
+          m.result = null;
+          m.hideT = undefined;
+          if (!p.team.input.held.shoot || p.actionT > METER_TIME * 1.25) this.releaseFT(p);
+        }
       } else if (!p.released && p.actionT / METER_TIME >= p.aiRelease) this.releaseFT(p);
       if (p.released && p.actionT > 0.9) p.state = 'idle';
     }
