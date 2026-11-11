@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a2a6c"/>
+      <stop offset="0.55" stop-color="#3a1670"/>
+      <stop offset="1" stop-color="#0a0d1c"/>
+    </linearGradient>
+    <radialGradient id="ball" cx="0.38" cy="0.32" r="0.8">
+      <stop offset="0" stop-color="#ffa24d"/>
+      <stop offset="0.6" stop-color="#ef6a14"/>
+      <stop offset="1" stop-color="#b8430a"/>
+    </radialGradient>
+    <linearGradient id="bolt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7ff6ff"/>
+      <stop offset="1" stop-color="#35a8ff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#35f0ff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#35f0ff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="clipBall"><circle cx="256" cy="232" r="148"/></clipPath>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="232" r="215" fill="url(#glow)"/>
+  <!-- basketball -->
+  <circle cx="256" cy="232" r="148" fill="url(#ball)"/>
+  <g clip-path="url(#clipBall)" fill="none" stroke="#1a0b05" stroke-width="9" stroke-linecap="round">
+    <line x1="256" y1="84" x2="256" y2="380"/>
+    <line x1="108" y1="232" x2="404" y2="232"/>
+    <path d="M150 100 C 215 160 215 304 150 364"/>
+    <path d="M362 100 C 297 160 297 304 362 364"/>
+  </g>
+  <circle cx="256" cy="232" r="148" fill="none" stroke="#1a0b05" stroke-width="9"/>
+  <!-- lightning bolt -->
+  <path d="M292 74 L196 250 H254 L222 384 L330 196 H270 Z" fill="url(#bolt)" stroke="#05101f" stroke-width="10" stroke-linejoin="round"/>
+  <!-- wordmark -->
+  <text x="256" y="462" text-anchor="middle" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-weight="900" font-size="88" font-style="italic" fill="#ffffff" stroke="#05101f" stroke-width="8" paint-order="stroke" letter-spacing="2">2K</text>
+</svg>
