@@ -139,7 +139,8 @@ export class Game {
         p.vel.set(0, 0, 0); p.desired.set(0, 0, 0); p.state = 'idle'; p.jumpT = -1; p.y = 0;
         p.facing = p.targetFacing = Math.atan2(-p.pos.x, -p.pos.z);
       });
-      if (t.human) this.setCtl(t, t.players[4]);
+      // You jump for the tip with your center, unless you're locked to one player
+      if (t.human) this.setCtl(t, t.lock || t.players[4]);
     }
     b.state = 'tip'; b.holder = null; b.shot = null; b.pass = null;
     b.pos.set(0, 1.25, 0); b.vel.set(0, 0, 0);
@@ -153,7 +154,10 @@ export class Game {
     const TOSS = 1.3, HIT = 1.02; // seconds: when the ball goes up, and when it can be tipped after that
     const before = tip.t;
     tip.t += dt;
-    if (before === 0) this.hud.toast('JUMP BALL', 'Press SHOOT to jump for it', 2);
+    if (before === 0) {
+      const mine = this.user.cp && this.user.cp === (this.user.players[4] || this.user.players[this.user.players.length - 1]);
+      this.hud.toast('JUMP BALL', mine ? 'Press SHOOT to jump for it' : 'Your center jumps for it', 2);
+    }
     const tt = tip.t - TOSS;
     if (tt < 0) { b.pos.set(0, 1.25, 0); return; }
     if (before - TOSS < 0) sfx.whistle();
@@ -162,7 +166,7 @@ export class Game {
     this.teams.forEach((t, i) => {
       const c = t.players[4] || t.players[t.players.length - 1];
       if (tip.jumped[i] !== null || !c) return;
-      const human = t.human && t.input && !this.autoplay;
+      const human = t.human && t.input && !this.autoplay && t.cp === c; // only if you're the one jumping
       if (human ? t.input.pressed.shoot || tt > HIT + 0.05 : tt >= c.tipAt) {
         tip.jumped[i] = tt;
         c.jump(0.62, 0.8);
@@ -186,6 +190,7 @@ export class Game {
       this.shotClock = 24; this.shotClockFrozen = false;
       this.tip = null;
       this.state = 'live';
+      for (const t of this.teams) if (t.human && t.lock && t.cp !== t.lock) this.setCtl(t, t.lock);
       sfx.pass(); sfx.cheer(0.5);
       this.hud.toast('TIP-OFF', `${winner.data.name} win the jump ball`, 1.8);
       this.emit('tipoff', { team: winner, player: c });
@@ -255,6 +260,8 @@ export class Game {
 
   // Manual player switch (button). Works on offense and defense.
   switchPlayer(team = this.user) {
+    // Career "just my player": you stay on your player for the whole game
+    if (team === this.user && this.opts.strictLock && team.lock) { this.hud.feedback('PLAYING AS YOUR PLAYER ONLY', '#ffd60a'); return; }
     const ps = team.players;
     let next;
     if (team.lock) {
@@ -1472,7 +1479,7 @@ export class Game {
       // Defense or loose ball
       if (input.pressed.shoot && !p.airborne) { p.jump(0.65, 0.75); this.emit('defJump', { player: p }); }
       if (input.pressed.pass && b.holder) this.attemptSteal(p);
-      if (input.pressed.move) {
+      if (input.pressed.move && !(this.opts.strictLock && p.team.lock)) {
         const target = b.holder ? b.holder.pos : b.pos;
         const next = this.closestTo(p.team.players, target, p);
         if (next) {

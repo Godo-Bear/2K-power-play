@@ -663,10 +663,10 @@ function hookFx(g) {
   });
 }
 
-function launch({ home, away, userSide, diff, q, lock, stage }) {
+function launch({ home, away, userSide, diff, q, lock, stage, strictLock = false }) {
   endGameObjects();
   buildWorld(home, away);
-  game = new Game(scene, arena, home, away, { difficulty: diff, quarterMinutes: q, userSide, playerLock: lock, autoSubs: settings.autoSubs }, hud);
+  game = new Game(scene, arena, home, away, { difficulty: diff, quarterMinutes: q, userSide, playerLock: lock, strictLock, autoSubs: settings.autoSubs }, hud);
   hookFx(game);
   attachAnnouncer(game);
   setQuiet(false);
@@ -1076,7 +1076,12 @@ function renderHub() {
   if (ng) {
     const h = TEAMS[ng.h], a = TEAMS[ng.a];
     nx.innerHTML = `<h4>${ng.stage}</h4><div class="mu"><span>${a.id}<small>${Season.record(s, ng.a)}</small></span><span style="color:var(--muted)">at</span><span>${h.id}<small>${Season.record(s, ng.h)}</small></span></div>
+      ${kind === 'career' ? `<div class="ctl-pick"><small>In games you control</small><div class="seg" id="hubControl">
+        <button data-v="player" class="${s.control !== 'team' ? 'on' : ''}">Just my player</button>
+        <button data-v="team" class="${s.control === 'team' ? 'on' : ''}">Whole team</button></div>
+        <p>${s.control === 'team' ? 'You switch between all five players, like a normal game.' : `You stay on ${esc(s.career.first)} the whole game. Teammates play on their own. Press Pass to call for the ball.`}</p></div>` : ''}
       <button class="primary" id="hubPlay">Play Game</button><button id="hubSim">Simulate</button>`;
+    $$('#hubControl button').forEach((b) => b.addEventListener('click', () => { s.control = b.dataset.v; Season.save(s); sfx.menu(); renderHub(); }));
     $('#hubPlay').onclick = () => playHubGame();
     $('#hubSim').onclick = () => { Season.simUserGame(s); sfx.menu(); maybeChampion(s) || renderHub(); };
   } else {
@@ -1249,7 +1254,9 @@ function playHubGame() {
   const home = ng.h === s.team ? mine : TEAMS[ng.h];
   const away = ng.a === s.team ? mine : TEAMS[ng.a];
   sfx.select();
-  launch({ home, away, userSide: ng.h === s.team ? 'home' : 'away', diff: s.diff, q: s.q, lock: s.career ? s.career.pos : -1, stage: ng.stage });
+  // Career: play as just your player (locked on, no switching) or run the whole team
+  const solo = !!s.career && s.control !== 'team';
+  launch({ home, away, userSide: ng.h === s.team ? 'home' : 'away', diff: s.diff, q: s.q, lock: solo ? s.career.pos : -1, strictLock: solo, stage: ng.stage });
 }
 
 // Called once when a game ends: saves a season/career result. Returns extra HTML for the final screen.
