@@ -336,7 +336,11 @@ export class Player {
       lS = rS = -2.9; lE = rE = -0.15; lZ = 0.2; rZ = -0.2;
       this.legL.knee.rotation.x = this.legR.knee.rotation.x = 0.8;
     }
-    if (this.state === 'steal') { rS = -1.6; rE = -0.1; rZ = -0.3; }
+    if (this.state === 'steal') {
+      // wind up (arm back), then strike (arm out at the ball)
+      if (this.actionT < 0.12) { rS = 0.5; rE = -0.6; rZ = -0.3; lS = -0.2; lZ = 1.1; }
+      else { rS = -1.6; rE = -0.1; rZ = -0.3; lS = 0.3; lZ = 1.1; this.torso.rotation.x = 0.35; }
+    }
     if (this.stumbleT > 0) { this.torso.rotation.x = -0.4; lZ = 1.2; rZ = -1.2; }
     const L = Math.min(1, dt * 18);
     const a = this.armL, b = this.armR;

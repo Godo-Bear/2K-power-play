@@ -613,14 +613,25 @@ export class Game {
     p.stealCooldown = 0.9;
     p.state = 'steal'; p.actionT = 0;
     p.stealStyle = Math.random() < 0.5 ? 'poke' : 'swipe';
-    this.emit('stealAttempt', { player: p, user: this.ctl(p) });
-    const h = this.ball.holder;
-    if (!h || h.team === p.team) return;
+    const t = this.ball.holder;
+    p.stealTarget = t && t.team !== p.team ? t : null;
+    p.stealResolved = false;
+    sfx.swipe();
+    this.emit('stealAttempt', { player: p, user: this.ctl(p), target: p.stealTarget });
+  }
+
+  // The result of a steal lands when the hand reaches the ball, a moment after the button, so the move reads clearly
+  resolveSteal(p) {
+    p.stealResolved = true;
+    const h = p.stealTarget;
+    // He already passed or shot, or moved out of reach: a miss
+    if (!h || this.ball.holder !== h) { p.stumbleT = 0.25; return; }
     const d = hdist(p.pos, h.pos);
-    if (d > 1.6 || h.state !== 'idle') { p.stumbleT = 0.25; return; }
+    if (d > 1.7 || h.state !== 'idle') { p.stumbleT = 0.25; return; }
     let chance = 0.12 + (p.r.steal - h.r.handle) / 260 + (Math.hypot(h.vel.x, h.vel.z) > 3 ? 0.04 : 0);
     if ((h.stealImmuneT || 0) > 0) chance = 0; // can't strip a player mid-spin
     if (!p.team.human) chance *= this.diff.aiSteal * 0.7;
+    else chance += 0.05; // a person has to commit to the lunge and the result lands a beat later, so give it a little help
     if (Math.random() < chance) {
       const b = this.ball;
       b.state = 'loose'; b.holder = null;
@@ -629,6 +640,7 @@ export class Game {
       b.lastTouch = p.team;
       b.reboundable = false;
       p.stats.stl++; h.stats.to++;
+      h.stumbleT = 0.35; // the ball handler is rocked
       this.hud.feedback('STOLEN!', p.team.isUser ? '#3dff7a' : '#ff3b3b');
       this.emit('steal', { player: p, victim: h });
       sfx.cheer(0.5);
@@ -1298,7 +1310,16 @@ export class Game {
 
   updateAction(p) {
     const b = this.ball;
-    if (p.state === 'steal' && p.actionT > 0.3) p.state = 'idle';
+    if (p.state === 'steal') {
+      // Lunge at the ball handler while the arm strikes, land the result mid-strike, then recover
+      const h = p.stealTarget;
+      if (h && p.actionT > 0.05 && p.actionT < 0.26) {
+        p.desired.set(h.pos.x - p.pos.x, 0, h.pos.z - p.pos.z).normalize().multiplyScalar(0.85);
+        p.faceTarget = h.pos;
+      }
+      if (!p.stealResolved && p.actionT >= 0.14) this.resolveSteal(p);
+      if (p.actionT > 0.46) { p.state = 'idle'; p.stealTarget = null; p.faceTarget = null; }
+    }
     if (p.state === 'shoot') {
       const isUser = this.ctl(p);
       if (isUser) {

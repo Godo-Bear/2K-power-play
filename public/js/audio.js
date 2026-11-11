@@ -77,6 +77,7 @@ export const sfx = {
   rim() { tone(620, 0.35, 'triangle', 0.18); tone(1340, 0.25, 'triangle', 0.08); tone(910, 0.3, 'square', 0.03); },
   board() { tone(160, 0.15, 'sine', 0.35, 90); noiseBurst(0.08, 1500, 'bandpass', 0.2); },
   pass() { noiseBurst(0.07, 1200, 'bandpass', 0.15); },
+  swipe() { noiseBurst(0.16, 3000, 'bandpass', 0.24, 1.3); tone(950, 0.12, 'sine', 0.04, 420); },
   catch() { tone(140, 0.06, 'sine', 0.3, 80); },
   squeak() { tone(2400 + Math.random() * 900, 0.08, 'sine', 0.05, 3200); },
   whistle() { tone(2900, 0.5, 'sine', 0.12); tone(3050, 0.5, 'sine', 0.08); },

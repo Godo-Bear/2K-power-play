@@ -689,6 +689,16 @@ $('#optAutoSubs').addEventListener('change', (e) => { settings.autoSubs = e.targ
 // ---------- Game lifecycle ----------
 function hookFx(g) {
   g.on((type, d) => {
+    if (type === 'stealAttempt' && d.player && d.target) {
+      // A glowing streak from the hand to the ball at the moment of the strike
+      const who = d.player, tgt = d.target;
+      setTimeout(() => {
+        if (game !== g) return;
+        fx.swipe(new THREE.Vector3(who.pos.x, who.y + who.data.height * 0.7, who.pos.z), g.ball.pos.clone().setY(Math.max(0.8, g.ball.pos.y)));
+      }, 110);
+      void tgt;
+    }
+    if (type === 'steal') { fx.sparks(g.ball.pos.clone(), [1, 0.7, 0.3], 24); fx.crowdFlashes(25); }
     if (type === 'shot' && d.player) fx.shotPulse(d.player, d.kind === 'dunk' ? [1, 0.3, 0.5] : d.kind === 'layup' ? [0.4, 0.9, 1] : [1, 0.85, 0.4]);
     if (type === 'score') {
       fx.crowdFlashes(d.kind === 'dunk' ? 70 : d.pts === 3 ? 45 : 18);

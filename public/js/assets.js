@@ -275,10 +275,28 @@ function choosePose(p, state, ctx) {
     out.lL = [[0.1, -0.72, 0.68], [0, -0.75, -0.66]];
     out.lR = [[-0.1, -0.6, 0.8], [0, -0.8, -0.6]];
   } else if (state === 'steal') {
-    if (ctx.stealStyle === 'swipe') {
-      const a = Math.min(1, (ctx.actionT || 0) / 0.3) * 1.8 - 0.9;              // arm sweeps across
-      out.aR = [[-Math.cos(a) * 0.6, -0.3, 0.75], [Math.sin(a), -0.2, 0.9]];
-    } else out.aR = [[-0.2, -0.25, 0.95], [0, -0.12, 1]];
+    const t = ctx.actionT || 0;
+    // Direction from the shoulder to the ball, in the player's own space, so the arm really reaches for it
+    let dx = 0, dy = -0.2, dz = 1;
+    if (ctx.ballPos) {
+      const wx = ctx.ballPos.x - p.pos.x, wz = ctx.ballPos.z - p.pos.z, wy = ctx.ballPos.y - (p.y + p.data.height * 0.78);
+      const c = Math.cos(p.facing), s = Math.sin(p.facing);
+      dx = wx * c - wz * s; dz = wx * s + wz * c; dy = wy;
+      const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+    }
+    if (t < 0.12) {
+      // Wind-up: the hand is pulled back and low, the other arm goes out for balance
+      out.aR = [[-0.35, -0.55, -0.35], [-0.15, -0.3, -0.5]];
+      out.aL = [[0.75, 0.1, 0.25], [0.5, 0.4, 0.3]];
+    } else if (t < 0.3) {
+      // Strike: the arm shoots out at the ball (a swipe also sweeps across it), with a lunging step
+      const k = (t - 0.12) / 0.18;
+      const sweep = ctx.stealStyle === 'swipe' ? (0.5 - k) * 0.9 : 0;
+      out.aR = [[dx - sweep, dy, dz], [dx - sweep * 0.5, dy, dz]];
+      out.aL = [[0.85, 0.15, -0.15], [0.55, 0.3, -0.3]];
+      out.lR = [[-0.1, -0.4, 0.9], [0, -0.95, -0.2]];
+      out.lL = [[0.1, -0.85, -0.45], [0, -1, -0.1]];
+    } // after that no pose is forced, so he settles back into his defensive stance
   } else if (ctx.airborne && ctx.move !== 'stepback') {
     both([0.25, 0.95, 0.2], [0.05, 1, 0.15]);                                  // hands up to contest / rebound
   } else if (ctx.hasBall) {
@@ -323,6 +341,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   h.rotation.z += (roll - h.rotation.z) * Math.min(1, dt * 10);
   // Lean into sprints, sit into a defensive stance
   const lean = Math.min(0.16, speed * 0.022) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
+    + (state === 'steal' ? 0.3 : 0)
     + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
   h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
   if (player.mixer) {

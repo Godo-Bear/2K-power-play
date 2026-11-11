@@ -106,6 +106,14 @@ export class FX {
     this.glow.emit(p.pos.x + r() * 0.5, p.y + 0.1 + Math.random() * 0.4, p.pos.z + r() * 0.5, r() * 0.3, 1.2 + Math.random(), r() * 0.3, 1, 0.3 + Math.random() * 0.3, 0.04, 0.5);
   }
 
+  // A quick glowing streak from a defender's hand toward the ball when he goes for a steal
+  swipe(from, to, color = [0.5, 0.95, 1]) {
+    for (let i = 0; i < 18; i++) {
+      const u = i / 17, arc = Math.sin(u * Math.PI) * 0.22;
+      this.glow.emit(from.x + (to.x - from.x) * u, from.y + (to.y - from.y) * u + arc, from.z + (to.z - from.z) * u, 0, 0.15, 0, color[0], color[1], color[2], 0.22 + u * 0.14);
+    }
+  }
+
   sparks(pos, color = [1, 0.8, 0.4], n = 26) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 3.5;
