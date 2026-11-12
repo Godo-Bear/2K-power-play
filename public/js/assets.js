@@ -220,10 +220,11 @@ function tintModel(model, cfg, fake) {
 const SHOE_LEN = 0.362; // length of the shoe model, in its own units
 function attachShoes(holder, model, bones) {
   const sh = custom.shoes;
-  if (!sh || !bones || !bones.ftL || !bones.ftR) return;
+  const placed = [];
+  if (!sh || !bones || !bones.ftL || !bones.ftR) return placed;
   const boots = [];
   model.traverse((o) => { if (o.isMesh && (Array.isArray(o.material) ? o.material : [o.material]).some((mt) => /boot/i.test(mt.name || ''))) boots.push(o); });
-  if (!boots.length) return;
+  if (!boots.length) return placed;
   holder.updateMatrixWorld(true);
   const v = new THREE.Vector3(), fp = new THREE.Vector3();
   const box = { l: new THREE.Box3(), r: new THREE.Box3() };
@@ -242,16 +243,48 @@ function attachShoes(holder, model, bones) {
     const len = b.max.z - b.min.z, wid = b.max.x - b.min.x;
     const s = Math.min((len * 1.06) / SHOE_LEN, (wid * 1.5) / 0.144);
     const shoe = src.clone(true);
+    shoe.userData.isShoe = true;
     shoe.rotation.y = -Math.PI / 2;                       // toe along +z, the way the player faces
     shoe.scale.setScalar(s);
     shoe.position.set((b.min.x + b.max.x) / 2, b.min.y, (b.min.z + b.max.z) / 2 + len * 0.02);
     holder.add(shoe);
     holder.updateMatrixWorld(true);
     bone.attach(shoe);
+    placed.push({ obj: shoe, foot: bone, calf: side === 'l' ? bones.llL : bones.llR, rel: shoe.quaternion.clone() });
   };
   fit('l', bones.ftL, sh.left);
   fit('r', bones.ftR, sh.right);
   for (const m of boots) m.visible = false;
+  return placed;
+}
+
+// The foot bones can twist as the legs are posed, so each shoe is aimed from the body instead:
+// toe along the way the player faces, tilted with the shin (toe down on the trailing leg, up on the leading one)
+const _qs = { h: new THREE.Quaternion(), i: new THREE.Quaternion(), p: new THREE.Quaternion(), r: new THREE.Quaternion(), d: new THREE.Quaternion(), pitch: new THREE.Quaternion(), yaw: new THREE.Quaternion() };
+const _vs = { a: new THREE.Vector3(), b: new THREE.Vector3() };
+const _AX = new THREE.Vector3(1, 0, 0), _AY = new THREE.Vector3(0, 1, 0);
+function orientShoes(player) {
+  const h = player.customModel;
+  h.updateMatrixWorld(true);
+  h.getWorldQuaternion(_qs.h);
+  _qs.i.copy(_qs.h).invert();
+  _qs.yaw.setFromAxisAngle(_AY, -Math.PI / 2);
+  for (const s of player.shoes) {
+    let pitch = 0;
+    if (s.calf) {
+      s.foot.getWorldPosition(_vs.a); s.calf.getWorldPosition(_vs.b);
+      _vs.a.sub(_vs.b).applyQuaternion(_qs.i);          // calf to ankle, in the body's own frame
+      pitch = Math.max(-0.9, Math.min(0.7, Math.atan2(_vs.a.z, -_vs.a.y) * 0.55));
+    }
+    _qs.pitch.setFromAxisAngle(_AX, -pitch);
+    _qs.d.copy(_qs.h).multiply(_qs.pitch).multiply(_qs.yaw);          // desired world rotation
+    // Turn the foot bone itself (the clips leave the feet twisted), so the bare foot and the shoe agree
+    _qs.d.multiply(_qs.r.copy(s.rel).invert());                         // the bone's own desired world rotation
+    s.foot.parent.getWorldQuaternion(_qs.p);
+    s.foot.quaternion.copy(_qs.p.invert()).multiply(_qs.d);
+    s.foot.updateMatrixWorld(true);
+    s.obj.quaternion.copy(s.rel);
+  }
 }
 
 // Replace a procedural player's look with the custom model (keeps the hidden rig for gameplay).
@@ -268,7 +301,7 @@ export function applyCustomPlayer(player) {
   tintModel(model, cfg, player);
   player.bones = findBones(model);
   attachHair(holder, model, player.bones, player.data, cfg);
-  attachShoes(holder, model, player.bones);
+  player.shoes = attachShoes(holder, model, player.bones);
   player.limb = { aL: { w: 0 }, aR: { w: 0 }, lL: { w: 0 }, lR: { w: 0 } };
   player.body.visible = false;
   player.root.add(holder);
@@ -472,6 +505,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   applyLimb(player, 'lL', b.ulL, b.llL, pose.lL, dt, ctx);
   applyLimb(player, 'lR', b.ulR, b.llR, pose.lR, dt, ctx);
   player.facing = realFacing;
+  if (player.shoes && player.shoes.length) orientShoes(player);
 }
 
 export function makeCustomBall(radius) {
