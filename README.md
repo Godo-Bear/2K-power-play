@@ -128,7 +128,8 @@ src/worker.js               Cloudflare Worker: static site, accounts and the onl
 - Man Player by RiverofCreative (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/man-player-4c7133dbb06e4136891d59231372d818)
 - Basketball Court by Klieg3D (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/basketball-court-d2ea5bc76e094f1a9e6aa15891bd6885)
 - Basketball (shape only) by FIELDFLY3R (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/basketball-80f10af6cb604d7cbbd141050d093b2b)
+- AJ 12 Basketball Sneakers by Real Slim Shady (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/aj-12-basketball-sneakers-3bda4837b67e47cca67516b374bfa456)
 - Low Poly Sports Stands by Cole Brenner (CC-BY 3.0), via [Poly Pizza](https://poly.pizza)
 
-The uploaded models were optimized for the web (smaller textures, unused animations and the court's fence removed).
+The uploaded models were optimized for the web (smaller textures, unused animations and the court's fence removed; the sneakers went from 176k to about 6k triangles per shoe and were split into a left and a right).
 Credits are also shown in the game's Settings screen.

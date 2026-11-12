@@ -72,6 +72,11 @@
     "Man Player by RiverofCreative (CC-BY 4.0) via Sketchfab",
     "Basketball Court by Klieg3D (CC-BY 4.0) via Sketchfab",
     "Basketball (shape only) by FIELDFLY3R (CC-BY 4.0) via Sketchfab",
-    "Low Poly Sports Stands by Cole Brenner (CC-BY 3.0) via Poly Pizza"
-  ]
+    "Low Poly Sports Stands by Cole Brenner (CC-BY 3.0) via Poly Pizza",
+    "AJ 12 Basketball Sneakers by Real Slim Shady (CC-BY 4.0) via Sketchfab"
+  ],
+  "shoes": {
+    "left": "models/shoe-left.glb",
+    "right": "models/shoe-right.glb"
+  }
 }

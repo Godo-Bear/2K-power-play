@@ -60,6 +60,12 @@ export async function loadCustomAssets() {
     const g = await loadGLTF(m.player.model);
     custom.player = { scene: g.scene, animations: g.animations, cfg: m.player };
   }));
+  if (m.shoes?.left && m.shoes?.right) jobs.push(attempt('shoes', async () => {
+    const [l, r] = await Promise.all([loadGLTF(m.shoes.left), loadGLTF(m.shoes.right)]);
+    l.scene.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+    r.scene.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+    custom.shoes = { left: l.scene, right: r.scene, cfg: m.shoes };
+  }));
   if (m.court?.texture) jobs.push(attempt('court texture', async () => { custom.courtTexture = await loadTex(m.court.texture); }));
   if (m.court?.model) jobs.push(attempt('court model', async () => { custom.courtModel = { scene: (await loadGLTF(m.court.model)).scene, cfg: m.court }; }));
   // `arena` may be a single entry or have a `models` list
@@ -102,6 +108,7 @@ const BONE_KEYS = {
   upperarml: 'uaL', lowerarml: 'laL', upperarmr: 'uaR', lowerarmr: 'laR', upperlegl: 'ulL', lowerlegl: 'llL', upperlegr: 'ulR', lowerlegr: 'llR',
   lupperarm: 'uaL', lforearm: 'laL', rupperarm: 'uaR', rforearm: 'laR', lthigh: 'ulL', lcalf: 'llL', rthigh: 'ulR', rcalf: 'llR',
   head: 'head', headend: 'headEnd', torso: 'torso',
+  lfoot: 'ftL', rfoot: 'ftR', footl: 'ftL', footr: 'ftR',
 };
 // The bone a limb points toward (its "child"), by name. Rigs with twist bones have several children, so the first one is not reliable.
 const BONE_CHILD = { lupperarm: 'lforearm', lforearm: 'lhand', rupperarm: 'rforearm', rforearm: 'rhand', lthigh: 'lcalf', lcalf: 'lfoot', rthigh: 'rcalf', rcalf: 'rfoot' };
@@ -209,6 +216,44 @@ function tintModel(model, cfg, fake) {
   });
 }
 
+// Swap the model's boots for the sneaker model: each shoe is sized to the boot it replaces and rides on the foot bone
+const SHOE_LEN = 0.362; // length of the shoe model, in its own units
+function attachShoes(holder, model, bones) {
+  const sh = custom.shoes;
+  if (!sh || !bones || !bones.ftL || !bones.ftR) return;
+  const boots = [];
+  model.traverse((o) => { if (o.isMesh && (Array.isArray(o.material) ? o.material : [o.material]).some((mt) => /boot/i.test(mt.name || ''))) boots.push(o); });
+  if (!boots.length) return;
+  holder.updateMatrixWorld(true);
+  const v = new THREE.Vector3(), fp = new THREE.Vector3();
+  const box = { l: new THREE.Box3(), r: new THREE.Box3() };
+  bones.ftL.getWorldPosition(fp);
+  const midX = fp.x * 0; // feet are either side of the model's centre line
+  for (const m of boots) {
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      (v.x > midX ? box.l : box.r).expandByPoint(v);
+    }
+  }
+  const fit = (side, bone, src) => {
+    const b = box[side];
+    if (b.isEmpty()) return;
+    const len = b.max.z - b.min.z, wid = b.max.x - b.min.x;
+    const s = Math.min((len * 1.06) / SHOE_LEN, (wid * 1.5) / 0.144);
+    const shoe = src.clone(true);
+    shoe.rotation.y = -Math.PI / 2;                       // toe along +z, the way the player faces
+    shoe.scale.setScalar(s);
+    shoe.position.set((b.min.x + b.max.x) / 2, b.min.y, (b.min.z + b.max.z) / 2 + len * 0.02);
+    holder.add(shoe);
+    holder.updateMatrixWorld(true);
+    bone.attach(shoe);
+  };
+  fit('l', bones.ftL, sh.left);
+  fit('r', bones.ftR, sh.right);
+  for (const m of boots) m.visible = false;
+}
+
 // Replace a procedural player's look with the custom model (keeps the hidden rig for gameplay).
 export function applyCustomPlayer(player) {
   const cp = custom.player;
@@ -223,6 +268,7 @@ export function applyCustomPlayer(player) {
   tintModel(model, cfg, player);
   player.bones = findBones(model);
   attachHair(holder, model, player.bones, player.data, cfg);
+  attachShoes(holder, model, player.bones);
   player.limb = { aL: { w: 0 }, aR: { w: 0 }, lL: { w: 0 }, lR: { w: 0 } };
   player.body.visible = false;
   player.root.add(holder);
