@@ -16,6 +16,8 @@ built with Three.js and deployed on Cloudflare Workers.
 **On the court**
 - Opening **jump ball**, then full 5-on-5 with quarters, overtime, a 24-second shot clock (14 on offensive rebounds), fouls, free throws, the bonus, and timeouts
 - **Substitutions**: 10-player rosters with benches, player fatigue, foul-outs, an auto-sub coach you can turn off, and a manual substitutions screen (from Pause or a timeout)
+- **Team tactics**: edit how a team plays, like FC's Edit Tactic screen. Pick a preset (Pace & Space, Inside-Out, Fast Break, Iso Star, Half-Court Grind, Full Pressure) or drag sliders for pace, 3-point focus, rim attack, ball movement, offensive rebounding, defensive pressure and defensive line. Open it from the Matchup screen, the Pause menu, halftime, or a Season/Career hub. Teams also play to their OVR: an 88 is sharp and tough to rattle, an 80 makes more mistakes.
+- **Halftime show**: three studio legends break down the first half over a highlight reel of the half's best dunks, blocks, steals and threes, with top performers
 - Timed shot meter, layups, dunks, aimed passes, steals, blocks and rebounds
 - **Automatic moves**: the game picks the right move for the situation. Fadeaways, step-backs, pull-ups, floaters,
   euro-steps, reverse layups, one- and two-hand slams, windmills and tomahawks, spin moves, hesitations,

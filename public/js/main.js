@@ -447,6 +447,7 @@ function endGameObjects() {
   applyBrightness();
 }
 function quitToMenu() {
+  htClear();
   closeOnline();
   endGameObjects();
   mode = 'menu';
@@ -751,9 +752,97 @@ $('#tacReset').addEventListener('click', () => { sfx.menu(); resetTactics(tac.te
 $('#pauseTactics').addEventListener('click', () => { if (!game || attract) return; openTactics(game.user.data, () => show('pause')); });
 $('#selTactics').addEventListener('click', () => { sfx.menu(); openTactics(TEAMS[settings[settings.side]], () => { renderSelect(); show('select'); }); });
 
+// ---------- Halftime show ----------
+// Three original studio legends break down the first half while a highlight reel plays
+const ANALYSTS = [
+  { name: 'Big Tex', role: 'Center · 4× champion', skin: '#8d5524', hair: '#111111', hairStyle: 0, suit: '#1b2a4a' },
+  { name: 'Slick Dom', role: 'Guard · scoring legend', skin: '#c68642', hair: '#111111', hairStyle: 3, suit: '#5b1633' },
+  { name: 'Coach Kingsley', role: 'Forward · all-time great', skin: '#5c3a1e', hair: '#1a1a1a', hairStyle: 1, suit: '#10413a' },
+];
+const REEL_ICON = { dunk: '🔥', three: '🎯', block: '🛑', steal: '✋', buzzer: '⏱️', assist: '🤝' };
+let htTimers = [];
+function htClear() { htTimers.forEach((t) => clearInterval(t)); htTimers = []; }
+
+function halftimeLines(g) {
+  const a = g.away, h = g.home;
+  const all = [...a.players, ...a.bench, ...h.players, ...h.bench];
+  const tot = (t, k) => [...t.players, ...t.bench].reduce((x, p) => x + p.stats[k], 0);
+  const top = (k) => all.reduce((b, p) => (p.stats[k] > (b ? b.stats[k] : -1) ? p : b), null);
+  const nm = (t) => t.data.name;
+  const lead = h.score - a.score, leader = lead >= 0 ? h : a, trailer = lead >= 0 ? a : h;
+  const L = [];
+  L.push([1, Math.abs(lead) <= 2 ? `All square at the break, ${a.score} to ${h.score}. This one is a street fight.` : Math.abs(lead) >= 12 ? `${nm(leader)} are running away with it, up ${Math.abs(lead)}. ${nm(trailer)} need answers fast.` : `${nm(leader)} lead by ${Math.abs(lead)} at the half. Nothing is decided yet.`]);
+  const sc = top('pts');
+  if (sc && sc.stats.pts > 0) L.push([0, `${sc.data.first} ${sc.data.last} already has ${sc.stats.pts} points on ${sc.stats.fgm}-for-${sc.stats.fga} shooting. ${sc.stats.pts >= 14 ? 'He is cooking out there!' : 'Quietly efficient.'}`]);
+  const tp = (t) => `${tot(t, 'tpm')}-for-${tot(t, 'tpa')}`;
+  L.push([1, `From deep: ${nm(h)} are ${tp(h)}, ${nm(a)} are ${tp(a)}. ${tot(h, 'tpm') + tot(a, 'tpm') >= 6 ? 'The nets are on fire.' : 'The rims have been tight.'}`]);
+  const rb = tot(h, 'reb') - tot(a, 'reb');
+  L.push([0, rb === 0 ? 'Even on the glass, so it comes down to who wants it more.' : `${nm(rb > 0 ? h : a)} are winning the boards ${Math.max(tot(h, 'reb'), tot(a, 'reb'))} to ${Math.min(tot(h, 'reb'), tot(a, 'reb'))}. That is where games are won.`]);
+  const tov = tot(h, 'to') - tot(a, 'to');
+  L.push([2, tov === 0 ? 'Both teams are taking care of the ball. Clean basketball.' : `${nm(tov > 0 ? h : a)} have ${Math.max(tot(h, 'to'), tot(a, 'to'))} turnovers. Cut those out and it is a different game.`]);
+  const bl = top('blk'), st = top('stl');
+  if (bl && bl.stats.blk >= 2) L.push([0, `${bl.data.last} has ${bl.stats.blk} blocks. Nothing is easy at the rim against him.`]);
+  else if (st && st.stats.stl >= 2) L.push([1, `${st.data.last} has ${st.stats.stl} steals. Those hands are quick.`]);
+  const me = g.user, tc = me.tac;
+  L.push([2, tc.pace > 0.65 ? `${nm(me)} want to run. Keep pushing the pace, the legs will tell in the fourth.` : tc.pressure > 0.7 ? `That pressure is working for ${nm(me)}, but watch the reach-in fouls.` : tc.threes > 0.7 ? `${nm(me)} keep hunting threes. Live by it, die by it.` : `${nm(me)}, trust your tactics and adjust at the break. You can change them from the pause menu.`]);
+  L.push([1, `Fresh legs and a new half. Let's get back to it!`]);
+  return L;
+}
+
+function renderHalftime(g, reel) {
+  htClear();
+  $('#htScore').innerHTML = `${crest(g.away.data)}<b>${g.away.score}</b><span>-</span><b>${g.home.score}</b>${crest(g.home.data)}`;
+  // Studio desk
+  $('#htDesk').innerHTML = ANALYSTS.map((a, i) => {
+    const img = portrait({ skin: a.skin, hair: a.hair, hairStyle: a.hairStyle, jersey: a.suit, trim: '#ffd60a' });
+    return `<div class="ht-an" data-i="${i}">${img ? `<img src="${img}" alt="">` : ''}<b>${a.name}</b><small>${a.role}</small></div>`;
+  }).join('');
+  const lines = halftimeLines(g);
+  let li = 0;
+  const say = () => {
+    if (li >= lines.length) { clearInterval(lineT); $('#htBubble').innerHTML += ''; return; }
+    const [who, text] = lines[li++];
+    $$('#htDesk .ht-an').forEach((e) => e.classList.toggle('talk', Number(e.dataset.i) === who));
+    $('#htBubble').innerHTML = `<b>${ANALYSTS[who].name}</b> ${text}`;
+    sfx.menu();
+  };
+  say();
+  const lineT = setInterval(say, 5200);
+  htTimers.push(lineT);
+  // Highlight reel: the best plays of the half, in game order
+  const best = [...reel].sort((x, y) => y.pri - x.pri).slice(0, 6).sort((x, y) => x.period - y.period || 0).reverse();
+  const clips = best.length ? best : [{ kind: 'assist', clock: '', period: 1, text: 'A quiet half so far. The highlights are coming in the second!', team: g.home.data.id, pts: 0 }];
+  let ci = 0;
+  const showClip = () => {
+    const c = clips[ci % clips.length]; ci++;
+    const t = [g.home, g.away].find((x) => x.data.id === c.team) || g.home;
+    $('#htClip').innerHTML = `<div class="ht-clip" style="--tc:${t.data.primary}"><span class="ico">${REEL_ICON[c.kind] || '🏀'}</span><div><small>${c.period ? 'Q' + c.period : ''} ${c.clock}${c.kind ? ' · ' + c.kind.toUpperCase() : ''}</small><b>${c.text}</b></div>${crest(t.data)}</div>`;
+    $$('#htDots i').forEach((d, i) => d.classList.toggle('on', i === (ci - 1) % clips.length));
+    if (c.kind !== 'assist') { fx.sparks(new THREE.Vector3(0, 2, 0), [1, 0.8, 0.3], 20); fx.crowdFlashes(40); }
+  };
+  $('#htDots').innerHTML = clips.map(() => '<i></i>').join('');
+  showClip();
+  const clipT = setInterval(showClip, 3300);
+  htTimers.push(clipT);
+  // Top performers
+  const all = [...g.away.players, ...g.away.bench, ...g.home.players, ...g.home.bench].filter((p) => p.stats.sec > 0 || p.stats.pts > 0);
+  const lead = all.sort((x, y) => y.stats.pts + y.stats.reb + y.stats.ast - (x.stats.pts + x.stats.reb + x.stats.ast)).slice(0, 3);
+  $('#htLeaders').innerHTML = lead.map((p) => `<div class="ht-ld" style="--tc:${p.team.data.primary}"><b>${p.data.first[0]}. ${p.data.last}</b><small>${p.team.data.id}</small><span>${p.stats.pts} PTS · ${p.stats.reb} REB · ${p.stats.ast} AST</span></div>`).join('');
+  htTimers.push(setTimeout(() => { if (game === g && g.halftime) endHalftimeShow(); }, 62000));
+}
+function endHalftimeShow() {
+  htClear();
+  if (game) game.endHalftime();
+  if ($('#halftime').classList.contains('show')) show(null);
+}
+$('#htSkip').addEventListener('click', () => { sfx.select(); endHalftimeShow(); });
+
+$('#pauseTactics2').addEventListener('click', () => { if (game) openTactics(game.user.data, () => show('halftime')); });
+
 // ---------- Game lifecycle ----------
 function hookFx(g) {
   g.on((type, d) => {
+    if (type === 'halftime' && g === game) { renderHalftime(g, d.reel); show('halftime'); }
     if (type === 'stealAttempt' && d.player && d.target) {
       // A glowing streak from the hand to the ball at the moment of the strike
       const who = d.player, tgt = d.target;

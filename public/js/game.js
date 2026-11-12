@@ -249,7 +249,28 @@ export class Game {
     if (team.human) this.setCtl(team, team.players.includes(team.cp) ? team.cp : team.players[0]);
     if (!this.ball.holder || !this.user.players.includes(this.ball.holder)) this.forcePossession(this.user.cp || this.user.players[0]);
   }
-  emit(type, data = {}) { for (const fn of this.listeners) fn(type, data); }
+  emit(type, data = {}) {
+    this.noteHighlight(type, data);
+    for (const fn of this.listeners) fn(type, data);
+  }
+
+  // Keeps the best plays of the game for the halftime show
+  noteHighlight(type, d) {
+    if (this.opts.attract || this.opts.tutorial || this.opts.practice) return;
+    let pri = 0, kind = '', verb = '';
+    if (type === 'score') {
+      if (d.buzzer) { pri = 5; kind = 'buzzer'; verb = 'hits the buzzer-beater'; }
+      else if (d.kind === 'dunk') { pri = 4; kind = 'dunk'; verb = 'throws it down'; }
+      else if (d.pts === 3) { pri = 3; kind = 'three'; verb = 'drains a three'; }
+      else if (d.assist && d.kind !== 'dunk') { pri = 1; kind = 'assist'; verb = `finishes off a pass from #${d.assist.data.number} ${d.assist.data.last}`; }
+    } else if (type === 'block') { pri = 4; kind = 'block'; verb = `swats #${d.victim.data.number} ${d.victim.data.last}'s shot away`; }
+    else if (type === 'steal') { pri = 3; kind = 'steal'; verb = `picks the pocket of #${d.victim.data.number} ${d.victim.data.last}`; }
+    else if (type === 'intercept') { pri = 3; kind = 'steal'; verb = `jumps the passing lane`; }
+    if (!pri || !d.player && !d.team) return;
+    const pl = d.player;
+    this.reel = this.reel || [];
+    this.reel.push({ pri, kind, period: this.period, clock: this.clockText(), team: (pl ? pl.team : d.team).data.id, name: pl ? `#${pl.data.number} ${pl.data.last}` : '', text: pl ? `${pl.data.first[0]}. ${pl.data.last} ${verb}` : verb, pts: d.pts || 0 });
+  }
   // Tutorial can force who gets the ball after dead balls
   nextOffense(team) {
     if (this.tutorialPossession) return this.tutorialPossession === 'user' ? this.user : this.cpu;
@@ -1262,10 +1283,18 @@ export class Game {
     this.period++;
     this.state = 'break';
     this.stateT = this.period === 3 ? 5 : 3.2;
+    // Halftime show: the break lasts until the show is done (the screen calls endHalftime)
+    if (this.period === 3 && !this.opts.attract && !this.opts.tutorial && !this.opts.practice && !this.opts.versus && !this.opts.guest && !this.opts.noHalftime) {
+      this.halftime = true;
+      this.stateT = 9999;
+      this.emit('halftime', { reel: this.reel || [] });
+    }
     this.applySubs();
     this.ball.state = 'free';
     this.ball.holder = null;
   }
+
+  endHalftime() { if (this.halftime) { this.halftime = false; this.stateT = 0.4; } }
 
   periodName() { return this.period <= 4 ? `Q${this.period}` : this.period === 5 ? 'OT' : `${this.period - 4}OT`; }
 
@@ -1499,6 +1528,7 @@ export class Game {
             q.stats.stl++; ps.from.stats.to++;
             this.hud.feedback('INTERCEPTED!', q.team.isUser ? '#3dff7a' : '#ff3b3b');
             this.setHolder(q);
+            this.emit('intercept', { player: q, victim: ps.from });
             sfx.cheer(0.5);
             return;
           }
