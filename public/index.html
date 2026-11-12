@@ -130,6 +130,7 @@
         <button class="playas">Play as this team</button>
       </div>
     </div>
+    <div class="row"><button id="selTactics">Edit my team's tactics</button></div>
     <div class="options">
       <label>Player lock
         <select id="optLock"><option value="-1">Off (auto switch)</option></select>
@@ -285,10 +286,28 @@
       <button id="resumeBtn" class="primary">Resume</button>
       <button class="openSubs">Substitutions</button>
       <button id="pauseTimeout">Call Timeout</button>
+      <button id="pauseTactics">Team Tactics</button>
       <button data-go="controls">Controls</button>
       <button data-go="settings">Settings</button>
       <button id="quitBtn">Quit to Menu</button>
     </nav>
+  </div>
+
+  <!-- Team tactics -->
+  <div id="tactics" class="screen">
+    <div class="tac-head"><span id="tacCrest"></span><div><h2>Edit Tactics</h2><small id="tacTeam"></small></div><div class="tac-ovr" id="tacOvr"></div></div>
+    <div class="tac-body">
+      <div class="tac-left">
+        <div class="tac-label">Tactical preset <b id="tacPresetName"></b></div>
+        <div class="chips" id="tacPresets"></div>
+        <div id="tacSliders"></div>
+      </div>
+      <div class="tac-right">
+        <svg id="tacCourt" viewBox="0 0 300 270" role="img" aria-label="How your team will set up on offense"></svg>
+        <div class="tac-traits" id="tacTraits"></div>
+      </div>
+    </div>
+    <div class="row"><button id="tacReset">Reset</button><button id="tacBack">Back</button><button id="tacSave" class="primary">Save Changes</button></div>
   </div>
 
   <!-- Tutorial complete -->

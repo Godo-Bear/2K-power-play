@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { C } from './arena.js';
 import { Player } from './player.js';
+import { getTactics, tacticsNorm } from './tactics.js';
 import { DIFFICULTY } from './data.js';
 import { input } from './input.js';
 import { sfx } from './audio.js';
@@ -82,6 +83,9 @@ export class Game {
       t.players = t.data.roster.slice(0, 5).map((d, i) => new Player(d, t, i, scene));
       t.bench = t.data.roster.slice(5, 10).map((d, i) => new Player(d, t, i, scene));
       t.pendingSubs = [];
+      // How the team plays: saved or roster-based tactics, and how sharp it is for its overall rating (88 = sharp, 80 = sloppy)
+      t.tac = tacticsNorm(getTactics(t.data).vals);
+      t.skill = ((t.data.ovr || 83) - 83) / 4;
       t.players.forEach((p, i) => { p.rid = i; });
       t.bench.forEach((p, i) => { p.rid = i + 5; });
       // Controller: which input drives this team (null = CPU), the player it controls, and its shot meter
@@ -498,7 +502,7 @@ export class Game {
       prob = Math.max(prob, p.state === 'dunk' ? 0.9 : 0.62) * (0.7 + p.r.inside / 330);
       if (p.state === 'dunk') prob = Math.min(0.97, prob * Math.min(1.05, info.contest + 0.25));
     }
-    if (!team.human) prob *= this.diff.aiShot;
+    if (!team.human) prob *= this.diff.aiShot * (1 + team.skill * 0.08);
     // The move matters: fades and floaters trade a little accuracy for being hard to contest
     if (label !== 'EXCELLENT' || !isUser) {
       const lift = { fadeaway: info.contest < 0.9 ? 1.2 : 0.96, stepback: 1.07, pullup: 0.97, euro: 1.14, reverse: 1.1, floater: 0.92, twohand: 1.05 }[p.shotStyle];
@@ -642,7 +646,7 @@ export class Game {
     let chance = 0.34 + (p.r.steal - h.r.handle) / 160 + Math.max(0, 1.5 - d) * 0.18 + (Math.hypot(h.vel.x, h.vel.z) > 3 ? 0.05 : 0) + p.perk.steal - h.perk.handle * 0.5;
     chance = Math.max(0.1, Math.min(0.85, chance));
     if ((h.stealImmuneT || 0) > 0) chance = 0; // can't strip a player mid-spin
-    if (!p.team.human) chance *= this.diff.aiSteal * 0.7;
+    if (!p.team.human) chance *= this.diff.aiSteal * 0.7 * (1 + p.team.skill * 0.12);
     else chance += 0.1; // a person has to commit to the lunge and the result lands a beat later, so give it a real boost
     if (Math.random() < chance) {
       const b = this.ball;
@@ -1397,7 +1401,7 @@ export class Game {
       const human = q.team.human && this.ctl(q);
       let chance;
       if (human) chance = 0.9 - (p.state === 'dunk' ? Math.max(0, p.r.dunk - 80) / 300 : 0);
-      else chance = (0.04 + q.r.block / 900) * (p.state === 'dunk' ? 0.65 : 1) * this.diff.aiDef;
+      else chance = (0.04 + q.r.block / 900) * (p.state === 'dunk' ? 0.65 : 1) * this.diff.aiDef * (1 + q.team.skill * 0.1);
       chance *= { reverse: 0.7, euro: 0.8, floater: 0.7 }[p.shotStyle] || 1;
       chance *= (1 + q.perk.block) * Math.max(0.3, 1 - p.perk.blockResist);
       if (Math.random() >= chance) continue;
@@ -1487,7 +1491,8 @@ export class Game {
           ps.checked.add(q);
           // Standing in the passing lane is an interception: the closer to the ball's path, the surer it is
           let chance = (d < 0.5 ? 0.9 : 0.62) + q.r.steal / 1000 + q.perk.steal * 0.5;
-          if (!q.team.human) chance *= Math.min(1, 0.55 + this.diff.aiSteal * 0.45);
+          if (!q.team.human) chance *= Math.min(1, 0.55 + this.diff.aiSteal * 0.45) * (1 + q.team.skill * 0.1);
+          chance *= 1 - ps.from.team.skill * 0.12;      // sharp passers read the lane
           if (q.state === 'steal' || q.stumbleT > 0) chance *= 0.6; // off balance
           chance = Math.min(0.97, chance);
           if (Math.random() < chance) {
@@ -1692,7 +1697,10 @@ export class Game {
       [7.6, 0], [7.4, 0.95], [7.0, -1.33], [5.0, -0.55], [2.4, 0.95],
     ];
     if (p.cutT > 0) return tmp.set(dir * (C.HOOP_X - 1.4), 0, (p.cutZ || 0));
-    const [r, a] = spots[i];
+    let [r, a] = spots[i];
+    const tc = team.tac;
+    if (i <= 2) r *= 0.92 + tc.threes * 0.2;               // shooters stand deeper when the team hunts threes
+    else r *= 1 - (tc.attack - 0.5) * 0.16;                 // bigs set up closer when attacking the rim
     const jitter = Math.sin(this.time * 0.5 + i * 2) * 0.5;
     return tmp.set(dir * (C.HOOP_X - r * Math.cos(a)), 0, r * Math.sin(a) + jitter);
   }
@@ -1711,10 +1719,10 @@ export class Game {
       if (b.holder === p && live) { this.aiBallHandler(p, dt); return; }
       // Off-ball offense
       p.cutT = Math.max(0, (p.cutT || 0) - dt);
-      if (live && p.cutT <= 0 && Math.random() < dt * 0.07 && p.index !== 0) { p.cutT = 1.6; p.cutZ = rand(-1.2, 1.2); }
+      if (live && p.cutT <= 0 && Math.random() < dt * (0.03 + 0.08 * off.tac.attack) && p.index !== 0) { p.cutT = 1.6; p.cutZ = rand(-1.2, 1.2); }
       let target = this.offenseSpot(off, p.index, p).clone();
       // Crash the boards on a shot
-      if (b.state === 'shot' && (p.index >= 3)) target.set(off.dir * (C.HOOP_X - 1.8), 0, p.index === 3 ? -1.2 : 1.2);
+      if (b.state === 'shot' && p.index >= 5 - (1 + Math.round(off.tac.glass * 3))) target.set(off.dir * (C.HOOP_X - 1.8), 0, (p.index % 2 ? -1.2 : 1.2) * (0.7 + (p.index % 3) * 0.35));
       this.moveTo(p, target, hdist(p.pos, target) > 5);
       return;
     }
@@ -1727,18 +1735,19 @@ export class Game {
     toHoop.normalize();
     const onBall = b.holder === man;
     const tut = this.passive() && !p.team.human;
-    let gap = onBall ? 1.0 + (1 - this.diff.aiDef) * 0.8 : 1.5 + Math.min(2.2, hdist(man.pos, b.pos) / 5);
+    const dtc = p.team.tac;
+    let gap = onBall ? 1.35 - dtc.pressure * 0.55 + (1 - this.diff.aiDef) * 0.8 : (1.5 + Math.min(2.2, hdist(man.pos, b.pos) / 5)) * (1.3 - dtc.line * 0.6);
     if (tut) gap += 1.4;
     gap = Math.min(gap, Math.max(0.5, dh - 0.6));
     if (p.team.human) gap = onBall ? 1.1 : gap; // teammates of a human play solid D
     const target = tmp.set(man.pos.x + toHoop.x * gap, 0, man.pos.z + toHoop.z * gap);
     // Help defense: if ball handler is driving into the paint, the nearest helper steps in
-    if (b.holder && b.holder !== man && b.holder.team === off && hdist(b.holder.pos, hoop) < 3.5 && p.index >= 3) {
-      target.lerp(tmp2.set(b.holder.pos.x + (hoop.x - b.holder.pos.x) * 0.4, 0, b.holder.pos.z * 0.6), 0.6);
+    if (b.holder && b.holder !== man && b.holder.team === off && hdist(b.holder.pos, hoop) < 3.5 + (1 - dtc.line) * 2 && p.index >= 3 - Math.round((1 - dtc.line) * 2)) {
+      target.lerp(tmp2.set(b.holder.pos.x + (hoop.x - b.holder.pos.x) * 0.4, 0, b.holder.pos.z * 0.6), 0.45 + (1 - dtc.line) * 0.35);
     }
     // Reaction lag: blend toward the target
     p.defTarget = p.defTarget || target.clone();
-    p.defTarget.lerp(target, Math.min(1, dt / Math.max(0.05, this.diff.react)));
+    p.defTarget.lerp(target, Math.min(1, dt / Math.max(0.05, this.diff.react / (1 + p.team.skill * 0.12))));
     this.moveTo(p, p.defTarget, hdist(p.pos, p.defTarget) > 3);
     if (hdist(p.pos, man.pos) < 3) p.faceTarget = man.pos;
 
@@ -1747,11 +1756,11 @@ export class Game {
     const shooter = b.holder && b.holder.team === off && b.holder.state !== 'idle' ? b.holder : null;
     if (shooter && !p.airborne && hdist(p.pos, shooter.pos) < 2.3 && shooter.actionT > this.diff.react * 0.7) {
       p.desired.set(shooter.pos.x - p.pos.x, 0, shooter.pos.z - p.pos.z).normalize();
-      if (Math.random() < (p.team.human ? 0.55 : this.diff.aiDef * 0.8)) p.jump(0.65, 0.55 + p.r.block / 300);
+      if (Math.random() < (p.team.human ? 0.55 : this.diff.aiDef * 0.8 * (1 + p.team.skill * 0.1)) * (0.8 + dtc.pressure * 0.4)) p.jump(0.65, 0.55 + p.r.block / 300);
       else p.jump(0.4, 0.2);
     }
     // Steal attempts
-    if (onBall && man.state === 'idle' && hdist(p.pos, man.pos) < 1.3 && Math.random() < dt * 0.1 * (p.team.human ? 0.5 : this.diff.aiSteal)) {
+    if (onBall && man.state === 'idle' && hdist(p.pos, man.pos) < 1.3 && Math.random() < dt * 0.1 * (p.team.human ? 0.5 : this.diff.aiSteal) * (0.4 + dtc.pressure * 1.2) * (1 + p.team.skill * 0.1)) {
       this.attemptSteal(p);
     }
   }
@@ -1764,6 +1773,7 @@ export class Game {
     p.decT = (p.decT || 0) - dt;
     const dHoop = Math.hypot(p.pos.x - hoop.x, p.pos.z);
     const backcourt = p.pos.x * dir < 0.5;
+    const tc = off.tac, sk = off.skill;
 
     if (this.opts.tutorial && !p.team.human) {
       // Tutorial: CPU just dribbles around the top of the key
@@ -1782,7 +1792,7 @@ export class Game {
       return;
     }
     if (!p.aiTarget || p.decT <= 0) {
-      p.decT = rand(0.45, 0.8);
+      p.decT = rand(0.45, 0.8) * (1.25 - tc.pace * 0.5);
       if (backcourt) {
         p.aiTarget = new THREE.Vector3(dir * 5, 0, rand(-2, 2));
         if (p.index !== 0 && p.holdT > 0.5) {
@@ -1791,11 +1801,11 @@ export class Game {
         }
       } else {
         const me = this.shotChance(p);
-        const ev = me.p * (me.three ? 3 : 2);
+        const ev = me.p * (me.three ? 3 * (0.7 + tc.threes * 0.6) : 2 * (1.08 - tc.threes * 0.16));
         const open = this.nearestDefender(p).d;
         if (this.shotClock < 2.5 + Math.random()) { this.startShot(p); return; }
         if (dHoop < 2.3) { this.startShot(p); return; }
-        if (open > 1.7 && ev > 0.9 && p.holdT > 0.5 && Math.random() < 0.55) { this.startShot(p); return; }
+        if (open > 1.7 && ev > 0.9 + sk * 0.06 - (tc.pace - 0.5) * 0.2 && p.holdT > 0.5 && Math.random() < 0.55) { this.startShot(p); return; }
         // A teammate cutting to the rim, open: throw it up to him
         const cutter = off.players.find((q) => q !== p && (q.cutT || 0) > 0.3 && q.r.dunk >= 70 && Math.hypot(q.pos.x - hoop.x, q.pos.z) < 3 && this.nearestDefender(q).d > 0.9);
         if (cutter && dHoop > 4 && Math.random() < 0.18) { this.startPass(p, cutter); return; }
@@ -1809,7 +1819,7 @@ export class Game {
           const px = p.pos.x + ax * t, pz = p.pos.z + az * t;
           return Math.hypot(q.pos.x - px, q.pos.z - pz) > 1.1;
         });
-        if (laneOpen && dHoop < 9 && Math.random() < 0.5 + p.r.inside / 300) { p.driveT = 1.6; return; }
+        if (laneOpen && dHoop < 9 && Math.random() < 0.5 + p.r.inside / 300 + (tc.attack - 0.5) * 0.7) { p.driveT = 1.6; return; }
         // Dribble move to shake a tight defender
         if (open < 1.3 && Math.random() < 0.18 + p.r.handle / 500) this.dribbleMove(p);
         // Pass to a better option
@@ -1817,12 +1827,12 @@ export class Game {
         for (const q of off.players) {
           if (q === p) continue;
           const c = this.shotChance(q);
-          const qev = c.p * (c.three ? 3 : 2) * (this.nearestDefender(q).d > 1.8 ? 1.15 : 0.85);
+          const qev = c.p * (c.three ? 3 * (0.7 + tc.threes * 0.6) : 2) * (this.nearestDefender(q).d > 1.8 ? 1.15 : 0.85);
           if (qev > bestEv) { bestEv = qev; bestMate = q; }
         }
         // Move the ball with a purpose: only after holding it a moment, and only to a clearly better look
         const sinceCatch = this.time - this.ball.lastPassTime;
-        if (bestMate && p.holdT > 1.1 && sinceCatch > 1.4 && (bestEv > ev + 0.25 || p.holdT > 3.5) && Math.random() < 0.4 + p.r.pass / 400) { this.startPass(p, bestMate); return; }
+        if (bestMate && p.holdT > 1.1 * (1.5 - tc.passing) && sinceCatch > 1.4 * (1.4 - tc.passing * 0.8) && (bestEv > ev + 0.25 - (tc.passing - 0.5) * 0.4 || p.holdT > 3.5 * (1.4 - tc.passing * 0.8)) && Math.random() < 0.4 + p.r.pass / 400 + (tc.passing - 0.5) * 0.5 + sk * 0.04) { this.startPass(p, bestMate); return; }
         if (p.holdT > 5 && open > 1.2) { this.startShot(p); return; }
         const spot = this.offenseSpot(off, p.index, p);
         p.aiTarget = new THREE.Vector3(spot.x + rand(-1.2, 1.2), 0, spot.z + rand(-1.2, 1.2));

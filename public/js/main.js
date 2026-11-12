@@ -1,3 +1,4 @@
+import { SLIDERS, PRESETS, PRESET_KEYS, presetValues, getTactics, saveTactics, resetTactics, matchPreset, tacticsNorm, traits as tacTraits } from './tactics.js';
 import { PERK_TEXT } from './styles.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -688,6 +689,68 @@ $('#subsDone').addEventListener('click', () => {
 });
 $('#optAutoSubs').addEventListener('change', (e) => { settings.autoSubs = e.target.checked; if (game) game.autoSubs = settings.autoSubs; saveSettings(); });
 
+// ---------- Team tactics ----------
+let tac = null;
+function openTactics(teamData, onClose) {
+  const t = getTactics(teamData);
+  tac = { team: teamData, preset: t.preset, vals: { ...t.vals }, onClose };
+  $('#tacCrest').innerHTML = crest(teamData);
+  $('#tacTeam').textContent = `${teamData.city} ${teamData.name}`;
+  const ovr = teamData.ovr || 83;
+  const feel = ovr >= 87 ? 'Elite: sharp decisions, tight defense, hard to rattle' : ovr >= 84 ? 'Strong: plays smart and holds up under pressure' : ovr >= 82 ? 'Solid: makes some mistakes' : 'Rough around the edges: loose passes, late rotations';
+  $('#tacOvr').innerHTML = `<b>${ovr} OVR</b>${feel}`;
+  $('#tacPresets').innerHTML = PRESET_KEYS.map((k) => `<button data-k="${k}" title="${PRESETS[k].desc}">${PRESETS[k].label}</button>`).join('');
+  $$('#tacPresets button').forEach((b) => b.addEventListener('click', () => { sfx.menu(); tac.vals = presetValues(b.dataset.k); tac.preset = b.dataset.k; drawTactics(true); }));
+  $('#tacSliders').innerHTML = SLIDERS.map((sl) => `<div class="tac-sl"><div class="top"><span>${sl.label}</span><b data-v="${sl.k}"></b></div><input type="range" min="0" max="100" data-k="${sl.k}"><div class="ends"><span>${sl.lo}</span><span>${sl.hi}</span></div><p>${sl.tip}</p></div>`).join('');
+  $$('#tacSliders input').forEach((r) => r.addEventListener('input', () => { tac.vals[r.dataset.k] = Number(r.value); tac.preset = matchPreset(tac.vals); drawTactics(false); }));
+  drawTactics(true);
+  show('tactics');
+}
+function drawTactics(syncSliders) {
+  const v = tac.vals;
+  if (syncSliders) $$('#tacSliders input').forEach((r) => { r.value = v[r.dataset.k]; });
+  SLIDERS.forEach((sl) => { $(`#tacSliders [data-v=${sl.k}]`).textContent = v[sl.k]; });
+  $$('#tacPresets button').forEach((b) => b.classList.toggle('on', b.dataset.k === tac.preset));
+  $('#tacPresetName').textContent = tac.preset === 'custom' ? 'CUSTOM' : PRESETS[tac.preset].label.toUpperCase();
+  // Half-court diagram: where the five players set up, with arrows for the plan
+  const sc = 16, hx = 150, hy = 236, n = (k) => v[k] / 100;
+  const spots = [[7.6, 0], [7.4, 0.95], [7.0, -1.33], [5.0, -0.55], [2.4, 0.95]];
+  const pos = spots.map(([r0, a], i) => {
+    const r = i <= 2 ? r0 * (0.92 + n('threes') * 0.2) : r0 * (1 - (n('attack') - 0.5) * 0.16);
+    return [hx + r * Math.sin(a) * sc, hy - r * Math.cos(a) * sc];
+  });
+  const labels = ['PG', 'SG', 'SF', 'PF', 'C'];
+  let g = '<rect x="2" y="2" width="296" height="266" rx="10" fill="none" stroke="rgba(255,255,255,0.25)"/>';
+  g += `<rect x="${hx - 29}" y="${hy - 70}" width="58" height="82" fill="none" stroke="rgba(255,255,255,0.3)"/><circle cx="${hx}" cy="${hy - 70}" r="24" fill="none" stroke="rgba(255,255,255,0.3)"/>`;
+  g += `<path d="M ${hx - 128} 268 L ${hx - 128} ${hy - 44} A 134 134 0 0 1 ${hx + 128} ${hy - 44} L ${hx + 128} 268" fill="none" stroke="rgba(255,255,255,0.3)"/>`;
+  g += `<circle cx="${hx}" cy="${hy}" r="6" fill="none" stroke="#ff8c1a" stroke-width="2"/>`;
+  const ly = hy - 24 - n('line') * 150;
+  g += `<line x1="14" x2="286" y1="${ly}" y2="${ly}" stroke="#ffd60a" stroke-width="1.5" stroke-dasharray="6 5"/><text x="18" y="${ly - 5}" fill="#ffd60a" font-size="10" font-weight="700">DEFENSIVE LINE</text>`;
+  const passes = Math.round(n('passing') * 3) + (n('passing') > 0.4 ? 1 : 0);
+  const pairs = [[0, 1], [1, 3], [2, 0], [3, 4], [2, 3]];
+  for (let i = 0; i < passes && i < pairs.length; i++) { const [a, b] = pairs[i]; g += `<line x1="${pos[a][0]}" y1="${pos[a][1]}" x2="${pos[b][0]}" y2="${pos[b][1]}" stroke="#3dff7a" stroke-width="2" stroke-dasharray="4 4" opacity="0.8"/>`; }
+  if (n('attack') > 0.55) g += `<path d="M ${pos[0][0]} ${pos[0][1]} Q ${pos[0][0] - 40} ${(pos[0][1] + hy) / 2} ${hx - 6} ${hy - 12}" fill="none" stroke="#3dff7a" stroke-width="${1 + n('attack') * 3}" marker-end="url(#ar)"/>`;
+  const crash = 1 + Math.round(n('glass') * 3);
+  for (let i = 0; i < crash; i++) g += `<path d="M ${pos[4 - i][0]} ${pos[4 - i][1]} L ${hx + (i % 2 ? -14 : 14)} ${hy - 14}" stroke="#35f0ff" stroke-width="1.6" fill="none" marker-end="url(#ar2)"/>`;
+  const ch = Math.round(n('pace') * 3);
+  g += '<text x="270" y="40" fill="#8f9bb3" font-size="9" text-anchor="middle">PACE</text>';
+  for (let i = 0; i < ch; i++) g += `<text x="270" y="${60 + i * 16}" fill="#3dff7a" font-size="16" font-weight="900" text-anchor="middle">»</text>`;
+  pos.forEach(([x, y], i) => { g += `<circle cx="${x}" cy="${y}" r="11" fill="#0b1220" stroke="#35f0ff" stroke-width="2"/><text x="${x}" y="${y + 3.5}" fill="#fff" font-size="9" font-weight="800" text-anchor="middle">${labels[i]}</text>`; });
+  $('#tacCourt').innerHTML = '<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="#3dff7a"/></marker><marker id="ar2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8z" fill="#35f0ff"/></marker></defs>' + g;
+  const tr = tacTraits(v);
+  $('#tacTraits').innerHTML = tr.good.map((x) => `<div class="g">✓ <span>${x}</span></div>`).join('') + tr.bad.map((x) => `<div class="b">! <span>${x}</span></div>`).join('');
+}
+$('#tacSave').addEventListener('click', () => {
+  sfx.select();
+  saveTactics(tac.team, tac.preset, tac.vals);
+  if (game) for (const t of game.teams) if (t.data.id === tac.team.id) t.tac = tacticsNorm(tac.vals); // takes effect right away, even mid-game
+  const cb = tac.onClose; tac = null; if (cb) cb();
+});
+$('#tacBack').addEventListener('click', () => { sfx.menu(); const cb = tac.onClose; tac = null; if (cb) cb(); });
+$('#tacReset').addEventListener('click', () => { sfx.menu(); resetTactics(tac.team); const t = getTactics(tac.team); tac.preset = t.preset; tac.vals = { ...t.vals }; drawTactics(true); });
+$('#pauseTactics').addEventListener('click', () => { if (!game || attract) return; openTactics(game.user.data, () => show('pause')); });
+$('#selTactics').addEventListener('click', () => { sfx.menu(); openTactics(TEAMS[settings[settings.side]], () => { renderSelect(); show('select'); }); });
+
 // ---------- Game lifecycle ----------
 function hookFx(g) {
   g.on((type, d) => {
@@ -1171,7 +1234,7 @@ function renderHub() {
   }
 
   // Tabs
-  const tabs = [...(kind === 'career' ? [['upgrades', 'Upgrades'], ['log', 'My Games']] : []), ['standings', 'Standings'], ['schedule', 'Schedule'], ['stats', 'Team Stats'], ['playoffs', 'Playoffs'], ['options', 'Options']];
+  const tabs = [...(kind === 'career' ? [['upgrades', 'Upgrades'], ['log', 'My Games']] : []), ['tactics', 'Tactics'], ['standings', 'Standings'], ['schedule', 'Schedule'], ['stats', 'Team Stats'], ['playoffs', 'Playoffs'], ['options', 'Options']];
   $('#hubTabs').innerHTML = tabs.map(([k, l]) => `<button class="${k === hubTab ? 'on' : ''}" data-k="${k}">${l}</button>`).join('');
   $$('#hubTabs button').forEach((b) => b.addEventListener('click', () => { hubTab = b.dataset.k; sfx.menu(); renderHub(); }));
   const body = $('#hubTab');
@@ -1220,6 +1283,13 @@ function renderHub() {
       const before = Season.tier(Season.careerOvr(c)).name;
       if (Season.upgrade(s, b.dataset.k)) { if (Season.tier(Season.careerOvr(c)).name !== before) sfx.levelUp(); else sfx.select(); renderHub(); }
     }));
+  } else if (hubTab === 'tactics') {
+    const t = getTactics(team), tr = tacTraits(t.vals);
+    body.innerHTML = `<div class="box"><div class="line"><span>Tactical preset</span><span>${t.preset === 'custom' ? 'CUSTOM' : PRESETS[t.preset].label}</span></div>` +
+      SLIDERS.map((sl) => `<div class="line"><span>${sl.label}</span><span>${t.vals[sl.k]}</span></div>`).join('') + '</div>' +
+      `<div class="tac-traits" style="margin:10px 4px">${tr.good.map((x) => `<div class="g">✓ <span>${x}</span></div>`).join('')}${tr.bad.map((x) => `<div class="b">! <span>${x}</span></div>`).join('')}</div>` +
+      '<div class="row"><button id="hubTactics" class="primary">Edit tactics</button></div>';
+    $('#hubTactics').addEventListener('click', () => { sfx.menu(); openTactics(team, () => { renderHub(); show('hub'); }); });
   } else if (hubTab === 'log') {
     const c = s.career;
     const g = Math.max(1, c.games);
