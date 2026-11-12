@@ -339,6 +339,23 @@ function choosePose(p, state, ctx) {
   } else if (ctx.defending && ctx.speed < 5) {
     both([0.82, -0.3, 0.35], [0.55, 0.42, 0.6]);                               // wide defensive stance
   }
+  // Walking and running: the model's clips are single poses, so the stride is built here.
+  // Legs swing from the hips with the knee folding on the way forward; arms swing against the legs.
+  if ((state === 'walk' || state === 'run') && !ctx.airborne) {
+    const run = Math.min(1, Math.max(0, ((ctx.speed || 0) - 1.2) / 4.5));        // 0 = easy walk, 1 = full sprint
+    const A = 0.38 + 0.42 * run, K = 0.45 + 0.85 * run;                         // thigh swing and knee fold
+    const leg = (a, side) => {
+      const th = Math.sin(a) * A, kn = Math.max(0, Math.cos(a)) * K + 0.08;
+      return [[side * 0.06, -Math.cos(th), Math.sin(th)], [0, -Math.cos(th - kn), Math.sin(th - kn)]];
+    };
+    const ph = ctx.phase || 0;
+    if (!out.lL && !out.lR) { out.lL = leg(ph, 1); out.lR = leg(ph + Math.PI, -1); }
+    if (!out.aL && !out.aR) {
+      const AA = 0.3 + 0.5 * run, el = 0.35 + 0.8 * run;
+      const arm = (a, side) => { const th = Math.sin(a) * AA; return [[side * 0.22, -Math.cos(th), Math.sin(th)], [side * 0.1, -Math.cos(th + el), Math.sin(th + el)]]; };
+      out.aL = arm(ph + Math.PI, 1); out.aR = arm(ph, -1);
+    }
+  }
   return out;
 }
 
@@ -392,7 +409,8 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   }
   const b = player.bones;
   if (!b || !player.limb) return;
-  const pose = choosePose(player, state, { ...ctx, speed });
+  if (state === 'walk' || state === 'run') player.walkPhase = ((player.walkPhase || 0) + dt * Math.min(15, 6 + speed * 1.0)) % (Math.PI * 2);
+  const pose = choosePose(player, state, { ...ctx, speed, phase: player.walkPhase || 0 });
   const realFacing = player.facing;
   player.facing = yaw; // limbs follow the turned body
   applyLimb(player, 'aL', b.uaL, b.laL, pose.aL, dt, ctx);
