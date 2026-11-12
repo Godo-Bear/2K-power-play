@@ -98,6 +98,8 @@ export class Game {
       for (const p of [...t.players, ...t.bench]) applyCustomPlayer(p);
     }
     this.autoSubs = opts.autoSubs !== false;
+    this.ring = []; this.pendingClips = []; this.recAcc = 0; this.replay = null;
+    this.recording = !(opts.attract || opts.tutorial || opts.practice || opts.versus || opts.guest);
     this.slowT = 0;
     this.focus = null;
     this.user = this.teams.find((t) => t.isUser);
@@ -264,13 +266,113 @@ export class Game {
       else if (d.pts === 3) { pri = 3; kind = 'three'; verb = 'drains a three'; }
       else if (d.assist && d.kind !== 'dunk') { pri = 1; kind = 'assist'; verb = `finishes off a pass from #${d.assist.data.number} ${d.assist.data.last}`; }
     } else if (type === 'block') { pri = 4; kind = 'block'; verb = `swats #${d.victim.data.number} ${d.victim.data.last}'s shot away`; }
-    else if (type === 'steal') { pri = 3; kind = 'steal'; verb = `picks the pocket of #${d.victim.data.number} ${d.victim.data.last}`; }
-    else if (type === 'intercept') { pri = 3; kind = 'steal'; verb = `jumps the passing lane`; }
+    else if (type === 'steal') { pri = 2; kind = 'steal'; verb = `picks the pocket of #${d.victim.data.number} ${d.victim.data.last}`; }
+    else if (type === 'intercept') { pri = 2; kind = 'steal'; verb = `jumps the passing lane`; }
     if (!pri || !d.player && !d.team) return;
     const pl = d.player;
     this.reel = this.reel || [];
-    this.reel.push({ pri, kind, period: this.period, clock: this.clockText(), team: (pl ? pl.team : d.team).data.id, name: pl ? `#${pl.data.number} ${pl.data.last}` : '', text: pl ? `${pl.data.first[0]}. ${pl.data.last} ${verb}` : verb, pts: d.pts || 0 });
+    const entry = { pri, kind, period: this.period, clock: this.clockText(), team: (pl ? pl.team : d.team).data.id, name: pl ? `#${pl.data.number} ${pl.data.last}` : '', text: pl ? `${pl.data.first[0]}. ${pl.data.last} ${verb}` : verb, pts: d.pts || 0, frames: null };
+    if (this.recording && pri >= 2) this.pendingClips.push({ entry, t0: this.time - 4.4, until: this.time + 1.2 });
+    this.reel.push(entry);
+    if (this.reel.length > 18) { const low = this.reel.reduce((m, e, i) => (e.pri < this.reel[m].pri ? i : m), 0); this.reel.splice(low, 1); }
   }
+
+  // ---------- Replays: the halftime highlight reel plays the real action back ----------
+  // A short ring buffer of poses is kept while the game runs; when a highlight happens, the seconds around it are saved.
+  recordFrame() {
+    const b = this.ball;
+    const rows = this.allPlayers.map((p) => [
+      p, p.pos.x, p.pos.z, p.y, p.facing, p.vel.x, p.vel.z, p.state, p.actionT, p.released ? 1 : 0, p.airborne ? 1 : 0,
+      p.shotStyle, (p.moveT || 0) > 0 ? p.moveName : '', p.moveT || 0, p.spinT || 0, p.spinDir || 1, p.passT || 0, p.passStyle, p.passLocal ? [p.passLocal[0], p.passLocal[1]] : null,
+      p.stealStyle, p.crossSide || 1, p.burstT || 0, b.holder === p ? 1 : 0, p.onFire ? 1 : 0,
+    ]);
+    this.ring.push({ t: this.time, rows, b: [b.pos.x, b.pos.y, b.pos.z, b.state, b.spin], na: this.netAnim.slice() });
+    if (this.ring.length > 170) this.ring.shift();
+  }
+
+  trackClips(dt) {
+    if (!this.recording) return;
+    this.recAcc += dt;
+    if (this.recAcc < 0.05) return;
+    this.recAcc = 0;
+    this.recordFrame();
+    for (let i = this.pendingClips.length - 1; i >= 0; i--) {
+      const c = this.pendingClips[i];
+      if (this.time >= c.until) { c.entry.frames = this.ring.filter((f) => f.t >= c.t0 && f.t <= c.until); this.pendingClips.splice(i, 1); }
+    }
+  }
+
+  flushClips() {
+    for (const c of this.pendingClips) c.entry.frames = this.ring.filter((f) => f.t >= c.t0 && f.t <= this.time);
+    this.pendingClips = [];
+  }
+
+  // Play a saved clip back on the court. The simulation is frozen while it runs and everything is put back afterwards.
+  startReplay(frames, speed = 0.8, onDone = null) {
+    if (!frames || frames.length < 4) { if (onDone) onDone(); return false; }
+    if (!this.replaySaved) {
+      const b = this.ball;
+      this.replaySaved = {
+        players: this.allPlayers.map((p) => ({ p, pos: p.pos.clone(), vel: p.vel.clone(), y: p.y, facing: p.facing, state: p.state, actionT: p.actionT, released: p.released, jumpT: p.jumpT, shotStyle: p.shotStyle, moveName: p.moveName, moveT: p.moveT, spinT: p.spinT, spinDir: p.spinDir, passT: p.passT, passStyle: p.passStyle, passLocal: p.passLocal, stealStyle: p.stealStyle, crossSide: p.crossSide, burstT: p.burstT, onFire: p.onFire, visible: p.root.visible })),
+        bench: [...this.home.bench, ...this.away.bench].map((p) => ({ p, visible: p.root.visible })),
+        ball: { pos: b.pos.clone(), vel: b.vel.clone(), state: b.state, holder: b.holder, spin: b.spin },
+      };
+    }
+    this.replay = { frames, t: frames[0].t, end: frames[frames.length - 1].t, speed, onDone };
+    return true;
+  }
+
+  stepReplay(dt) {
+    const R = this.replay;
+    R.t += dt * R.speed;
+    const fr = R.frames;
+    if (R.t >= R.end) { const cb = R.onDone; this.stopReplay(); if (cb) cb(); return; }
+    let i = 0;
+    while (i < fr.length - 2 && fr[i + 1].t <= R.t) i++;
+    const A = fr[i], B = fr[i + 1], k = Math.min(1, Math.max(0, (R.t - A.t) / Math.max(1e-4, B.t - A.t)));
+    const used = new Set();
+    A.rows.forEach((a, n) => {
+      const p = a[0], bb = B.rows[n] && B.rows[n][0] === p ? B.rows[n] : a;
+      used.add(p);
+      p.root.visible = true;
+      p.pos.set(a[1] + (bb[1] - a[1]) * k, 0, a[2] + (bb[2] - a[2]) * k);
+      p.y = a[3] + (bb[3] - a[3]) * k;
+      let df = bb[4] - a[4]; df = Math.atan2(Math.sin(df), Math.cos(df));
+      p.facing = a[4] + df * k;
+      p.vel.set(a[5], 0, a[6]);
+      p.state = a[7]; p.actionT = a[8]; p.released = !!a[9]; p.jumpT = a[10] ? 0.01 : -1;
+      p.shotStyle = a[11]; p.moveName = a[12]; p.moveT = a[13]; p.spinT = a[14]; p.spinDir = a[15];
+      p.passT = a[16]; p.passStyle = a[17]; p.passLocal = a[18]; p.stealStyle = a[19]; p.crossSide = a[20]; p.burstT = a[21]; p.onFire = !!a[23];
+    });
+    // anyone who was on the bench for this clip stays hidden
+    for (const p of this.allPlayers) if (!used.has(p)) p.root.visible = false;
+    const b = this.ball, ab = A.b, bbl = B.b;
+    b.pos.set(ab[0] + (bbl[0] - ab[0]) * k, ab[1] + (bbl[1] - ab[1]) * k, ab[2] + (bbl[2] - ab[2]) * k);
+    b.state = ab[3]; b.spin = ab[4];
+    const holderRow = A.rows.find((r) => r[22]);
+    b.holder = holderRow ? holderRow[0] : null;
+    this.netAnim.forEach((_, j) => { this.netAnim[j] = A.na[j] || 0; });
+    this.animateAll(dt * R.speed);
+  }
+
+  stopReplay() {
+    if (!this.replay) return;
+    this.replay = null;
+    const S = this.replaySaved;
+    this.replaySaved = null;
+    if (!S) return;
+    for (const s of S.players) {
+      const p = s.p;
+      p.pos.copy(s.pos); p.vel.copy(s.vel); p.y = s.y; p.facing = s.facing; p.state = s.state; p.actionT = s.actionT; p.released = s.released; p.jumpT = s.jumpT;
+      p.shotStyle = s.shotStyle; p.moveName = s.moveName; p.moveT = s.moveT; p.spinT = s.spinT; p.spinDir = s.spinDir; p.passT = s.passT; p.passStyle = s.passStyle;
+      p.passLocal = s.passLocal; p.stealStyle = s.stealStyle; p.crossSide = s.crossSide; p.burstT = s.burstT; p.onFire = s.onFire; p.root.visible = s.visible;
+    }
+    for (const s of S.bench) s.p.root.visible = s.visible;
+    const b = this.ball;
+    b.pos.copy(S.ball.pos); b.vel.copy(S.ball.vel); b.state = S.ball.state; b.holder = S.ball.holder; b.spin = S.ball.spin;
+    this.animateAll(0.016);
+  }
+
   // Tutorial can force who gets the ball after dead balls
   nextOffense(team) {
     if (this.tutorialPossession) return this.tutorialPossession === 'user' ? this.user : this.cpu;
@@ -1121,9 +1223,11 @@ export class Game {
 
   // ---------- Main update ----------
   update(dt) {
+    if (this.replay) { this.stepReplay(dt); return; }
     // Slow-motion highlight moments (dunks, blocks, buzzer beaters)
     if (this.slowT > 0) { this.slowT -= dt; dt *= 0.32; if (this.slowT <= 0) this.focus = null; }
     this.time += dt;
+    if (this.state === 'live' || this.state === 'ft') this.trackClips(dt);
     if (this.state === 'live') {
       // Fatigue: players tire on the court (faster when sprinting) and recover on the bench
       const k = dt / Math.max(60, this.quarterLen);
@@ -1283,15 +1387,16 @@ export class Game {
     this.period++;
     this.state = 'break';
     this.stateT = this.period === 3 ? 5 : 3.2;
-    // Halftime show: the break lasts until the show is done (the screen calls endHalftime)
-    if (this.period === 3 && !this.opts.attract && !this.opts.tutorial && !this.opts.practice && !this.opts.versus && !this.opts.guest && !this.opts.noHalftime) {
-      this.halftime = true;
-      this.stateT = 9999;
-      this.emit('halftime', { reel: this.reel || [] });
-    }
     this.applySubs();
     this.ball.state = 'free';
     this.ball.holder = null;
+    // Halftime show (after the substitutions, so the lineup on court is final): the break lasts until the show is done (the screen calls endHalftime)
+    if (this.period === 3 && !this.opts.attract && !this.opts.tutorial && !this.opts.practice && !this.opts.versus && !this.opts.guest && !this.opts.noHalftime) {
+      this.halftime = true;
+      this.stateT = 9999;
+      this.flushClips();
+      this.emit('halftime', { reel: this.reel || [] });
+    }
   }
 
   endHalftime() { if (this.halftime) { this.halftime = false; this.stateT = 0.4; } }

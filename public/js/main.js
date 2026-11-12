@@ -825,7 +825,8 @@ const ANALYSTS = [
 ];
 const REEL_ICON = { dunk: '🔥', three: '🎯', block: '🛑', steal: '✋', buzzer: '⏱️', assist: '🤝' };
 let htTimers = [];
-function htClear() { htTimers.forEach((t) => clearInterval(t)); htTimers = []; }
+let htNext = () => {};
+function htClear() { htTimers.forEach((t) => { if (t && t.stop) t.stop(); else { clearInterval(t); clearTimeout(t); } }); htTimers = []; if (game) game.stopReplay(); }
 
 function halftimeLines(g) {
   const a = g.away, h = g.home;
@@ -856,43 +857,47 @@ function halftimeLines(g) {
 function renderHalftime(g, reel) {
   htClear();
   $('#htScore').innerHTML = `${crest(g.away.data)}<b>${g.away.score}</b><span>-</span><b>${g.home.score}</b>${crest(g.home.data)}`;
-  // Studio desk
   $('#htDesk').innerHTML = ANALYSTS.map((a, i) => {
     const img = portrait({ skin: a.skin, hair: a.hair, hairStyle: a.hairStyle, jersey: a.suit, trim: '#ffd60a' });
-    return `<div class="ht-an" data-i="${i}">${img ? `<img src="${img}" alt="">` : ''}<b>${a.name}</b><small>${a.role}</small></div>`;
+    return `<div class="ht-an" data-i="${i}">${img ? `<img src="${img}" alt="">` : ''}<b>${a.name}</b></div>`;
   }).join('');
   const lines = halftimeLines(g);
   let li = 0;
   const say = () => {
-    if (li >= lines.length) { clearInterval(lineT); $('#htBubble').innerHTML += ''; return; }
+    if (li >= lines.length) { clearInterval(lineT); return; }
     const [who, text] = lines[li++];
     $$('#htDesk .ht-an').forEach((e) => e.classList.toggle('talk', Number(e.dataset.i) === who));
     $('#htBubble').innerHTML = `<b>${ANALYSTS[who].name}</b> ${text}`;
-    sfx.menu();
   };
   say();
-  const lineT = setInterval(say, 5200);
+  const lineT = setInterval(say, 6500);
   htTimers.push(lineT);
-  // Highlight reel: the best plays of the half, in game order
-  const best = [...reel].sort((x, y) => y.pri - x.pri).slice(0, 6).sort((x, y) => x.period - y.period || 0).reverse();
-  const clips = best.length ? best : [{ kind: 'assist', clock: '', period: 1, text: 'A quiet half so far. The highlights are coming in the second!', team: g.home.data.id, pts: 0 }];
-  let ci = 0;
-  const showClip = () => {
-    const c = clips[ci % clips.length]; ci++;
-    const t = [g.home, g.away].find((x) => x.data.id === c.team) || g.home;
-    $('#htClip').innerHTML = `<div class="ht-clip" style="--tc:${t.data.primary}"><span class="ico">${REEL_ICON[c.kind] || '🏀'}</span><div><small>${c.period ? 'Q' + c.period : ''} ${c.clock}${c.kind ? ' · ' + c.kind.toUpperCase() : ''}</small><b>${c.text}</b></div>${crest(t.data)}</div>`;
-    $$('#htDots i').forEach((d, i) => d.classList.toggle('on', i === (ci - 1) % clips.length));
-    if (c.kind !== 'assist') { fx.sparks(new THREE.Vector3(0, 2, 0), [1, 0.8, 0.3], 20); fx.crowdFlashes(40); }
-  };
-  $('#htDots').innerHTML = clips.map(() => '<i></i>').join('');
-  showClip();
-  const clipT = setInterval(showClip, 3300);
-  htTimers.push(clipT);
   // Top performers
   const all = [...g.away.players, ...g.away.bench, ...g.home.players, ...g.home.bench].filter((p) => p.stats.sec > 0 || p.stats.pts > 0);
   const lead = all.sort((x, y) => y.stats.pts + y.stats.reb + y.stats.ast - (x.stats.pts + x.stats.reb + x.stats.ast)).slice(0, 3);
-  $('#htLeaders').innerHTML = lead.map((p) => `<div class="ht-ld" style="--tc:${p.team.data.primary}"><b>${p.data.first[0]}. ${p.data.last}</b><small>${p.team.data.id}</small><span>${p.stats.pts} PTS · ${p.stats.reb} REB · ${p.stats.ast} AST</span></div>`).join('');
-  htTimers.push(setTimeout(() => { if (game === g && g.halftime) endHalftimeShow(); }, 62000));
+  $('#htLeaders').innerHTML = lead.map((p) => `<div class="ht-ld" style="--tc:${p.team.data.primary}"><b>${p.data.first[0]}. ${p.data.last}</b><span>${p.stats.pts} PTS · ${p.stats.reb} REB · ${p.stats.ast} AST</span></div>`).join('');
+  // Highlight reel: the best plays of the half, played back on the court in game order
+  const best = [...reel].sort((x, y) => (y.frames ? 1 : 0) - (x.frames ? 1 : 0) || y.pri - x.pri).slice(0, 6).sort((x, y) => x.period - y.period || 0);
+  const clips = best.length ? best : [{ kind: 'assist', clock: '', period: 1, text: 'A quiet half so far. The highlights are coming in the second!', team: g.home.data.id, frames: null }];
+  let ci = -1, clipT = 0;
+  htNext = () => {
+    clearTimeout(clipT);
+    g.stopReplay();
+    ci++;
+    if (ci >= clips.length) {
+      $('#htClip').innerHTML = '<div class="ht-clip end"><span class="ico">🏀</span><div><small>That is the reel</small><b>Second half is next. Good luck out there!</b></div></div>';
+      htTimers.push(setTimeout(() => { if (game === g && g.halftime) endHalftimeShow(); }, 14000));
+      return;
+    }
+    const c = clips[ci];
+    const t = [g.home, g.away].find((x) => x.data.id === c.team) || g.home;
+    $('#htClip').innerHTML = `<div class="ht-clip" style="--tc:${t.data.primary}"><span class="ico">${REEL_ICON[c.kind] || '🏀'}</span><div><small>${c.frames ? '<i class="rec">● REPLAY</i> ' : ''}${c.period ? 'Q' + c.period : ''} ${c.clock}${c.kind ? ' · ' + c.kind.toUpperCase() : ''} · ${ci + 1}/${clips.length}</small><b>${c.text}</b></div>${crest(t.data)}</div>`;
+    if (c.kind !== 'assist') { fx.crowdFlashes(40); }
+    const started = c.frames && g.startReplay(c.frames, 0.75, () => { clipT = setTimeout(htNext, 900); });
+    if (!started) clipT = setTimeout(htNext, 3600);
+  };
+  htNext();
+  htTimers.push({ stop: () => { clearTimeout(clipT); } });
 }
 function endHalftimeShow() {
   htClear();
@@ -900,13 +905,14 @@ function endHalftimeShow() {
   if ($('#halftime').classList.contains('show')) show(null);
 }
 $('#htSkip').addEventListener('click', () => { sfx.select(); endHalftimeShow(); });
+$('#htNext').addEventListener('click', () => { sfx.menu(); htNext(); });
 
 $('#pauseTactics2').addEventListener('click', () => { if (game) openTactics(game.user.data, () => show('halftime')); });
 
 // ---------- Game lifecycle ----------
 function hookFx(g) {
   g.on((type, d) => {
-    if (type === 'halftime' && g === game) { renderHalftime(g, d.reel); show('halftime'); }
+    if (type === 'halftime' && g === game) { renderHalftime(g, d.reel); show('halftime'); $('#hud').classList.remove('show'); $('#touch').classList.remove('active'); }
     if (type === 'stealAttempt' && d.player && d.target) {
       // A glowing streak from the hand to the ball at the moment of the strike
       const who = d.player, tgt = d.target;
@@ -1646,7 +1652,12 @@ function updateCamera(dt, t) {
   const portrait = camera.aspect < 1;
   let pos, look, speed = 3.2;
   const ft = game.state === 'ft' && game.ft && game.ft.phase !== 'setup' ? game.ft : null;
-  if (game.slowT > 0 && game.focus) {
+  if (game.replay) {
+    // Halftime replays: low, wide TV angle that follows the ball
+    const bp = game.ball.pos;
+    const rx = THREE.MathUtils.clamp(bp.x * 0.8, -C.HALF_L + 3, C.HALF_L - 3);
+    pos = [rx * 0.9, 3.6, 11.2]; look = [rx, 1.7, bp.z * 0.4]; speed = 5;
+  } else if (game.slowT > 0 && game.focus) {
     // Highlight cam: push in on the player
     const f = game.focus.pos;
     pos = [f.x - Math.sign(f.x || 1) * 3.4, 2.6, f.z + 6.2]; look = [f.x, 2.1 + game.focus.y * 0.5, f.z]; speed = 7;
