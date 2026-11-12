@@ -275,7 +275,7 @@ export function careerTeamData(s) {
   const c = s.career;
   const me = {
     first: c.first, last: c.last, pos: POS[c.pos], number: c.number, height: c.height, skin: c.skin, hair: c.hair, hairStyle: c.hairStyle,
-    headband: false, sleeve: true, ratings: effectiveRatings(c), ovr: careerOvr(c), isMe: true,
+    headband: false, sleeve: true, ratings: effectiveRatings(c), styles: [c.archetype, ...extraStyles(c)], ovr: careerOvr(c), isMe: true,
   };
   const roster = base.roster.slice();
   // The old starter moves to the bench in place of the previous backup

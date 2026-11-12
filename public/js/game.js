@@ -203,7 +203,7 @@ export class Game {
       // Whoever is highest when the ball comes down wins the tap
       const score = this.teams.map((t) => {
         const c = t.players[4] || t.players[t.players.length - 1];
-        return c ? c.reach + c.r.reb / 400 + Math.random() * 0.06 : -1;
+        return c ? c.reach + c.r.reb / 400 + c.perk.reb * 0.5 + Math.random() * 0.06 : -1;
       });
       const winner = this.teams[score[0] >= score[1] ? 0 : 1];
       const c = winner.players[4] || winner.players[winner.players.length - 1];
@@ -387,7 +387,17 @@ export class Game {
       c = 1 - (1 - c) * front * (q.airborne ? 1.25 : 1);
       contest = Math.min(contest, c);
     }
-    return { p: Math.max(0.02, Math.min(0.95, base * contest)), three, d, contest };
+    // Play style perks: shooters hit more of their spot, creators shrug off a hand in the face, defenders bother more
+    const pk = p.perk;
+    if (contest < 1) contest += (1 - contest) * Math.min(0.6, pk.resist);
+    let defBonus = 0;
+    for (const q of this.other(p.team).players) if (q.perk.contestD && hdist(q.pos, pos) < 2.4) defBonus = Math.max(defBonus, q.perk.contestD);
+    contest = Math.max(0.05, contest - defBonus * (1 - Math.min(1, contest)) * 1.5);
+    // Playmakers set teammates up: a shot right off their pass is a little easier
+    const b = this.ball;
+    if (b.lastPasser && b.lastPasser !== p && b.lastPasser.team === p.team && this.time - b.lastPassTime < 2.5) contest += b.lastPasser.perk.passSpeed * 0.2;
+    const spot = d < 3.2 ? pk.inside : !three ? pk.mid : pk.three;
+    return { p: Math.max(0.02, Math.min(0.95, base * contest + spot)), three, d, contest };
   }
 
   // ---------- Actions ----------
@@ -570,7 +580,7 @@ export class Game {
     b.holder = null;
     b.lastTouch = p.team;
     const checked = new Set(style === 'lob' ? this.other(p.team).players : []);
-    b.pass = { from: p, to: target, t: 0, dur: style === 'lob' ? Math.max(0.55, d / 10) : Math.max(0.25, d / (style === 'bounce' ? 13 : 15)), start: b.pos.clone(), arc: style === 'lob' ? 1.5 : 0.2 + d * 0.03, checked, style, bounced: false };
+    b.pass = { from: p, to: target, t: 0, dur: (style === 'lob' ? Math.max(0.55, d / 10) : Math.max(0.25, d / (style === 'bounce' ? 13 : 15))) / (1 + p.perk.passSpeed), start: b.pos.clone(), arc: style === 'lob' ? 1.5 : 0.2 + d * 0.03, checked, style, bounced: false };
     p.state = 'idle';
     p.faceTarget = null;
     // Passing pose
@@ -627,11 +637,13 @@ export class Game {
     // He already passed or shot, or moved out of reach: a miss
     if (!h || this.ball.holder !== h) { p.stumbleT = 0.25; return; }
     const d = hdist(p.pos, h.pos);
-    if (d > 1.7 || h.state !== 'idle') { p.stumbleT = 0.25; return; }
-    let chance = 0.12 + (p.r.steal - h.r.handle) / 260 + (Math.hypot(h.vel.x, h.vel.z) > 3 ? 0.04 : 0);
+    if (d > 2.1 || h.state !== 'idle') { p.stumbleT = 0.25; return; }
+    // Close and well-rated hands win the ball: the closer the lunge ends, the better the odds
+    let chance = 0.34 + (p.r.steal - h.r.handle) / 160 + Math.max(0, 1.5 - d) * 0.18 + (Math.hypot(h.vel.x, h.vel.z) > 3 ? 0.05 : 0) + p.perk.steal - h.perk.handle * 0.5;
+    chance = Math.max(0.1, Math.min(0.85, chance));
     if ((h.stealImmuneT || 0) > 0) chance = 0; // can't strip a player mid-spin
     if (!p.team.human) chance *= this.diff.aiSteal * 0.7;
-    else chance += 0.05; // a person has to commit to the lunge and the result lands a beat later, so give it a little help
+    else chance += 0.1; // a person has to commit to the lunge and the result lands a beat later, so give it a real boost
     if (Math.random() < chance) {
       const b = this.ball;
       b.state = 'loose'; b.holder = null;
@@ -646,7 +658,7 @@ export class Game {
       sfx.cheer(0.5);
       this.arena.excitement = Math.min(1, this.arena.excitement + 0.4);
     } else {
-      p.stumbleT = 0.4;
+      p.stumbleT = 0.3;
       if (!this.opts.noFouls && d < 1.3 && Math.random() < (p.team.human ? 0.07 : 0.14)) this.nonShootingFoul(p, h, 'REACH-IN FOUL');
     }
   }
@@ -987,7 +999,7 @@ export class Game {
       p.burstT = name === 'spin' ? 0.58 : 0.5;
       p.crossSide = -(p.crossSide || 1);
       if (name === 'spin') { p.spinT = 0.45; p.spinDir = p.crossSide; p.stealImmuneT = 0.65; }
-      ankle = (name === 'spin' ? 0.24 : 0.18) + (p.r.handle - (def ? def.r.def : 70)) / 220;
+      ankle = (name === 'spin' ? 0.24 : 0.18) + (p.r.handle - (def ? def.r.def : 70)) / 220 + p.perk.handle;
     }
     if (def && d < 1.9 && !def.airborne) {
       if (Math.random() < ankle) {
@@ -1313,12 +1325,12 @@ export class Game {
     if (p.state === 'steal') {
       // Lunge at the ball handler while the arm strikes, land the result mid-strike, then recover
       const h = p.stealTarget;
-      if (h && p.actionT > 0.05 && p.actionT < 0.26) {
-        p.desired.set(h.pos.x - p.pos.x, 0, h.pos.z - p.pos.z).normalize().multiplyScalar(0.85);
+      if (h && p.actionT > 0.05 && p.actionT < 0.34) {
+        p.desired.set(h.pos.x - p.pos.x, 0, h.pos.z - p.pos.z).normalize().multiplyScalar(1);
         p.faceTarget = h.pos;
       }
-      if (!p.stealResolved && p.actionT >= 0.14) this.resolveSteal(p);
-      if (p.actionT > 0.46) { p.state = 'idle'; p.stealTarget = null; p.faceTarget = null; }
+      if (!p.stealResolved && p.actionT >= 0.22) this.resolveSteal(p);
+      if (p.actionT > 0.62) { p.state = 'idle'; p.stealTarget = null; p.faceTarget = null; }
     }
     if (p.state === 'shoot') {
       const isUser = this.ctl(p);
@@ -1387,6 +1399,7 @@ export class Game {
       if (human) chance = 0.9 - (p.state === 'dunk' ? Math.max(0, p.r.dunk - 80) / 300 : 0);
       else chance = (0.04 + q.r.block / 900) * (p.state === 'dunk' ? 0.65 : 1) * this.diff.aiDef;
       chance *= { reverse: 0.7, euro: 0.8, floater: 0.7 }[p.shotStyle] || 1;
+      chance *= (1 + q.perk.block) * Math.max(0.3, 1 - p.perk.blockResist);
       if (Math.random() >= chance) continue;
       this.blockAtRim(p, q);
       return true;
@@ -1470,11 +1483,13 @@ export class Game {
       for (const q of this.other(ps.from.team).players) {
         if (ps.checked.has(q)) continue;
         const d = hdist(q.pos, b.pos);
-        if (d < 0.75 && b.pos.y < q.reach + 0.2 && u > 0.15 && u < 0.9) {
+        if (d < 0.95 && b.pos.y < q.reach + 0.2 && u > 0.1 && u < 0.92) {
           ps.checked.add(q);
-          let chance = 0.04 + q.r.steal / 700;
-          if (!q.team.human) chance *= this.diff.aiSteal;
-          if (d < 0.4) chance += 0.12;
+          // Standing in the passing lane is an interception: the closer to the ball's path, the surer it is
+          let chance = (d < 0.5 ? 0.9 : 0.62) + q.r.steal / 1000 + q.perk.steal * 0.5;
+          if (!q.team.human) chance *= Math.min(1, 0.55 + this.diff.aiSteal * 0.45);
+          if (q.state === 'steal' || q.stumbleT > 0) chance *= 0.6; // off balance
+          chance = Math.min(0.97, chance);
           if (Math.random() < chance) {
             q.stats.stl++; ps.from.stats.to++;
             this.hud.feedback('INTERCEPTED!', q.team.isUser ? '#3dff7a' : '#ff3b3b');
@@ -1512,6 +1527,7 @@ export class Game {
             if (s.kind === 'dunk') chance = q.team.human && this.ctl(q) ? 0.8 : chance * 0.4; // a late hand can still swat a dunk
             chance *= { fadeaway: 0.45, floater: 0.55, reverse: 0.5, euro: 0.7 }[s.style] || 1;
             if (!q.team.human) chance *= this.diff.aiDef;
+            chance *= (1 + q.perk.block) * Math.max(0.3, 1 - s.shooter.perk.blockResist);
             if (Math.random() < chance) {
               b.state = 'loose';
               const away = tmp2.set(b.pos.x - q.pos.x, 0, b.pos.z - q.pos.z).normalize();

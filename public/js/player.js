@@ -1,3 +1,4 @@
+import { perksFor } from './styles.js';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { C } from './arena.js';
@@ -43,6 +44,7 @@ export class Player {
   constructor(data, team, index, scene) {
     this.data = data;
     this.r = data.ratings;
+    this.perk = perksFor(data.styles);
     this.team = team;
     this.index = index;
     this.name = `${data.first} ${data.last}`;
@@ -70,7 +72,7 @@ export class Player {
     this.build(scene);
   }
 
-  get maxSpeed() { return (4.6 + this.r.speed * 0.022) * (0.84 + 0.16 * this.energy); }
+  get maxSpeed() { return (4.6 + this.r.speed * 0.022) * (0.84 + 0.16 * this.energy) * (1 + this.perk.speed); }
 
   build(scene) {
     const d = this.data, t = this.team.data;

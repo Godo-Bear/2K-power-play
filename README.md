@@ -7,7 +7,7 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Game modes**
 - **Play Now**: pick any two teams and which one you control
-- **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, one of 12 play styles), join a team, and earn Rep Points from your game grades to upgrade your ratings. Your player card goes from Bronze to Legend as you improve.
+- **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, a starter play style), join a team, and earn Rep Points from your game grades to upgrade your ratings. Like FC PlayStyles, the other 6 of the 12 play styles unlock as your OVR climbs, and you can equip up to 2 extras. Each style changes how you play (shooting, speed, steals, blocks, rebounds, passing), not just your ratings. Your player card goes from Bronze to Legend as you improve.
 - **Season**: a 16-team league where you play every other team once (15 games), with standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
 - **Online**: play a friend. One player creates a room and shares the 5-letter code, the other joins with it. If your friend leaves, the CPU takes over their team.
 - **Practice**: no clock and no fouls. Choose how many players are on your team (1-5) and how many opponents (0-5), easy or real defense, with a shot tracker.

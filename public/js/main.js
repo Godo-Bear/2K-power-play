@@ -1,3 +1,4 @@
+import { PERK_TEXT } from './styles.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -1211,7 +1212,7 @@ function renderHub() {
           Object.entries(Season.ARCHETYPES).map(([k, a]) => {
             const primary = k === c.archetype, on = extra.includes(k), open = Season.styleUnlocked(ovr, k);
             const status = primary ? '<em>Primary</em>' : !open ? `<em>🔒 ${a.unlock} OVR</em>` : on ? '<em class="on">Equipped</em>' : extra.length >= Season.MAX_EXTRA_STYLES ? '<em>Slots full</em>' : '<em>Tap to equip</em>';
-            return `<button class="ps${primary || on ? ' on' : ''}${open ? '' : ' locked'}" data-ps="${k}" ${primary || !open ? 'disabled' : ''}><b>${a.label}</b><small>${a.desc}</small>${status}</button>`;
+            return `<button class="ps${primary || on ? ' on' : ''}${open ? '' : ' locked'}" data-ps="${k}" ${primary || !open ? 'disabled' : ''}><b>${a.label}</b><small>${PERK_TEXT[k] || a.desc}</small>${status}</button>`;
           }).join('') + '</div>';
       })();
     $$('#hubTab .ps').forEach((b) => b.addEventListener('click', () => { if (Season.toggleStyle(s, b.dataset.ps)) { sfx.select(); renderHub(); } }));

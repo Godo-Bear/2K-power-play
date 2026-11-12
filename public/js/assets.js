@@ -314,14 +314,14 @@ function choosePose(p, state, ctx) {
       dx = wx * c - wz * s; dz = wx * s + wz * c; dy = wy;
       const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
     }
-    if (t < 0.12) {
+    if (t < 0.14) {
       // Wind-up: the hand is pulled back and low, the other arm goes out for balance
       out.aR = [[-0.35, -0.55, -0.35], [-0.15, -0.3, -0.5]];
       out.aL = [[0.75, 0.1, 0.25], [0.5, 0.4, 0.3]];
-    } else if (t < 0.3) {
+    } else if (t < 0.44) {
       // Strike: the arm shoots out at the ball (a swipe also sweeps across it), with a lunging step
-      const k = (t - 0.12) / 0.18;
-      const sweep = ctx.stealStyle === 'swipe' ? (0.5 - k) * 0.9 : 0;
+      const k = (t - 0.14) / 0.3;
+      const sweep = ctx.stealStyle === 'swipe' ? (0.5 - k) * 1.5 : (0.5 - k) * 0.25;
       out.aR = [[dx - sweep, dy, dz], [dx - sweep * 0.5, dy, dz]];
       out.aL = [[0.85, 0.15, -0.15], [0.55, 0.3, -0.3]];
       out.lR = [[-0.1, -0.4, 0.9], [0, -0.95, -0.2]];
