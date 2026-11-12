@@ -108,7 +108,7 @@ const BONE_KEYS = {
   upperarml: 'uaL', lowerarml: 'laL', upperarmr: 'uaR', lowerarmr: 'laR', upperlegl: 'ulL', lowerlegl: 'llL', upperlegr: 'ulR', lowerlegr: 'llR',
   lupperarm: 'uaL', lforearm: 'laL', rupperarm: 'uaR', rforearm: 'laR', lthigh: 'ulL', lcalf: 'llL', rthigh: 'ulR', rcalf: 'llR',
   head: 'head', headend: 'headEnd', torso: 'torso',
-  lfoot: 'ftL', rfoot: 'ftR', footl: 'ftL', footr: 'ftR',
+  lfoot: 'ftL', rfoot: 'ftR', footl: 'ftL', footr: 'ftR', spine: 'chest',
 };
 // The bone a limb points toward (its "child"), by name. Rigs with twist bones have several children, so the first one is not reliable.
 const BONE_CHILD = { lupperarm: 'lforearm', lforearm: 'lhand', rupperarm: 'rforearm', rforearm: 'rhand', lthigh: 'lcalf', lcalf: 'lfoot', rthigh: 'rcalf', rcalf: 'rfoot' };
@@ -122,7 +122,7 @@ function findBones(model) {
     const id = boneId(o.name);
     if (!byId[id]) byId[id] = o;
     const key = BONE_KEYS[id];
-    if (key && !b[key]) b[key] = o;
+    if (key && (!b[key] || key === 'chest')) b[key] = o; // the chest is the topmost spine bone
   });
   for (const k of Object.keys(b)) {
     const bone = b[k];
@@ -216,9 +216,94 @@ function tintModel(model, cfg, fake) {
   });
 }
 
+// ---------- Kit customisation: shoe colours and the logo / number on the jersey ----------
+const shoeCache = new Map();
+// Recoloured copy of a shoe: `upper` replaces the dark leather, `sole` tints the midsole and outsole
+function shoeVariant(side, upper, sole) {
+  const base = custom.shoes[side];
+  if (!upper && !sole) return base;
+  const key = `${side}|${upper || ''}|${sole || ''}`;
+  if (shoeCache.has(key)) return shoeCache.get(key);
+  const copy = base.clone(true);
+  const cloned = new Map();
+  copy.traverse((o) => {
+    if (!o.isMesh) return;
+    const m = o.material;
+    if (!cloned.has(m)) {
+      const c = m.clone();
+      if (upper && m.name === 'upper') { c.map = null; c.color.set(upper); c.roughness = 0.55; }
+      else if (sole && (m.name === 'midsole' || m.name === 'outsole')) { c.color.set(sole); }
+      cloned.set(m, c);
+    }
+    o.material = cloned.get(m);
+  });
+  shoeCache.set(key, copy);
+  return copy;
+}
+
+const decalCache = new Map();
+function decalTexture(team, player, back) {
+  const t = team.data, fg = team.trimColor;
+  const sym = (t.logo && t.logo.symbol) || '';
+  const key = [back ? 'b' : 'f', fg, sym, t.id, player.data.number, back ? player.data.last : ''].join('|');
+  if (decalCache.has(key)) return decalCache.get(key);
+  const cv = document.createElement('canvas');
+  cv.width = 256; cv.height = 256;
+  const g = cv.getContext('2d');
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = fg; g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = 6;
+  const text = (s, y, size, w = 240) => { g.font = `900 ${size}px "Arial Black", Impact, sans-serif`; g.strokeText(s, 128, y, w); g.fillText(s, 128, y, w); };
+  if (back) {
+    text(String(player.data.last || '').toUpperCase(), 44, 38);
+    text(String(player.data.number), 150, 150);
+  } else {
+    if (sym) { g.font = '110px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; g.fillStyle = '#fff'; g.fillText(sym, 128, 70); g.fillStyle = fg; }
+    else text(t.id, 66, 72);
+    text(String(player.data.number), 175, 96);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  decalCache.set(key, tex);
+  return tex;
+}
+
+// Put the team logo and number on the chest and the name and number on the back, riding on the spine bone
+function attachDecals(holder, model, bones, player, cfg) {
+  if (!bones || !bones.chest || !player.team || !player.team.data) return;
+  const rules = Object.entries(cfg.tint || {}).filter(([, v]) => v === 'jersey').map(([k]) => k.toLowerCase());
+  if (!rules.length) return;
+  holder.updateMatrixWorld(true);
+  const v = new THREE.Vector3(), pts = [];
+  model.traverse((o) => {
+    if (!o.isMesh || !(Array.isArray(o.material) ? o.material : [o.material]).some((mt) => rules.some((r) => (mt.name || '').toLowerCase().includes(r)))) return;
+    const pos = o.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) pts.push(v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).clone());
+  });
+  if (!pts.length) return;
+  let minY = 1e9, maxY = -1e9;
+  for (const p of pts) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
+  const cy = minY + (maxY - minY) * 0.6, size = (maxY - minY) * 0.55;
+  let zF = -1e9, zB = 1e9, cx = 0, n = 0;
+  for (const p of pts) if (Math.abs(p.y - cy) < size * 0.3) { cx += p.x; n++; }
+  cx = n ? cx / n : 0;
+  for (const p of pts) if (Math.abs(p.y - cy) < size * 0.3 && Math.abs(p.x - cx) < size * 0.25) { zF = Math.max(zF, p.z); zB = Math.min(zB, p.z); }
+  if (zF < -1e8) return;
+  const mk = (back) => {
+    const mat = new THREE.MeshStandardMaterial({ map: decalTexture(player.team, player, back), transparent: true, roughness: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+    m.position.set(cx, cy, back ? zB - 0.004 : zF + 0.004);
+    if (back) m.rotation.y = Math.PI;
+    m.renderOrder = 2; m.frustumCulled = false; m.castShadow = false;
+    holder.add(m);
+    holder.updateMatrixWorld(true);
+    bones.chest.attach(m);
+  };
+  mk(false); mk(true);
+}
+
 // Swap the model's boots for the sneaker model: each shoe is sized to the boot it replaces and rides on the foot bone
 const SHOE_LEN = 0.362; // length of the shoe model, in its own units
-function attachShoes(holder, model, bones) {
+function attachShoes(holder, model, bones, player) {
   const sh = custom.shoes;
   const placed = [];
   if (!sh || !bones || !bones.ftL || !bones.ftR) return placed;
@@ -252,8 +337,10 @@ function attachShoes(holder, model, bones) {
     bone.attach(shoe);
     placed.push({ obj: shoe, foot: bone, calf: side === 'l' ? bones.llL : bones.llR, rel: shoe.quaternion.clone() });
   };
-  fit('l', bones.ftL, sh.left);
-  fit('r', bones.ftR, sh.right);
+  const upper = (player.data && player.data.shoeUpper) || (player.team && player.team.data && player.team.data.shoeUpper) || null;
+  const sole = (player.data && player.data.shoeSole) || (player.team && player.team.data && player.team.data.shoeSole) || null;
+  fit('l', bones.ftL, shoeVariant('left', upper, sole));
+  fit('r', bones.ftR, shoeVariant('right', upper, sole));
   for (const m of boots) m.visible = false;
   return placed;
 }
@@ -301,7 +388,8 @@ export function applyCustomPlayer(player) {
   tintModel(model, cfg, player);
   player.bones = findBones(model);
   attachHair(holder, model, player.bones, player.data, cfg);
-  player.shoes = attachShoes(holder, model, player.bones);
+  player.shoes = attachShoes(holder, model, player.bones, player);
+  attachDecals(holder, model, player.bones, player, cfg);
   player.limb = { aL: { w: 0 }, aR: { w: 0 }, lL: { w: 0 }, lR: { w: 0 } };
   player.body.visible = false;
   player.root.add(holder);
@@ -559,10 +647,10 @@ export function placeCustomCourt(scene) {
 let pRenderer = null, pScene = null, pCam = null;
 const portraitCache = new Map();
 // `yaw` turns the model (degrees) and `zoom` (0 to 1) moves the camera in on the head; both are for previews
-export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff', yaw = 0, zoom = 0 }) {
+export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff', yaw = 0, zoom = 0, body = false, kit = null }) {
   const cp = custom.player;
   if (!cp) return null;
-  const key = [skin, hair, hairStyle, jersey, trim, yaw, zoom].join('|');
+  const key = [skin, hair, hairStyle, jersey, trim, yaw, zoom, body, kit ? JSON.stringify(kit) : ''].join('|');
   if (portraitCache.has(key)) return portraitCache.get(key);
   try {
     if (!pRenderer) {
@@ -578,21 +666,28 @@ export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim =
     let model = SkeletonUtils.clone(cp.scene);
     model.rotation.y = THREE.MathUtils.degToRad(cp.cfg.rotationY || 0);
     fitToHeight(model, 2);
-    const fake = { team: { jerseyColor: jersey, trimColor: trim, data: { secondary: trim } }, data: { skin, hair, hairStyle }, index: 1 };
+    const fake = { team: { jerseyColor: jersey, trimColor: trim, data: { secondary: trim, ...((kit && kit.team) || {}) } }, data: { skin, hair, hairStyle, number: kit ? kit.number : 7, last: kit ? kit.last : 'STAR', shoeUpper: kit ? kit.shoeUpper : null, shoeSole: kit ? kit.shoeSole : null }, index: 1 };
     tintModel(model, cp.cfg, fake);
     const pHolder = new THREE.Group();
     pHolder.add(model);
     // The hair is fitted while the model is still in its T-pose, then rides on the head bone through the pose below
-    attachHair(pHolder, model, findBones(model), fake.data, cp.cfg);
+    const pBones = findBones(model);
+    attachHair(pHolder, model, pBones, fake.data, cp.cfg);
+    const pShoes = body ? attachShoes(pHolder, model, pBones, fake) : [];
+    if (body) attachDecals(pHolder, model, pBones, fake, cp.cfg);
     // Models are authored in a T-pose: pose the portrait with the idle clip so he stands naturally
     const idleName = cp.cfg.animations && cp.cfg.animations.idle;
     const idleClip = idleName && THREE.AnimationClip.findByName(cp.animations || [], idleName);
     if (idleClip) { const mx = new THREE.AnimationMixer(model); mx.clipAction(idleClip).play(); mx.update(0.4); }
     pHolder.updateMatrixWorld(true);
+    if (pShoes.length) orientShoes({ customModel: pHolder, shoes: pShoes });
     model = pHolder;
     model.rotation.y = THREE.MathUtils.degToRad(yaw);
     pScene.add(model);
-    if (zoom > 0) {
+    if (body) {
+      pCam.position.set(0, 1.0, 4.4);
+      pCam.lookAt(0, 0.98, 0);
+    } else if (zoom > 0) {
       // Head close-up, looking straight at the face (so yaw shows the side/back)
       pCam.position.set(0.0, 1.8, 1.5 - 0.15 * zoom);
       pCam.lookAt(0, 1.79, 0);

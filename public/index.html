@@ -130,7 +130,7 @@
         <button class="playas">Play as this team</button>
       </div>
     </div>
-    <div class="row"><button id="selTactics">Edit my team's tactics</button></div>
+    <div class="row"><button id="selTactics">Edit my team's tactics</button><button id="selKit">Customize kit &amp; shoes</button></div>
     <div class="options">
       <label>Player lock
         <select id="optLock"><option value="-1">Off (auto switch)</option></select>
@@ -311,6 +311,32 @@
       </div>
     </div>
     <div class="row"><button id="pauseTactics2" class="openTac">Team Tactics</button><button id="htSkip" class="primary">Start second half</button></div>
+  </div>
+
+  <!-- Kit customiser -->
+  <div id="kit" class="screen">
+    <div class="tac-head"><span id="kitCrest"></span><div><h2>Customize Kit</h2><small id="kitTeam"></small></div></div>
+    <div class="tac-body">
+      <div class="tac-left">
+        <div class="tac-label">Colors</div>
+        <div id="kitColors"></div>
+        <div class="tac-label" style="margin-top:14px">Home kit</div>
+        <div class="chips" id="kitHome"></div>
+        <div class="tac-label" style="margin-top:14px">Logo</div>
+        <div class="chips symbols" id="kitSymbols"></div>
+        <div class="chips" id="kitShapes" style="margin-top:8px"></div>
+        <div class="tac-label" style="margin-top:14px">Shoes: upper</div>
+        <div class="sws" id="kitShoeUpper"></div>
+        <div class="tac-label" style="margin-top:10px">Shoes: sole</div>
+        <div class="sws" id="kitShoeSole"></div>
+      </div>
+      <div class="tac-right">
+        <div class="chips" id="kitView" style="margin-bottom:8px"></div>
+        <div class="kit-preview" id="kitPreview"></div>
+        <p class="hint" style="margin:8px 0 0">The number and name come from each player. Changes show up in every game with this team.</p>
+      </div>
+    </div>
+    <div class="row"><button id="kitReset">Reset</button><button id="kitBack">Back</button><button id="kitSave" class="primary">Save Changes</button></div>
   </div>
 
   <!-- Team tactics -->

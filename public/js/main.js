@@ -1,4 +1,5 @@
 import { SLIDERS, PRESETS, PRESET_KEYS, presetValues, getTactics, saveTactics, resetTactics, matchPreset, tacticsNorm, traits as tacTraits } from './tactics.js';
+import { SYMBOLS, SHAPES, PALETTE, SHOE_COLORS, getKit, saveKit, applyAllKits } from './kit.js';
 import { PERK_TEXT } from './styles.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -19,6 +20,7 @@ import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer } fro
 import * as Season from './season.js';
 import { auth, checkSession, register as authRegister, login as authLogin, logout as authLogout } from './auth.js';
 import { Room, makeCode, makeRemoteInput, makeInputSender, packEvent, unpackEvent, snapshot, applySnapshot, guestFrame } from './net.js';
+applyAllKits(TEAMS); // saved kit, logo and shoe customisations
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
@@ -127,7 +129,7 @@ function musicMaybe() {
   if (settings.music && (mode === 'menu' || mode === 'over') && !settings.mute) startMusic(); else stopMusic();
 }
 
-const crest = (t, cls = 'crest') => `<span class="${cls}" style="background:${t.secondary};border-color:${t.primary};color:${t.accent}">${t.id}</span>`;
+const crest = (t, cls = 'crest') => `<span class="${cls} shape-${(t.logo && t.logo.shape) || 'circle'}" style="background:${t.secondary};border-color:${t.primary};color:${t.accent}">${(t.logo && t.logo.symbol) || t.id}</span>`;
 
 // ---------- Home hub ----------
 const TIPS = [
@@ -689,6 +691,68 @@ $('#subsDone').addEventListener('click', () => {
   else { show(null); if (game && game.state === 'timeout') $('#timeoutScreen').classList.add('show'); }
 });
 $('#optAutoSubs').addEventListener('change', (e) => { settings.autoSubs = e.target.checked; if (game) game.autoSubs = settings.autoSubs; saveSettings(); });
+
+// ---------- Kit customiser ----------
+let kitEd = null;
+let kitTimer = 0;
+const kitSwatches = (list, cur, field) => list.map((c) => `<button class="sw${c === cur ? ' on' : ''}${c === null ? ' none' : ''}" data-f="${field}" data-val="${c === null ? '' : c}" style="${c === null ? '' : `background:${c}`}" aria-label="${c || 'Original'}">${c === null ? '↺' : ''}</button>`).join('');
+function openKit(team, onClose) {
+  kitEd = { team, kit: JSON.parse(JSON.stringify(getKit(team))), onClose, view: 'home' };
+  $('#kitTeam').textContent = `${team.city} ${team.name}`;
+  drawKit();
+  show('kit');
+}
+function kitJerseys() {
+  const k = kitEd.kit;
+  if (kitEd.view === 'away' || k.homeStyle === 'color') return { jersey: k.primary, trim: k.accent };
+  return { jersey: '#f5f5f5', trim: k.primary };
+}
+function kitCrestHTML() {
+  const k = kitEd.kit;
+  return crest({ ...kitEd.team, primary: k.primary, secondary: k.secondary, accent: k.accent, logo: k.logo });
+}
+function drawKit() {
+  const k = kitEd.kit, t = kitEd.team;
+  $('#kitCrest').innerHTML = kitCrestHTML();
+  $('#kitColors').innerHTML = [['primary', 'Primary (jersey)'], ['secondary', 'Secondary (logo background)'], ['accent', 'Accent (numbers and trim)']].map(([f, label]) =>
+    `<div class="kit-row"><label>${label}</label><div class="sws">${kitSwatches(PALETTE, k[f], f)}<input type="color" value="${k[f]}" data-pick="${f}" aria-label="Custom colour for ${label}"></div></div>`).join('');
+  $('#kitHome').innerHTML = [['white', 'Classic white'], ['color', 'Team colors']].map(([v, l]) => `<button class="${k.homeStyle === v ? 'on' : ''}" data-hs="${v}">${l}</button>`).join('');
+  $('#kitSymbols').innerHTML = SYMBOLS.map((s) => `<button class="${k.logo.symbol === s ? 'on' : ''}" data-sym="${s}">${s || t.id}</button>`).join('');
+  $('#kitShapes').innerHTML = Object.entries(SHAPES).map(([v, l]) => `<button class="${k.logo.shape === v ? 'on' : ''}" data-shape="${v}">${l}</button>`).join('');
+  $('#kitShoeUpper').innerHTML = kitSwatches(SHOE_COLORS, k.shoeUpper, 'shoeUpper');
+  $('#kitShoeSole').innerHTML = kitSwatches(SHOE_COLORS, k.shoeSole, 'shoeSole');
+  $('#kitView').innerHTML = [['home', 'Home'], ['away', 'Away']].map(([v, l]) => `<button class="${kitEd.view === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('');
+  $$('#kit .sw').forEach((b) => b.addEventListener('click', () => { k[b.dataset.f] = b.dataset.val || null; drawKit(); }));
+  $$('#kit input[type=color]').forEach((i) => i.addEventListener('input', () => { k[i.dataset.pick] = i.value; $('#kitCrest').innerHTML = kitCrestHTML(); clearTimeout(kitTimer); kitTimer = setTimeout(renderKitPreview, 150); }));
+  $$('#kitHome button').forEach((b) => b.addEventListener('click', () => { k.homeStyle = b.dataset.hs; drawKit(); }));
+  $$('#kitSymbols button').forEach((b) => b.addEventListener('click', () => { k.logo.symbol = b.dataset.sym; drawKit(); }));
+  $$('#kitShapes button').forEach((b) => b.addEventListener('click', () => { k.logo.shape = b.dataset.shape; drawKit(); }));
+  $$('#kitView button').forEach((b) => b.addEventListener('click', () => { kitEd.view = b.dataset.v; drawKit(); }));
+  clearTimeout(kitTimer);
+  kitTimer = setTimeout(renderKitPreview, 60);
+}
+function renderKitPreview() {
+  if (!kitEd) return;
+  const k = kitEd.kit, t = kitEd.team, j = kitJerseys();
+  const kit = { team: { id: t.id, secondary: k.secondary, logo: k.logo, shoeUpper: k.shoeUpper, shoeSole: k.shoeSole }, number: 7, last: t.name, shoeUpper: k.shoeUpper, shoeSole: k.shoeSole };
+  const img = (yaw) => portrait({ skin: '#c68642', hair: '#111111', hairStyle: 1, jersey: j.jersey, trim: j.trim, yaw, body: true, kit });
+  const a = img(0), b = img(180);
+  $('#kitPreview').innerHTML = a ? `<img src="${a}" alt="Front of the kit"><img src="${b}" alt="Back of the kit">` : '<p class="hint">The preview needs the 3D player model.</p>';
+}
+$('#kitSave').addEventListener('click', () => {
+  sfx.select();
+  saveKit(kitEd.team, kitEd.kit);
+  Season.scaledCache.clear();
+  const cb = kitEd.onClose; kitEd = null; if (cb) cb();
+});
+$('#kitBack').addEventListener('click', () => { sfx.menu(); const cb = kitEd.onClose; kitEd = null; if (cb) cb(); });
+$('#kitReset').addEventListener('click', () => {
+  sfx.menu();
+  const o = kitEd.team._orig;
+  kitEd.kit = { primary: o.primary, secondary: o.secondary, accent: o.accent, homeStyle: 'white', logo: { symbol: '', shape: 'circle' }, shoeUpper: null, shoeSole: null };
+  drawKit();
+});
+$('#selKit').addEventListener('click', () => { sfx.menu(); openKit(TEAMS[settings[settings.side]], () => { renderSelect(); show('select'); }); });
 
 // ---------- Team tactics ----------
 let tac = null;
@@ -1323,7 +1387,7 @@ function renderHub() {
   }
 
   // Tabs
-  const tabs = [...(kind === 'career' ? [['upgrades', 'Upgrades'], ['log', 'My Games']] : []), ['tactics', 'Tactics'], ['standings', 'Standings'], ['schedule', 'Schedule'], ['stats', 'Team Stats'], ['playoffs', 'Playoffs'], ['options', 'Options']];
+  const tabs = [...(kind === 'career' ? [['upgrades', 'Upgrades'], ['log', 'My Games']] : []), ['tactics', 'Tactics'], ['kit', 'Kit'], ['standings', 'Standings'], ['schedule', 'Schedule'], ['stats', 'Team Stats'], ['playoffs', 'Playoffs'], ['options', 'Options']];
   $('#hubTabs').innerHTML = tabs.map(([k, l]) => `<button class="${k === hubTab ? 'on' : ''}" data-k="${k}">${l}</button>`).join('');
   $$('#hubTabs button').forEach((b) => b.addEventListener('click', () => { hubTab = b.dataset.k; sfx.menu(); renderHub(); }));
   const body = $('#hubTab');
@@ -1372,6 +1436,9 @@ function renderHub() {
       const before = Season.tier(Season.careerOvr(c)).name;
       if (Season.upgrade(s, b.dataset.k)) { if (Season.tier(Season.careerOvr(c)).name !== before) sfx.levelUp(); else sfx.select(); renderHub(); }
     }));
+  } else if (hubTab === 'kit') {
+    body.innerHTML = `<div style="display:flex;align-items:center;gap:14px;padding:6px 4px">${crest(team, 'crest')}<div><b>${team.city} ${team.name}</b><div class="hint" style="margin:2px 0 0;text-align:left">Change your colors, logo and shoes. Your players wear them in every game.</div></div></div><div class="row"><button id="hubKit" class="primary">Customize kit &amp; shoes</button></div>`;
+    $('#hubKit').addEventListener('click', () => { sfx.menu(); openKit(team, () => { renderHub(); show('hub'); }); });
   } else if (hubTab === 'tactics') {
     const t = getTactics(team), tr = tacTraits(t.vals);
     body.innerHTML = `<div class="box"><div class="line"><span>Tactical preset</span><span>${t.preset === 'custom' ? 'CUSTOM' : PRESETS[t.preset].label}</span></div>` +

@@ -650,3 +650,19 @@ html, body { height: 100%; height: 100dvh; }
 #htLeaders { display: grid; gap: 6px; }
 .ht-ld { display: flex; align-items: baseline; gap: 8px; padding: 8px 10px; border-radius: 10px; border-left: 4px solid var(--tc); background: rgba(255,255,255,0.05); font-size: 13px; }
 .ht-ld small { color: var(--muted); font-weight: 700; } .ht-ld span { margin-left: auto; color: #ffd60a; font-weight: 800; font-size: 12px; }
+
+/* ---------- Kit & logo shapes ---------- */
+.crest.shape-square { border-radius: 26%; }
+.crest.shape-shield { border-radius: 14% 14% 50% 50% / 10% 10% 60% 60%; }
+.crest.shape-pill { border-radius: 40%; aspect-ratio: auto; }
+
+/* ---------- Kit customiser ---------- */
+#kit { background: rgba(3,5,10,0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); justify-content: flex-start; z-index: 15; }
+.kit-row { margin-top: 10px; } .kit-row label { display: block; font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+.sws { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.sw { width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25); padding: 0; font-size: 13px; line-height: 1; color: var(--text); background: rgba(255,255,255,0.08); }
+.sw.on { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+.sws input[type=color] { width: 30px; height: 28px; padding: 0; border: none; background: none; border-radius: 6px; }
+.chips.symbols button { min-width: 44px; text-align: center; font-size: 16px; padding: 6px 8px; }
+.kit-preview { display: flex; gap: 6px; justify-content: center; min-height: 200px; }
+.kit-preview img { width: 50%; max-width: 260px; height: auto; border-radius: 10px; background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.07), transparent 70%); }

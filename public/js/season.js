@@ -57,7 +57,7 @@ export function newSeason({ kind = 'season', team, diff, q, career = null, year 
 // The league keeps getting better: every year in a career the rival teams' players gain rating points,
 // so winning titles stays a challenge (your own team grows at half speed, your player grows with Rep Points)
 export function leagueGrowth(year) { return Math.min(10, Math.max(0, ((year || 1) - 1) * 1.8)); }
-const scaledCache = new Map();
+export const scaledCache = new Map();
 export function scaledTeam(idx, year, factor = 1) {
   const g = Math.round(leagueGrowth(year) * factor);
   const base = TEAMS[idx];
