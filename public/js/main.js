@@ -1354,7 +1354,7 @@ function renderHub() {
     }
   } else if (hubTab === 'upgrades') {
     const c = s.career;
-    body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px 8px"><span class="hint" style="margin:0;text-align:left">Earn Rep Points by playing games. Better grades earn more.</span><span class="rp">${c.rp}</span></div>` +
+    body.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 4px 8px"><span class="hint" style="margin:0;text-align:left">Earn Rep Points by playing games. Better grades earn more. Rival teams grow stronger every year${Season.leagueGrowth(s.year) ? ` (+${Math.round(Season.leagueGrowth(s.year))} rating this year)` : ''}.</span><span class="rp">${c.rp}</span></div>` +
       Season.ATTRS.map(([k, l]) => {
         const cost = Season.upgradeCost(c.ratings[k]);
         return `<div class="upg"><span>${l}</span><b>${c.ratings[k]}</b><div class="bar"><i style="width:${c.ratings[k]}%"></i></div><button data-k="${k}" ${c.rp < cost ? 'disabled' : ''}>${cost === Infinity ? 'MAX' : `+1 · ◆${cost}`}</button></div>`;
@@ -1499,8 +1499,9 @@ function playHubGame() {
   if (!ng) return;
   session.lastSim = null;
   const mine = s.career ? Season.careerTeamData(s) : TEAMS[s.team];
-  const home = ng.h === s.team ? mine : TEAMS[ng.h];
-  const away = ng.a === s.team ? mine : TEAMS[ng.a];
+  const other = (i) => (s.career ? Season.scaledTeam(i, s.year) : TEAMS[i]);
+  const home = ng.h === s.team ? mine : other(ng.h);
+  const away = ng.a === s.team ? mine : other(ng.a);
   sfx.select();
   // Career: play as just your player (locked on, no switching) or run the whole team
   const solo = !!s.career && s.control !== 'team';

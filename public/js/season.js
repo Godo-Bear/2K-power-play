@@ -54,10 +54,27 @@ export function newSeason({ kind = 'season', team, diff, q, career = null, year 
   return s;
 }
 
+// The league keeps getting better: every year in a career the rival teams' players gain rating points,
+// so winning titles stays a challenge (your own team grows at half speed, your player grows with Rep Points)
+export function leagueGrowth(year) { return Math.min(10, Math.max(0, ((year || 1) - 1) * 1.8)); }
+const scaledCache = new Map();
+export function scaledTeam(idx, year, factor = 1) {
+  const g = Math.round(leagueGrowth(year) * factor);
+  const base = TEAMS[idx];
+  if (!g) return base;
+  const key = `${idx}:${g}`;
+  if (scaledCache.has(key)) return scaledCache.get(key);
+  const bump = (r) => { const o = {}; for (const k of Object.keys(r)) o[k] = Math.min(99, r[k] + g); return o; };
+  const t = { ...base, ovr: Math.min(97, base.ovr + g), roster: base.roster.map((p) => ({ ...p, ratings: bump(p.ratings), ovr: Math.min(99, p.ovr + g) })) };
+  scaledCache.set(key, t);
+  return t;
+}
+
 const gauss = () => (Math.random() + Math.random() + Math.random() + Math.random() - 2) / 2;
 function teamOvr(s, idx) {
   // In career mode your own rating nudges your team's strength in simulated games
-  if (s.career && idx === s.team) return TEAMS[idx].ovr + (careerOvr(s.career) - 80) / 6;
+  if (s.career && idx === s.team) return scaledTeam(idx, s.year, 0.5).ovr + (careerOvr(s.career) - 80) / 6;
+  if (s.career) return scaledTeam(idx, s.year).ovr;
   return TEAMS[idx].ovr;
 }
 function simScore(s, g) {
@@ -271,7 +288,7 @@ export function newCareerPlayer({ first, last, pos, number, archetype, skin, hai
 
 // Team data with the career player swapped in as the starter at their position
 export function careerTeamData(s) {
-  const base = TEAMS[s.team];
+  const base = scaledTeam(s.team, s.year, 0.5);
   const c = s.career;
   const me = {
     first: c.first, last: c.last, pos: POS[c.pos], number: c.number, height: c.height, skin: c.skin, hair: c.hair, hairStyle: c.hairStyle,

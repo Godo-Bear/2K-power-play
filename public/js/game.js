@@ -85,7 +85,7 @@ export class Game {
       t.pendingSubs = [];
       // How the team plays: saved or roster-based tactics, and how sharp it is for its overall rating (88 = sharp, 80 = sloppy)
       t.tac = tacticsNorm(getTactics(t.data).vals);
-      t.skill = ((t.data.ovr || 83) - 83) / 4;
+      t.skill = Math.max(-1, Math.min(1.6, ((t.data.ovr || 83) - 83) / 4));
       t.players.forEach((p, i) => { p.rid = i; });
       t.bench.forEach((p, i) => { p.rid = i + 5; });
       // Controller: which input drives this team (null = CPU), the player it controls, and its shot meter
