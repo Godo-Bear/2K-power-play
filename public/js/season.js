@@ -206,19 +206,39 @@ export const ATTRS = [
   ['speed', 'Speed'], ['def', 'Defense'], ['steal', 'Steal'], ['block', 'Block'], ['reb', 'Rebounding'],
 ];
 export const ARCHETYPES = {
-  sharpshooter: { label: 'Sharpshooter', desc: 'Deadly from deep', boost: { three: 14, mid: 10, handle: 2 } },
-  playmaker: { label: 'Playmaker', desc: 'Runs the offense', boost: { pass: 14, handle: 12, speed: 6 } },
-  slasher: { label: 'Slasher', desc: 'Attacks the rim', boost: { inside: 12, dunk: 14, speed: 8 } },
-  lockdown: { label: 'Lockdown Defender', desc: 'Shuts opponents down', boost: { def: 14, steal: 12, block: 6, speed: 4 } },
-  glass: { label: 'Glass Cleaner', desc: 'Owns the boards', boost: { reb: 16, block: 12, inside: 8 } },
-  threeD: { label: '3-and-D Wing', desc: 'Hits threes, guards the best', boost: { three: 11, def: 11, steal: 7, mid: 3 } },
-  shotCreator: { label: 'Shot Creator', desc: 'Gets a bucket from anywhere', boost: { mid: 13, handle: 10, three: 7, inside: 3 } },
-  stretchBig: { label: 'Stretch Big', desc: 'A big who shoots', boost: { three: 13, mid: 9, reb: 8, block: 4 } },
-  postScorer: { label: 'Post Scorer', desc: 'Unstoppable down low', boost: { inside: 15, mid: 8, reb: 7, dunk: 5 } },
-  rimProtector: { label: 'Rim Protector', desc: 'Nothing easy at the rim', boost: { block: 16, def: 11, reb: 8 } },
-  speedster: { label: 'Speedster', desc: 'Fastest player on the floor', boost: { speed: 15, handle: 9, steal: 7, inside: 4 } },
-  allAround: { label: 'All-Around', desc: 'Good at everything', boost: { three: 4, mid: 4, inside: 4, pass: 4, handle: 4, def: 4, reb: 4, speed: 3, steal: 2, block: 2 } },
+  sharpshooter: { label: 'Sharpshooter', desc: 'Deadly from deep', unlock: 0, boost: { three: 14, mid: 10, handle: 2 } },
+  playmaker: { label: 'Playmaker', desc: 'Runs the offense', unlock: 0, boost: { pass: 14, handle: 12, speed: 6 } },
+  slasher: { label: 'Slasher', desc: 'Attacks the rim', unlock: 0, boost: { inside: 12, dunk: 14, speed: 8 } },
+  lockdown: { label: 'Lockdown Defender', desc: 'Shuts opponents down', unlock: 0, boost: { def: 14, steal: 12, block: 6, speed: 4 } },
+  glass: { label: 'Glass Cleaner', desc: 'Owns the boards', unlock: 0, boost: { reb: 16, block: 12, inside: 8 } },
+  threeD: { label: '3-and-D Wing', desc: 'Hits threes, guards the best', unlock: 72, boost: { three: 11, def: 11, steal: 7, mid: 3 } },
+  shotCreator: { label: 'Shot Creator', desc: 'Gets a bucket from anywhere', unlock: 74, boost: { mid: 13, handle: 10, three: 7, inside: 3 } },
+  stretchBig: { label: 'Stretch Big', desc: 'A big who shoots', unlock: 78, boost: { three: 13, mid: 9, reb: 8, block: 4 } },
+  postScorer: { label: 'Post Scorer', desc: 'Unstoppable down low', unlock: 80, boost: { inside: 15, mid: 8, reb: 7, dunk: 5 } },
+  rimProtector: { label: 'Rim Protector', desc: 'Nothing easy at the rim', unlock: 82, boost: { block: 16, def: 11, reb: 8 } },
+  speedster: { label: 'Speedster', desc: 'Fastest player on the floor', unlock: 76, boost: { speed: 15, handle: 9, steal: 7, inside: 4 } },
+  allAround: { label: 'All-Around', desc: 'Good at everything', unlock: 0, boost: { three: 4, mid: 4, inside: 4, pass: 4, handle: 4, def: 4, reb: 4, speed: 3, steal: 2, block: 2 } },
 };
+// Like FC PlayStyles: the starter styles are open from day one, the rest unlock as your OVR rises.
+// A style you have unlocked can be equipped (up to 2 extras) for 40% of its rating boosts on top of your primary style.
+export const MAX_EXTRA_STYLES = 2;
+export function styleUnlocked(ovr, key) { return ovr >= ARCHETYPES[key].unlock; }
+export function extraStyles(c) { return (c.styles || []).filter((k) => ARCHETYPES[k] && k !== c.archetype); }
+export function effectiveRatings(c) {
+  const r = { ...c.ratings };
+  for (const k of extraStyles(c)) for (const [a, v] of Object.entries(ARCHETYPES[k].boost)) r[a] = Math.min(99, r[a] + Math.round(v * 0.4));
+  return r;
+}
+export function toggleStyle(s, key) {
+  const c = s.career;
+  if (!styleUnlocked(careerOvr(c), key) || key === c.archetype) return false;
+  c.styles = extraStyles(c);
+  if (c.styles.includes(key)) c.styles = c.styles.filter((k) => k !== key);
+  else if (c.styles.length < MAX_EXTRA_STYLES) c.styles.push(key);
+  else return false;
+  save(s);
+  return true;
+}
 const POS = ['PG', 'SG', 'SF', 'PF', 'C'];
 const POS_HEIGHT = [1.88, 1.96, 2.03, 2.08, 2.13];
 
@@ -255,7 +275,7 @@ export function careerTeamData(s) {
   const c = s.career;
   const me = {
     first: c.first, last: c.last, pos: POS[c.pos], number: c.number, height: c.height, skin: c.skin, hair: c.hair, hairStyle: c.hairStyle,
-    headband: false, sleeve: true, ratings: { ...c.ratings }, ovr: careerOvr(c), isMe: true,
+    headband: false, sleeve: true, ratings: effectiveRatings(c), ovr: careerOvr(c), isMe: true,
   };
   const roster = base.roster.slice();
   // The old starter moves to the bench in place of the previous backup

@@ -1095,7 +1095,11 @@ function openCareerCreate() {
     return c;
   };
   const chips = () => {
-    $('#cnArch').innerHTML = Object.entries(Season.ARCHETYPES).map(([k, a]) => `<button class="${k === create.arch ? 'on' : ''}" data-k="${k}">${a.label}<small>${a.desc}</small></button>`).join('');
+    // New players start around 70 OVR, so only the starter styles are open; the others unlock as you improve
+    $('#cnArch').innerHTML = Object.entries(Season.ARCHETYPES).map(([k, a]) => {
+      const locked = a.unlock > 0;
+      return `<button class="${k === create.arch ? 'on' : ''}${locked ? ' locked' : ''}" data-k="${k}" ${locked ? 'disabled' : ''}>${locked ? '🔒 ' : ''}${a.label}<small>${locked ? `Unlocks at ${a.unlock} OVR` : a.desc}</small></button>`;
+    }).join('');
     $('#cnSkin').innerHTML = SKINS.map((c) => `<button class="${c === create.skin ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="Skin tone"></button>`).join('');
     $('#cnHair').innerHTML = HAIRS.map((c) => `<button class="${c === create.hair ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="Hair color"></button>`).join('');
     $('#cnHairStyle').innerHTML = HAIR_STYLES.map((n, i) => `<button class="${i === create.hairStyle ? 'on' : ''}" data-i="${i}">${n}</button>`).join('');
@@ -1201,7 +1205,16 @@ function renderHub() {
       Season.ATTRS.map(([k, l]) => {
         const cost = Season.upgradeCost(c.ratings[k]);
         return `<div class="upg"><span>${l}</span><b>${c.ratings[k]}</b><div class="bar"><i style="width:${c.ratings[k]}%"></i></div><button data-k="${k}" ${c.rp < cost ? 'disabled' : ''}>${cost === Infinity ? 'MAX' : `+1 · ◆${cost}`}</button></div>`;
-      }).join('');
+      }).join('') + (() => {
+        const ovr = Season.careerOvr(c), extra = Season.extraStyles(c);
+        return `<h4 class="ps-h">Play Styles <small>Unlock with OVR · equip up to ${Season.MAX_EXTRA_STYLES} extras (+40% of their boosts)</small></h4><div class="ps-grid">` +
+          Object.entries(Season.ARCHETYPES).map(([k, a]) => {
+            const primary = k === c.archetype, on = extra.includes(k), open = Season.styleUnlocked(ovr, k);
+            const status = primary ? '<em>Primary</em>' : !open ? `<em>🔒 ${a.unlock} OVR</em>` : on ? '<em class="on">Equipped</em>' : extra.length >= Season.MAX_EXTRA_STYLES ? '<em>Slots full</em>' : '<em>Tap to equip</em>';
+            return `<button class="ps${primary || on ? ' on' : ''}${open ? '' : ' locked'}" data-ps="${k}" ${primary || !open ? 'disabled' : ''}><b>${a.label}</b><small>${a.desc}</small>${status}</button>`;
+          }).join('') + '</div>';
+      })();
+    $$('#hubTab .ps').forEach((b) => b.addEventListener('click', () => { if (Season.toggleStyle(s, b.dataset.ps)) { sfx.select(); renderHub(); } }));
     $$('#hubTab .upg button').forEach((b) => b.addEventListener('click', () => {
       const before = Season.tier(Season.careerOvr(c)).name;
       if (Season.upgrade(s, b.dataset.k)) { if (Season.tier(Season.careerOvr(c)).name !== before) sfx.levelUp(); else sfx.select(); renderHub(); }

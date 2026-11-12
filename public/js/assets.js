@@ -391,6 +391,14 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
     + (state === 'steal' ? 0.3 : 0)
     + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
   h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
+  // Life in the body: a bounce on every stride, a shoulder sway, and slow breathing when standing still
+  player.life = (player.life || 0) + dt;
+  const stride = (state === 'walk' || state === 'run') ? Math.min(1, Math.max(0, (speed - 1.2) / 4.5)) : -1;
+  const ph = player.walkPhase || 0;
+  const bob = stride >= 0 ? Math.abs(Math.sin(ph)) * (0.018 + 0.04 * stride) - 0.012 * stride : Math.sin(player.life * 2.1) * 0.006;
+  h.position.y += (bob - h.position.y) * Math.min(1, dt * 18);
+  const sway = stride >= 0 ? Math.sin(ph) * (0.04 + 0.07 * stride) : 0;
+  h.rotation.y += sway;
   if (player.mixer) {
     // Only body-movement clips come from the model; actions are posed procedurally so they match the gameplay timing
     let want = LOOPING.has(state) ? state : 'idle';
