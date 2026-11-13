@@ -7,9 +7,10 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Game modes**
 - **Play Now**: pick any two teams and which one you control
-- **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, a starter play style), join a team, and earn Rep Points from your game grades to upgrade your ratings. Like FC PlayStyles, the other 6 of the 12 play styles unlock as your OVR climbs, and you can equip up to 2 extras. Each style changes how you play (shooting, speed, steals, blocks, rebounds, passing), not just your ratings. Your player card goes from Bronze to Legend as you improve.
+- **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, a starter play style), join a team, and earn Rep Points from your game grades to upgrade your ratings. Like FC PlayStyles, the others unlock as your OVR climbs, and you can equip up to 2 extras. Each style changes how you play (shooting, speed, steals, blocks, rebounds, passing), not just your ratings. Your player card goes from Bronze to Legend as you improve.
 - **Season**: a 16-team league where you play every other team once (15 games), with standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
 - **Online**: play a friend. One player creates a room and shares the 5-letter code, the other joins with it. If your friend leaves, the CPU takes over their team.
+- **Contests**: a 3-point contest (5 racks, a money ball on each) and a dunk contest (3 rounds, judges score your style against three rivals)
 - **Practice**: no clock and no fouls. Choose how many players are on your team (1-5) and how many opponents (0-5), easy or real defense, with a shot tracker.
 - **Tutorial**: 13 interactive steps covering every control
 
@@ -19,6 +20,9 @@ built with Three.js and deployed on Cloudflare Workers.
 - **Team tactics**: edit how a team plays, like FC's Edit Tactic screen. Pick a preset (Pace & Space, Inside-Out, Fast Break, Iso Star, Half-Court Grind, Full Pressure) or drag sliders for pace, 3-point focus, rim attack, ball movement, offensive rebounding, defensive pressure and defensive line. Open it from the Matchup screen, the Pause menu, halftime, or a Season/Career hub. Teams also play to their OVR: an 88 is sharp and tough to rattle, an 80 makes more mistakes.
 - **Halftime show**: three studio legends break down the first half with real replays of the half's best dunks, threes, blocks and steals played back on the court (low TV camera, slow motion), plus top performers
 - **Customize kit & shoes**: change your team's colors, logo (20 emblems, 4 shapes), home kit style and sneaker colors, with a 3D front-and-back preview. Your players wear the logo, number and name on their jerseys.
+- **Real rules**: 24-second shot clock, 8 seconds to cross half court, no going back over it (backcourt), 3 seconds in the lane, goaltending, free throws and the bonus, and the possession arrow (the team that loses the opening tip starts Q2 and Q3, with a sideline inbound). The CPU manages the clock, fouls on purpose when trailing late, and avoids throwing into defended lanes
+- **More moves**: pump fake (tap Pass while winding up a shot), post-ups, defensive slides, pick-and-roll, hot and cold streaks, and CPU coaches who adjust to the score
+- **Referees and benches**: two officials run with the play and signal fouls, violations and baskets; substitutes sit on their bench
 - Timed shot meter, layups, dunks, aimed passes, steals, blocks and rebounds
 - **Automatic moves**: the game picks the right move for the situation. Fadeaways, step-backs, pull-ups, floaters,
   euro-steps, reverse layups, one- and two-hand slams, windmills and tomahawks, spin moves, hesitations,
@@ -27,12 +31,17 @@ built with Three.js and deployed on Cloudflare Workers.
 - Player switching, Player Lock, and CPU AI with 4 difficulty levels
 
 **Presentation**
+- **Graphics**: Low, Medium, High (smooth edges and glow) and Ultra (renders at 4K and scales down), plus adaptive resolution that holds the frame rate steady
+- **Commentary**: a play-by-play voice and a color analyst with no player names, reacting to shots, runs, violations and the score (spoken or as captions)
 - Home hub with a live CPU game playing behind the menus, and original menu music
 - Pre-game intro with a camera fly-in and matchup banner
-- **Announcer**: spoken play-by-play (browser speech) with captions; can be turned off in Settings
 - Slow-motion highlight camera on dunks, blocks and buzzer beaters; a behind-the-shooter free-throw camera
 - Ball trails, crowd camera flashes, sparks, confetti for the winners, light beams, and a Player of the Game card
 - Brightness slider, 3 cameras, 3 graphics levels
+
+**Accounts and accessibility**
+- Cloud save: careers, seasons, kits, tactics and settings follow your account to any device
+- Color-blind friendly colors, larger text, and one-handed or left-handed touch layouts
 
 **Controls**
 - Keyboard, mouse buttons, **gamepad** and **touch** (touch controls appear when you touch the screen)
