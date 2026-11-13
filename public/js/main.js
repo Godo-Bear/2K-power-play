@@ -28,7 +28,13 @@ const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 // ---------- Settings (remembered per browser) ----------
 const settings = { cam: 'broadcast', gfx: 'high', mute: false, home: 0, away: 3, side: 'home', diff: 'pro', q: '2', speed: 0.85, bright: 90, lock: -1, court: 'arena', voice: true, music: true, autoSubs: true };
-try { Object.assign(settings, JSON.parse(localStorage.getItem('pph-settings') || '{}')); } catch { /* ignore */ }
+settings.adaptive = true;
+try {
+  const savedSettings = JSON.parse(localStorage.getItem('pph-settings') || '{}');
+  Object.assign(settings, savedSettings);
+  // Phones start on Medium so they stay smooth; everything else starts on High
+  if (!savedSettings.gfx && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) settings.gfx = 'medium';
+} catch { /* ignore */ }
 const saveSettings = () => { try { localStorage.setItem('pph-settings', JSON.stringify(settings)); } catch { /* ignore */ } };
 
 // ---------- Renderer ----------
@@ -60,13 +66,44 @@ let practice = null;         // practice-mode state
 let careerSlot = 1;         // which of the 3 career saves is open
 let online = null;          // { room, role, peer, home, away, q, playing, remote, sender, queue, acc, statsT }
 
+// Graphics tiers. Ultra renders at 4K (3840x2160) and the browser scales it down to your screen, which smooths every edge.
+const TIERS = {
+  low: { dpr: 1, shadow: false, post: false, msaa: 0, shadowRes: 1024, aniso: 4 },
+  medium: { dpr: 1.5, shadow: true, post: false, msaa: 0, shadowRes: 2048, aniso: 8 },
+  high: { dpr: 2, shadow: true, post: true, msaa: 4, shadowRes: 2048, aniso: 8 },
+  ultra: { dpr: 3, shadow: true, post: true, msaa: 4, shadowRes: 4096, aniso: 16, fourK: true },
+};
+let renderScale = 1;           // adaptive resolution: 1 = full quality, lower when the frame rate drops
+const gfxStats = { fps: 60, ms: 16.7, w: 0, h: 0 };
+function targetRatio() {
+  const T = TIERS[settings.gfx] || TIERS.high;
+  const w = window.innerWidth, h = window.innerHeight;
+  let r = Math.min(window.devicePixelRatio || 1, T.dpr);
+  if (T.fourK) r = Math.min(T.dpr, Math.max(r, 3840 / Math.max(w, h * 16 / 9))); // reach 4K even on a 1080p screen
+  const maxPixels = T.fourK ? 3840 * 2160 * 1.02 : 2560 * 1440 * 1.1;
+  r = Math.min(r, Math.sqrt(maxPixels / (w * h)));
+  const floor = T.fourK ? 1 : 0.75;
+  return Math.max(floor, r * (settings.adaptive ? renderScale : 1));
+}
 function applyQuality() {
-  const q = settings.gfx;
-  const dpr = Math.min(window.devicePixelRatio || 1, q === 'high' ? 2 : q === 'medium' ? 1.5 : 1);
-  renderer.setPixelRatio(dpr);
-  renderer.shadowMap.enabled = q !== 'low';
-  if (scene) scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
-  if (bloomPass) bloomPass.enabled = q === 'high';
+  const q = TIERS[settings.gfx] ? settings.gfx : 'high';
+  const T = TIERS[q];
+  renderer.setPixelRatio(targetRatio());
+  renderer.shadowMap.enabled = T.shadow;
+  const aniso = Math.min(T.aniso, renderer.capabilities.getMaxAnisotropy());
+  if (scene) scene.traverse((o) => {
+    if (!o.material) return;
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => {
+      if (m.map && m.map.anisotropy !== aniso) { m.map.anisotropy = aniso; m.map.needsUpdate = true; }
+      m.needsUpdate = true;
+    });
+  });
+  if (arena && arena.key && arena.key.shadow.mapSize.x !== T.shadowRes) {
+    arena.key.shadow.mapSize.set(T.shadowRes, T.shadowRes);
+    if (arena.key.shadow.map) { arena.key.shadow.map.dispose(); arena.key.shadow.map = null; }
+  }
+  if (composer) for (const rt of [composer.renderTarget1, composer.renderTarget2]) if (rt.samples !== T.msaa) { rt.samples = T.msaa; rt.dispose(); }
+  if (bloomPass) bloomPass.enabled = T.post;
   resize();
 }
 
@@ -79,7 +116,9 @@ function buildWorld(home, away) {
   scene.environmentIntensity = 0.6;
   arena = buildArena(scene, home, away, { courtStyle: settings.court });
   fx = new FX(scene, arena);
-  composer = new EffectComposer(renderer);
+  // Multisampled half-float target: smooth edges (the canvas's own antialiasing doesn't apply to post-processing)
+  const rt = new THREE.WebGLRenderTarget(256, 256, { type: THREE.HalfFloatType, samples: (TIERS[settings.gfx] || TIERS.high).msaa });
+  composer = new EffectComposer(renderer, rt);
   renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
   // Subtle glow only on genuinely bright things (LED boards, lights, particles), not the whole court
@@ -92,7 +131,8 @@ function buildWorld(home, away) {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
-  if (composer) { composer.setSize(w, h); composer.setPixelRatio(renderer.getPixelRatio()); }
+  if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
+  gfxStats.w = Math.round(w * renderer.getPixelRatio()); gfxStats.h = Math.round(h * renderer.getPixelRatio());
   camera.aspect = w / h;
   camera.fov = w / h < 1 ? 62 : w / h < 1.4 ? 50 : 40;
   camera.updateProjectionMatrix();
@@ -270,7 +310,9 @@ $('#optSpeed').value = String(settings.speed);
 if (!$('#optSpeed').value) { settings.speed = 0.85; $('#optSpeed').value = '0.85'; }
 $('#optSpeed').addEventListener('change', (e) => { settings.speed = Number(e.target.value); saveSettings(); });
 $('#optCam').addEventListener('change', (e) => { settings.cam = e.target.value; saveSettings(); });
-$('#optGfx').addEventListener('change', (e) => { settings.gfx = e.target.value; saveSettings(); applyQuality(); });
+$('#optGfx').addEventListener('change', (e) => { settings.gfx = e.target.value; renderScale = 1; saveSettings(); applyQuality(); });
+$('#optAdaptive').checked = settings.adaptive !== false;
+$('#optAdaptive').addEventListener('change', (e) => { settings.adaptive = e.target.checked; renderScale = 1; saveSettings(); applyQuality(); });
 $('#optMute').addEventListener('change', (e) => { settings.mute = e.target.checked; setMuted(settings.mute); setVoice(settings.voice && !settings.mute); saveSettings(); musicMaybe(); });
 $('#optVoice').addEventListener('change', (e) => { settings.voice = e.target.checked; setVoice(settings.voice && !settings.mute); saveSettings(); });
 $('#optMusic').addEventListener('change', (e) => { settings.music = e.target.checked; saveSettings(); musicMaybe(); });
@@ -1701,10 +1743,29 @@ function stepGame(dt) {
   if (b.state === 'shot' && b.shot) fx.ballTrail(b.pos, b.shot.shooter.onFire);
   for (const p of game.allPlayers) if (p.onFire) fx.playerFire(p);
 }
+let dtSmooth = 1 / 60, adaptT = 0, adaptN = 0, adaptSum = 0;
+// Adaptive resolution: if the frame rate sags, render fewer pixels; when there is headroom, add them back
+function adaptResolution(dt) {
+  adaptT += dt; adaptN++; adaptSum += dt;
+  if (adaptT < 1.2) return;
+  const avg = adaptSum / adaptN;
+  gfxStats.ms = avg * 1000; gfxStats.fps = 1 / avg;
+  adaptT = 0; adaptN = 0; adaptSum = 0;
+  if (!settings.adaptive || mode === 'menu' && !attract) return;
+  const before = renderScale;
+  if (avg > 1 / 48) renderScale = Math.max(0.5, renderScale - (avg > 1 / 30 ? 0.2 : 0.1));
+  else if (avg < 1 / 62 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.05);
+  if (renderScale !== before) { renderer.setPixelRatio(targetRatio()); resize(); }
+  const st = $('#gfxInfo');
+  if (st && st.offsetParent) st.textContent = `Rendering ${gfxStats.w}x${gfxStats.h} at ${Math.round(gfxStats.fps)} fps`;
+}
 function frame() {
   requestAnimationFrame(frame);
   const now = performance.now();
-  const dt = Math.min((now - lastNow) / 1000, 1 / 20);
+  const rawDt = Math.min((now - lastNow) / 1000, 1 / 15);
+  // Smooth out frame-time jitter so motion stays even (big hitches pass straight through)
+  dtSmooth = dtSmooth * 0.72 + rawDt * 0.28;
+  const dt = Math.abs(rawDt - dtSmooth) > 0.012 ? rawDt : dtSmooth;
   lastNow = now; elapsed += dt;
   const t = elapsed;
   if (window.pph.manual) { renderer.render(scene, camera); return; } // test hook: game stepped externally
@@ -1738,8 +1799,9 @@ function frame() {
     }
   }
   updateCamera(dt, t);
-  if (settings.gfx === 'high') composer.render();
+  if ((TIERS[settings.gfx] || TIERS.high).post) composer.render();
   else renderer.render(scene, camera);
+  adaptResolution(rawDt);
 }
 
 // ---------- Login ----------
@@ -1831,7 +1893,7 @@ $('#settingsLogout').addEventListener('click', doLogout);
 
 // Debug handle for testing in the browser console
 window.pph = {
-  manual: false, input, Season, portrait, camera, auth,
+  manual: false, input, Season, portrait, camera, auth, gfxStats, renderer,
   get game() { return game; }, get tutorial() { return tutorial; }, get session() { return session; }, get intro() { return intro; },
   endIntro,
   // Step the game with a fixed input state (used by automated tests)

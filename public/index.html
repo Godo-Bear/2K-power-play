@@ -191,8 +191,10 @@
         <select id="optCam"><option value="broadcast">Broadcast</option><option value="court">Court Level</option><option value="high">High</option></select>
       </label>
       <label>Graphics quality
-        <select id="optGfx"><option value="high">High (glow + shadows)</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select>
+        <select id="optGfx"><option value="ultra">Ultra (4K, supersampled)</option><option value="high">High (glow + smooth edges)</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select>
       </label>
+      <label class="check"><input type="checkbox" id="optAdaptive"> Adaptive resolution (keeps the frame rate smooth)</label>
+      <p class="hint" id="gfxInfo" style="margin:0"></p>
       <label id="courtStyleWrap" hidden>Court
         <select id="optCourt"><option value="arena">Pro Arena (team court)</option><option value="classic">Street Court (3D model)</option></select>
       </label>

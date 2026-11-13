@@ -418,7 +418,7 @@ export function buildArena(scene, home, away, opts = {}) {
   }
 
   return {
-    hoops,
+    hoops, key,
     crowd, seats, dummy,
     ribbons,
     jumbo, jumboBox,
