@@ -389,6 +389,13 @@ export function applyCustomPlayer(player) {
   player.bones = findBones(model);
   attachHair(holder, model, player.bones, player.data, cfg);
   player.shoes = attachShoes(holder, model, player.bones, player);
+  if (player.bones && player.bones.ftL && player.bones.ftR) {
+    holder.updateMatrixWorld(true);
+    const va = new THREE.Vector3(), vb = new THREE.Vector3();
+    player.bones.ftL.getWorldPosition(va); player.bones.ftR.getWorldPosition(vb);
+    holder.worldToLocal(va); holder.worldToLocal(vb);
+    player.ankleH = Math.min(va.y, vb.y);   // ankle height when standing: the reference for keeping feet on the floor
+  }
   attachDecals(holder, model, player.bones, player, cfg);
   player.limb = { aL: { w: 0 }, aR: { w: 0 }, lL: { w: 0 }, lR: { w: 0 } };
   player.body.visible = false;
@@ -494,6 +501,12 @@ function choosePose(p, state, ctx) {
       out.lR = [[-0.1, -0.4, 0.9], [0, -0.95, -0.2]];
       out.lL = [[0.1, -0.85, -0.45], [0, -1, -0.1]];
     } // after that no pose is forced, so he settles back into his defensive stance
+  } else if (ctx.pumpT > 0) {
+    // Pump fake: the ball goes up as if to shoot, then comes back down
+    both([0.2, 0.5, 0.82], [-0.14, 0.97, 0.12]);
+  } else if (state === 'celebrate') {
+    const w = Math.sin((ctx.t || 0) * 7);
+    out.aL = [[0.45, 0.9 + 0.1 * w, 0.1], [0.3, 0.95, 0.1]]; out.aR = [[-0.45, 0.9 - 0.1 * w, 0.1], [-0.3, 0.95, 0.1]];
   } else if (ctx.airborne && ctx.move !== 'stepback') {
     both([0.25, 0.95, 0.2], [0.05, 1, 0.15]);                                  // hands up to contest / rebound
   } else if (ctx.hasBall) {
@@ -505,6 +518,34 @@ function choosePose(p, state, ctx) {
     if (s > 0) { out.aL = arm; out.aR = off; } else { out.aR = arm; out.aL = off; }
   } else if (ctx.defending && ctx.speed < 5) {
     both([0.82, -0.3, 0.35], [0.55, 0.42, 0.6]);                               // wide defensive stance
+  }
+  // Athletic stances (set only when nothing above has posed the legs): the legs bend so every state looks like basketball
+  if (!out.lL && !out.lR) {
+    const bend = (th, kn, spread) => [[spread, -Math.cos(th), Math.sin(th)], [spread * 0.3, -Math.cos(th - kn), Math.sin(th - kn)]];
+    const both2 = (th, kn, sp) => { out.lL = bend(th, kn, sp); out.lR = bend(th, kn, -sp).map((v) => v); };
+    if (state === 'sit') {
+      out.lL = [[0.05, 0.02, 1], [0.02, -1, 0.1]]; out.lR = [[-0.05, 0.02, 1], [-0.02, -1, 0.1]];
+      out.aL = [[0.3, -0.7, 0.2], [0.1, -0.1, 0.95]]; out.aR = [[-0.3, -0.7, 0.2], [-0.1, -0.1, 0.95]];   // forearms rest on the knees
+    } else if (state === 'shoot' || state === 'ft') {
+      // Load the legs before the jump, then extend and tuck slightly in the air
+      const dip = ctx.released ? 0 : Math.min(1, (ctx.actionT || 0) / 0.28);
+      if (ctx.released || ctx.airborne) both2(0.1, 0.3, 0.06); else both2(0.62 * dip, 1.0 * dip, 0.08);
+    } else if (ctx.postT > 0) {
+      both2(0.42, 0.8, 0.2);                                                   // wide, low base while backing down
+      out.aR = [[-0.8, -0.15, 0.1], [-0.6, 0.35, -0.2]]; out.aL = [[0.55, -0.55, 0.25], [0.2, 0.05, 0.9]];
+    } else if (ctx.pumpT > 0) {
+      const d = Math.sin(Math.min(1, ctx.pumpT / 0.4) * Math.PI);
+      both2(0.5 * d, 0.85 * d, 0.08);
+    } else if (ctx.defending && !ctx.hasBall && !ctx.airborne && (ctx.speed || 0) < 4.6) {
+      // Defensive stance and slide: wide base, knees bent, feet shuffling when moving
+      const slide = (ctx.speed || 0) > 0.7 ? Math.sin(ctx.phase || 0) : 0;
+      const wide = (side, s) => [[side * (0.42 + 0.32 * Math.max(0, s)), -0.84, 0.16], [side * 0.14, -0.82, -0.32]];
+      out.lL = wide(1, slide); out.lR = wide(-1, -slide);
+    } else if (ctx.hasBall && (ctx.speed || 0) < 1.2 && !ctx.airborne) {
+      both2(0.34, 0.68, 0.08);                                               // ball handler sits into a triple-threat stance
+    } else if ((ctx.landT || 0) > 0) {
+      const k = ctx.landT / 0.2; both2(0.5 * k, 0.9 * k, 0.08);               // absorb the landing
+    }
   }
   // Walking and running: the model's clips are single poses, so the stride is built here.
   // Legs swing from the hips with the knee folding on the way forward; arms swing against the legs.
@@ -550,8 +591,9 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   // Whole-body flourishes: spin moves turn a full circle, reverse layups turn the back to the rim
   let yaw = player.facing + (ctx.spin || 0) * Math.PI * 2;
   if (state === 'layup' && ctx.style === 'reverse') yaw += Math.PI * 0.7;
+  if (ctx.postT > 0) yaw += Math.PI * 0.82 * Math.min(1, (1.4 - ctx.postT) / 0.22, ctx.postT / 0.2);   // back to the basket
   h.rotation.y = yaw;
-  const roll = state === 'layup' && ctx.style === 'euro' ? 0.22 : ctx.move === 'crossover' || ctx.move === 'behind' ? (ctx.ballSide || 1) * 0.12 : 0;
+  const roll = state === 'layup' && ctx.style === 'euro' ? 0.22 : ctx.move === 'crossover' || ctx.move === 'behind' ? (ctx.ballSide || 1) * 0.12 : (state === 'idle' && speed < 0.5 ? Math.sin((player.life || 0) * 0.9) * 0.014 : 0);
   h.rotation.z += (roll - h.rotation.z) * Math.min(1, dt * 10);
   // Lean into sprints, sit into a defensive stance
   const lean = Math.min(0.16, speed * 0.022) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
@@ -563,7 +605,10 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   const stride = (state === 'walk' || state === 'run') ? Math.min(1, Math.max(0, (speed - 1.2) / 4.5)) : -1;
   const ph = player.walkPhase || 0;
   const bob = stride >= 0 ? Math.abs(Math.sin(ph)) * (0.018 + 0.04 * stride) - 0.012 * stride : Math.sin(player.life * 2.1) * 0.006;
-  h.position.y += (bob - h.position.y) * Math.min(1, dt * 18);
+  player.bobY = (player.bobY || 0) + (bob - (player.bobY || 0)) * Math.min(1, dt * 18);
+  if (player.wasAir && !ctx.airborne) player.landT = 0.2;
+  player.wasAir = !!ctx.airborne;
+  player.landT = Math.max(0, (player.landT || 0) - dt);
   const sway = stride >= 0 ? Math.sin(ph) * (0.04 + 0.07 * stride) : 0;
   h.rotation.y += sway;
   if (player.mixer) {
@@ -584,8 +629,9 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   }
   const b = player.bones;
   if (!b || !player.limb) return;
-  if (state === 'walk' || state === 'run') player.walkPhase = ((player.walkPhase || 0) + dt * Math.min(15, 6 + speed * 1.0)) % (Math.PI * 2);
-  const pose = choosePose(player, state, { ...ctx, speed, phase: player.walkPhase || 0 });
+  const sliding = ctx.defending && speed > 0.6 && !ctx.airborne && !ctx.hasBall && speed < 4.6;
+  if (state === 'walk' || state === 'run' || sliding) player.walkPhase = ((player.walkPhase || 0) + dt * (sliding ? 5 + speed * 1.6 : Math.min(15, 6 + speed * 1.0))) % (Math.PI * 2);
+  const pose = choosePose(player, state, { ...ctx, speed, phase: player.walkPhase || 0, landT: player.landT || 0, t: player.life });
   const realFacing = player.facing;
   player.facing = yaw; // limbs follow the turned body
   applyLimb(player, 'aL', b.uaL, b.laL, pose.aL, dt, ctx);
@@ -593,7 +639,21 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   applyLimb(player, 'lL', b.ulL, b.llL, pose.lL, dt, ctx);
   applyLimb(player, 'lR', b.ulR, b.llR, pose.lR, dt, ctx);
   player.facing = realFacing;
+  // Keep the feet on the floor: when the legs bend, lower the whole body by how far the ankles were lifted
+  const fixTarget = ctx.airborne || state === 'dunk' || state === 'layup' ? 0 : groundFix(player);
+  player.fixY = (player.fixY || 0) + (fixTarget - (player.fixY || 0)) * Math.min(1, dt * 16);
+  h.position.y = (player.bobY || 0) - player.fixY;
   if (player.shoes && player.shoes.length) orientShoes(player);
+}
+
+const _gv = { a: new THREE.Vector3(), b: new THREE.Vector3() };
+function groundFix(player) {
+  const b = player.bones, h = player.customModel;
+  if (!b || !b.ftL || !b.ftR || player.ankleH == null) return 0;
+  h.updateMatrixWorld(true);
+  b.ftL.getWorldPosition(_gv.a); b.ftR.getWorldPosition(_gv.b);
+  h.worldToLocal(_gv.a); h.worldToLocal(_gv.b);
+  return THREE.MathUtils.clamp(Math.min(_gv.a.y, _gv.b.y) - player.ankleH, 0, 0.62);
 }
 
 export function makeCustomBall(radius) {

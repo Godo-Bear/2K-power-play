@@ -243,7 +243,7 @@ export class Player {
 
   update(dt) {
     this.stealCooldown = Math.max(0, this.stealCooldown - dt);
-    for (const k of ['moveT', 'spinT', 'rhythmT', 'stealImmuneT', 'hesiT', 'passT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
+    for (const k of ['moveT', 'spinT', 'rhythmT', 'stealImmuneT', 'hesiT', 'passT', 'pumpT', 'postT', 'screenedT']) if (this[k] > 0) this[k] = Math.max(0, this[k] - dt);
     this.burstT = Math.max(0, this.burstT - dt);
     this.stumbleT = Math.max(0, this.stumbleT - dt);
 

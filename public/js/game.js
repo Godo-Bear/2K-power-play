@@ -503,6 +503,7 @@ export class Game {
     else { base = 0.39 - Math.max(0, d - 7.6) * 0.06; rating = p.r.three; }
     base *= 0.55 + rating / 100 * 0.6;
     base *= 0.88 + 0.12 * p.energy;
+    base *= 1 + (p.form || 0) * 0.08;                     // hot hands shoot better, cold hands worse
     if (p.onFire) base *= 1.12;
     // Contest
     let contest = 1.08;
@@ -1085,10 +1086,49 @@ export class Game {
     return true;
   }
 
+  // CPU coaching: the benches adjust to the scoreboard, and a team out of a timeout runs a set play
+  coachTick(dt) {
+    this.coachT = (this.coachT || 0) - dt;
+    if (this.coachT > 0) return;
+    this.coachT = 6;
+    for (const t of this.teams) {
+      if (t.human) continue;
+      if (!t.tacBase) t.tacBase = { ...t.tac };
+      const base = t.tacBase, me = t.score - this.other(t).score;
+      const want = { ...base };
+      if (this.period >= 3 && me <= -8) { want.pace += 0.22; want.threes += 0.2; want.pressure += 0.22; want.glass -= 0.1; }   // trailing: speed it up, take threes, press
+      else if (this.period >= 4 && me >= 10) { want.pace -= 0.25; want.passing += 0.2; want.threes -= 0.1; want.pressure -= 0.1; } // protecting a lead: slow it down
+      if ((t.playUntil || 0) > this.time) { want.passing = Math.max(want.passing, 0.88); want.attack += 0.2; }
+      for (const k of Object.keys(want)) t.tac[k] = Math.max(0, Math.min(1, want[k]));
+    }
+  }
+
+  // Pick and roll for the CPU: a big sets a screen on the ball handler's defender, then rolls to the rim
+  pnrTick(dt) {
+    for (const off of this.teams) {
+      const R = off.pnr;
+      if (!R) continue;
+      R.t += dt;
+      const h = R.handler, s = R.screener, d = this.nearestDefender(h).p;
+      if (this.possession !== off || this.ball.holder !== h || R.t > 4 || !d) { off.pnr = null; continue; }
+      if (R.t > 0.9 && !R.went) { R.went = true; h.driveT = 1.5; }
+      if (R.t > 1.1 && !R.rolled) { R.rolled = true; s.cutT = 1.6; s.cutZ = (Math.random() - 0.5) * 1.6; }
+      if (!R.hit && hdist(s.pos, d.pos) < 1.15) { R.hit = true; d.screenedT = 0.9; this.emit('screen', { player: s, victim: d }); }
+    }
+  }
+  startPnr(off, handler) {
+    if (off.pnr || off.human) return false;
+    const screener = off.players.find((q) => q !== handler && q.index >= 3 && !q.airborne && q.state === 'idle');
+    if (!screener) return false;
+    off.pnr = { handler, screener, t: 0, went: false, rolled: false, hit: false };
+    return true;
+  }
+
   endTimeout() {
     if (this.state !== 'timeout') return;
     const team = this.timeoutTeam;
     this.hud.hideTimeout();
+    if (team && !team.human) team.playUntil = this.time + 16;   // a drawn-up play: share the ball and attack
     // Inbound from the frontcourt sideline, keeping the shot clock
     const spot = new THREE.Vector3(team.dir * 3, 0, C.HALF_W - 0.25);
     this.beginDead(1.0, team, spot, Math.max(1, this.savedShotClock));
@@ -1108,6 +1148,27 @@ export class Game {
     this.shotClockFrozen = false;
   }
 
+  // Pump fake: the ball goes up and comes back down. A defender who bites jumps and is out of the play.
+  pumpFake(p) {
+    if (this.ball.holder !== p) return;
+    if (p.state === 'shoot' && !p.released) {
+      p.state = 'idle'; p.actionT = 0; p.faceTarget = null;
+      p.team.meter.visible = false;
+    }
+    p.pumpT = 0.45;
+    let bit = false;
+    for (const q of this.other(p.team).players) {
+      if (hdist(q.pos, p.pos) > 3.2 || q.airborne || q.state !== 'idle') continue;
+      if (Math.random() < (q.team.human ? 0.3 : 0.6 * this.diff.aiDef * (1 - q.team.skill * 0.1))) {
+        q.jump(0.62, 0.55); q.stumbleT = 0.5; bit = true;
+      }
+    }
+    if (bit) { p.burstT = 0.9; p.rhythmT = 1.2; if (this.ctl(p)) this.hud.feedback('THEY BIT!', '#35f0ff'); }
+    else if (this.ctl(p)) this.hud.feedback('PUMP FAKE', '#35f0ff');
+    this.emit('pump', { player: p, bit });
+    sfx.swipe();
+  }
+
   dribbleMove(p) {
     if (this.ball.holder !== p || p.state !== 'idle' || (p.moveCd || 0) > 0) return;
     const hoop = this.hoopOf(p.team);
@@ -1115,6 +1176,13 @@ export class Game {
     const { p: def, d } = this.nearestDefender(p);
     const sp = Math.hypot(p.vel.x, p.vel.z);
     const want = Math.hypot(p.desired.x, p.desired.z) > 0.2 ? p.desired.x * toHoop.x + p.desired.z * toHoop.z : (sp > 1 ? (p.vel.x * toHoop.x + p.vel.z * toHoop.z) / sp : 0);
+    // Big enough, close to the rim and with a defender on his back: post up and bang him backwards
+    if (hdist(p.pos, hoop) < 6.2 && sp < 1.6 && def && d < 2.0 && p.r.inside >= 66 && p.index >= 2) {
+      p.postT = 1.4; p.moveCd = 2.4;
+      if (this.ctl(p)) this.hud.feedback('POST UP', '#35f0ff');
+      this.emit('post', { player: p });
+      return;
+    }
     // The situation picks the move
     let name;
     const roll = Math.random();
@@ -1209,6 +1277,7 @@ export class Game {
     if (shot.kind === 'dunk') { sfx.dunk(); this.cameraShake = 0.5; this.hud.feedback('SLAM!', '#ff2e88'); }
     else sfx.swish();
     p.streak++;
+    p.form = Math.min(1, (p.form || 0) + 0.26);
     if (p.streak >= 3 && !p.onFire) { p.onFire = true; this.hud.feedback(`${p.data.last.toUpperCase()} IS ON FIRE!`, '#ff8c1a'); this.emit('onFire', { player: p }); }
     else if (p.streak === 2) this.emit('heatingUp', { player: p });
     const buzzer = this.gameClock <= 0;
@@ -1238,10 +1307,12 @@ export class Game {
   // ---------- Main update ----------
   update(dt) {
     if (this.replay) { this.stepReplay(dt); return; }
+    this.dtNow = dt;
     // Slow-motion highlight moments (dunks, blocks, buzzer beaters)
     if (this.slowT > 0) { this.slowT -= dt; dt *= 0.32; if (this.slowT <= 0) this.focus = null; }
     this.time += dt;
     if (this.state === 'live' || this.state === 'ft') this.trackClips(dt);
+    if (this.state === 'live') { this.coachTick(dt); this.pnrTick(dt); }
     if (this.state === 'live') {
       // Fatigue: players tire on the court (faster when sprinting) and recover on the bench
       const k = dt / Math.max(60, this.quarterLen);
@@ -1335,6 +1406,7 @@ export class Game {
         ballPos: this.ball.pos, ballSide: (p.crossSide || 1) * (p.burstT > 0.25 ? -1 : 1),
         style: p.shotStyle, move: (p.moveT || 0) > 0 ? p.moveName : null,
         spin: (p.spinT || 0) > 0 ? (1 - p.spinT / 0.45) * (p.spinDir || 1) : 0,
+        pumpT: p.pumpT || 0, postT: p.postT || 0,
         passT: p.passT || 0, passStyle: p.passStyle, passLocal: p.passLocal, actionT: p.actionT, stealStyle: p.stealStyle,
       });
     }
@@ -1497,6 +1569,17 @@ export class Game {
 
   updateAction(p) {
     const b = this.ball;
+    if (p.postT > 0) {
+      if (b.holder !== p || p.state !== 'idle') p.postT = 0;
+      else {
+        const hp = this.hoopOf(p.team), tw = tmp.set(hp.x - p.pos.x, 0, -p.pos.z).normalize();
+        p.desired.set(tw.x * 0.5, 0, tw.z * 0.5);          // back him down toward the rim
+        p.postWas = true;
+      }
+    } else if (p.postWas) {
+      p.postWas = false;
+      if (b.holder === p && p.state === 'idle') this.startShot(p);   // turn and finish
+    }
     if (p.state === 'steal') {
       // Lunge at the ball handler while the arm strikes, land the result mid-strike, then recover
       const h = p.stealTarget;
@@ -1519,6 +1602,7 @@ export class Game {
           m.win = this.diff.greenWindow;
           m.result = null;
           m.hideT = undefined;
+          if (p.team.input.pressed.pass && p.actionT < METER_TIME * 0.85 && p.actionT > 0.04) { this.pumpFake(p); return; }
           if (!p.team.input.held.shoot || p.actionT > METER_TIME * 1.25) this.releaseShot(p);
         }
       } else if (!p.released && p.actionT / METER_TIME >= p.aiRelease) this.releaseShot(p);
@@ -1732,7 +1816,9 @@ export class Game {
         const hoopG = this.hoopOf(s.team);
         if (Math.hypot(b.pos.x - hoopG.x, b.pos.z) < 0.7 && b.pos.y > C.RIM_H - 0.12 && b.pos.y < C.RIM_H + 1.0) {
           for (const q of this.other(s.team).players) {
-            if (q.airborne && Math.hypot(q.pos.x - b.pos.x, q.pos.z - b.pos.z) < 0.95 && q.reach > b.pos.y - 0.15) {
+            if (s.gtRoll === undefined) s.gtRoll = Math.random();
+            if (!q.team.human && s.gtRoll > 0.15) continue;   // the CPU rarely touches a ball on its way down
+            if (q.airborne && Math.hypot(q.pos.x - b.pos.x, q.pos.z - b.pos.z) < 0.8 && q.reach > b.pos.y - 0.15) {
               s.goaltended = true; s.made = true; s.fouled = null;
               this.hud.toast('GOALTENDING', `Basket counts for ${s.team.data.name}`, 1.6);
               this.emit('goaltend', { player: q });
@@ -1750,6 +1836,7 @@ export class Game {
         b.state = 'loose';
         b.reboundable = true;
         s.shooter.streak = 0;
+        { const was = s.shooter.form || 0; s.shooter.form = Math.max(-1, was - 0.22); if (was > -0.8 && s.shooter.form <= -0.8) this.emit('cold', { player: s.shooter }); }
         if (s.shooter.onFire) { s.shooter.onFire = false; this.emit('fireOut', { player: s.shooter }); }
         this.emit('miss', { player: s.shooter, airball: s.airball, pts: s.pts });
         if (!s.airball) {
@@ -1910,6 +1997,10 @@ export class Game {
       p.cutT = Math.max(0, (p.cutT || 0) - dt);
       if (live && p.cutT <= 0 && Math.random() < dt * (0.03 + 0.08 * off.tac.attack) && p.index !== 0) { p.cutT = 1.6; p.cutZ = rand(-1.2, 1.2); }
       let target = this.offenseSpot(off, p.index, p).clone();
+      if (off.pnr && off.pnr.screener === p && !off.pnr.rolled) {
+        const hd = this.nearestDefender(off.pnr.handler).p;
+        if (hd) { const th = tmp2.set(this.hoopOf(off).x - hd.pos.x, 0, -hd.pos.z).normalize(); target.set(hd.pos.x + th.x * 0.85, 0, hd.pos.z + th.z * 0.85); }
+      }
       // Never camp in the lane: step out before the three-second call
       if ((p.paintT || 0) > 1.7) { p.cutT = 0; target.set(target.x - off.dir * 1.2, 0, (p.pos.z >= 0 ? 1 : -1) * 3.3); }
       // Crash the boards on a shot
@@ -1940,6 +2031,7 @@ export class Game {
     p.defTarget = p.defTarget || target.clone();
     p.defTarget.lerp(target, Math.min(1, dt / Math.max(0.05, this.diff.react / (1 + p.team.skill * 0.12))));
     this.moveTo(p, p.defTarget, hdist(p.pos, p.defTarget) > 3);
+    if ((p.screenedT || 0) > 0) p.desired.multiplyScalar(0.35);   // stuck behind a screen
     if (hdist(p.pos, man.pos) < 3) p.faceTarget = man.pos;
 
     if (!live || this.passive()) return;
@@ -2000,6 +2092,8 @@ export class Game {
         }
       } else {
         if ((p.paintT || 0) > 2.0) { this.startShot(p); return; }  // don't hold the ball in the lane
+        if (!off.pnr && p.holdT > 0.7 && dHoop > 5.5 && this.nearestDefender(p).d < 2.4 && Math.random() < 0.06 && this.startPnr(off, p)) return;
+        if (this.nearestDefender(p).d < 1.6 && dHoop > 4 && p.pumpT <= 0 && Math.random() < 0.035 && p.r.handle > 70) { this.pumpFake(p); return; }
         const me = this.shotChance(p);
         // Clock sense: always get a shot up before the quarter ends, and run the clock when protecting a late lead
         if (this.gameClock < 2.6 && this.gameClock > 0 && p.holdT > 0.15) { this.startShot(p); return; }

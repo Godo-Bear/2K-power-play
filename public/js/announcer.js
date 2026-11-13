@@ -117,6 +117,11 @@ const L = {
   timeout: ['Timeout on the floor.', 'They need a break, timeout called.', 'The coach has seen enough, timeout.'],
   sub: ['A fresh set of legs checks in.', 'Substitution at the scorer’s table.'],
   clock: ['The shot clock is winding down...', 'Shot clock running low, they need something.', 'Five seconds left to get a shot up.'],
+  pump: ['Pump fake...', 'Ball fake, trying to get him in the air.'],
+  pumpBit: ['He bit on the fake! Wide open lane!', 'Got him in the air with that pump fake!'],
+  post: ['Backing him down in the post.', 'Going to work in the paint.', 'Bangs him down low, using that strength.'],
+  screen: ['Big man sets the screen!', 'Pick and roll, the screen is set.', 'The screen got him!'],
+  cold: ['He is ice cold right now.', 'Nothing is falling for him tonight.'],
   fast: ['Out in transition!', 'Here they come on the break!', 'Running the floor, looking for the easy one.'],
   tie: ['Tied up! All square.', 'We are all tied up now.'],
   lead: ['They take the lead!', 'That gives them the lead!', 'Back in front!'],
@@ -211,6 +216,10 @@ export function attachAnnouncer(game) {
         if (m) speak(pick(m[1]), { who: 1, priority: 1 });
         break;
       }
+      case 'pump': say(pick(d.bit ? L.pumpBit : L.pump), { who: d.bit ? 1 : 0, priority: d.bit ? 1 : 0 }); break;
+      case 'post': say(pick(L.post), { who: 1, priority: 0 }); break;
+      case 'screen': say(pick(L.screen), { who: 1, priority: 0 }); break;
+      case 'cold': say(pick(L.cold), { who: 1, priority: 0 }); break;
       case 'goaltend': speak(pick(L.vGoal), { who: 1, priority: 2 }); break;
       case 'onFire': speak(pick(L.onFire), { who: 0, priority: 2 }); break;
       case 'heatingUp': speak(pick(L.heatingUp), { who: 1, priority: 1 }); break;
