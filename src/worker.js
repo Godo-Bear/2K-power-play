@@ -70,6 +70,25 @@ export class User extends DurableObject {
     return { ok: true, token: await this.newSession(username) };
   }
 
+  // Cloud save: the game's browser storage (career, season, kits, tactics, settings), one entry per key
+  async getSave() {
+    const all = await this.ctx.storage.list({ prefix: 'save:' });
+    const data = {};
+    for (const [k, v] of all) data[k.slice(5)] = v;
+    return { data, updated: (await this.ctx.storage.get('saveAt')) || 0 };
+  }
+
+  async putSave(data, updated) {
+    const old = await this.ctx.storage.list({ prefix: 'save:' });
+    const drop = [...old.keys()].filter((k) => !(k.slice(5) in data));
+    if (drop.length) await this.ctx.storage.delete(drop);
+    const entries = {};
+    for (const [k, v] of Object.entries(data)) entries[`save:${k}`] = v;
+    if (Object.keys(entries).length) await this.ctx.storage.put(entries);
+    await this.ctx.storage.put('saveAt', updated);
+    return true;
+  }
+
   async verify(secret) {
     const sessions = (await this.ctx.storage.get('sessions')) || {};
     const exp = sessions[await sha256(secret)];
@@ -87,10 +106,10 @@ export class User extends DurableObject {
 const json = (obj, status = 200) => Response.json(obj, { status, headers: { 'Cache-Control': 'no-store' } });
 const userStub = (env, name) => env.USERS.get(env.USERS.idFromName(name));
 
-async function readJson(request) {
+async function readJson(request, max = 2000) {
   try {
     const text = await request.text();
-    if (text.length > 2000) return null;
+    if (text.length > max) return null;
     const v = JSON.parse(text);
     return v && typeof v === 'object' ? v : null;
   } catch { return null; }
@@ -106,6 +125,23 @@ async function authenticate(env, raw) {
   return (await userStub(env, name).verify(secret)) ? name : null;
 }
 const bearer = (request) => (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+
+const SAVE_KEY_RE = /^pph-[a-z0-9_-]{1,40}$/i;
+async function handleSave(request, env) {
+  const user = await authenticate(env, bearer(request));
+  if (!user) return json({ error: 'not-logged-in' }, 401);
+  const stub = userStub(env, user);
+  if (request.method === 'GET') return json(await stub.getSave());
+  if (request.method !== 'PUT') return json({ error: 'method' }, 405);
+  const body = await readJson(request, 1_000_000);
+  const data = body && body.data && typeof body.data === 'object' ? body.data : null;
+  if (!data) return json({ error: 'bad' }, 400);
+  const keys = Object.keys(data);
+  if (keys.length > 40 || keys.some((k) => !SAVE_KEY_RE.test(k) || k === 'pph-auth' || typeof data[k] !== 'string' || data[k].length > 120000)) return json({ error: 'bad' }, 400);
+  const updated = Number.isFinite(body.updated) ? body.updated : Date.now();
+  await stub.putSave(data, updated);
+  return json({ ok: true, updated });
+}
 
 async function handleAccount(request, env, path) {
   if (path === '/api/me' && request.method === 'GET') {
@@ -209,6 +245,7 @@ export default {
       return env.ROOMS.get(env.ROOMS.idFromName(room[1])).fetch(request);
     }
     if (path === '/api/ping') return json({ ok: true });
+    if (path === '/api/save') return handleSave(request, env);
     if (path === '/api/me' || path === '/api/register' || path === '/api/login' || path === '/api/logout') return handleAccount(request, env, path);
     if (path.startsWith('/api/')) return new Response('Not found', { status: 404 });
     return env.ASSETS.fetch(request);

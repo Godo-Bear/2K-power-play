@@ -395,8 +395,15 @@ export class Game {
   get allPlayers() { return [...this.home.players, ...this.away.players]; }
 
   // ---------- Setup ----------
+  // NBA possession arrow: the team that won the opening tip starts Q1 and Q4, the other team starts Q2 and Q3
+  periodStarter(period) {
+    const w = this.firstPossession;
+    if (period <= 4) return period === 1 || period === 4 ? w : this.other(w);
+    return period % 2 === 1 ? w : this.other(w);
+  }
+
   startPeriod() {
-    const off = this.period % 2 === 1 ? this.firstPossession : this.other(this.firstPossession);
+    const off = this.periodStarter(this.period);
     const def = this.other(off);
     this.possession = off;
     off.players.forEach((p, i) => {
@@ -409,13 +416,26 @@ export class Game {
       p.pos.set(m.pos.x + off.dir * 2.2, 0, m.pos.z * 0.8);
       p.vel.set(0, 0, 0); p.state = 'idle'; p.jumpT = -1; p.y = 0;
     });
-    this.setHolder(off.players[0], { silent: true });
     this.gameClock = this.period > 4 ? Math.max(60, this.quarterLen * 0.42) : this.quarterLen;
-    this.shotClock = 24;
-    this.shotClockFrozen = false;
     this.buzzerPlayed = false;
-    this.state = 'live';
     for (const t of this.teams) t.fouls = 0;
+    if (this.period === 1 || this.opts.tutorial || this.opts.practice || this.opts.guest) {
+      // the opening tip: lineups around the centre circle
+      this.setHolder(off.players[0], { silent: true });
+      this.shotClock = 24;
+      this.shotClockFrozen = false;
+      this.state = 'live';
+    } else {
+      // later quarters start like a real game: the team that owns the possession inbounds from the sideline at half court
+      const dir = off.dir, z0 = -(C.HALF_W - 0.25);
+      const spot = new THREE.Vector3(0, 0, z0);
+      const mates = [[spot.x, z0], [-dir * 3.2, -2.5], [-dir * 5.2, 2.6], [-dir * 1.6, 1.5], [-dir * 3.8, 5]];
+      off.players.forEach((p, i) => { const m = mates[i] || mates[4]; p.pos.set(m[0], 0, m[1]); p.vel.set(0, 0, 0); p.state = 'idle'; p.jumpT = -1; p.y = 0; });
+      def.players.forEach((p, i) => { const m = off.players[i % Math.max(1, off.players.length)]; if (m) { p.pos.set(m.pos.x + dir * 1.6, 0, m.pos.z * 0.9 + 0.5); p.vel.set(0, 0, 0); p.state = 'idle'; p.jumpT = -1; p.y = 0; } });
+      this.ball.pos.set(spot.x, 1.1, spot.z); this.ball.vel.set(0, 0, 0); this.ball.state = 'free'; this.ball.holder = null;
+      this.beginDead(0.9, off, spot, 24);
+      this.hud.toast(`${off.data.name} ball`, 'Inbound at half court', 1.4);
+    }
     for (const t of this.teams) if (t.human && !t.benchedMe) this.setCtl(t, t.lock || t.players[0]);
   }
 

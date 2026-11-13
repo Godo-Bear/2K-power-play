@@ -172,6 +172,9 @@
     </div>
     <p class="hint">Shot meter: hold Shoot, release when the bar hits the green zone. The same buttons do different things on defense: Shoot = block/contest, Pass = steal, Crossover = switch to the player nearest the ball.</p>
     <div class="row">
+      <label class="inline-sel">Touch layout
+        <select id="touchPreset"><option value="standard">Standard (two thumbs)</option><option value="left">Left-handed</option><option value="oneRight">One-handed (right thumb)</option><option value="oneLeft">One-handed (left thumb)</option></select>
+      </label>
       <button id="editTouch">Edit touch layout</button>
       <button id="resetKeys">Reset to defaults</button>
       <button data-go="back" class="primary">Done</button>
@@ -185,6 +188,10 @@
       <label>Brightness <span id="brightVal"></span>
         <input type="range" id="optBright" min="40" max="140" step="5">
       </label>
+      <label>Text size
+        <select id="optUi"><option value="1">Normal</option><option value="1.15">Large</option><option value="1.3">Extra large</option></select>
+      </label>
+      <label class="check"><input type="checkbox" id="optCb"> Color-blind friendly colors (blue and orange instead of green and red)</label>
       <label>Game speed
         <select id="optSpeed"><option value="0.7">Slow</option><option value="0.85">Normal</option><option value="1">Fast</option></select>
       </label>
@@ -203,6 +210,7 @@
       <label class="check"><input type="checkbox" id="optMusic"> Menu music</label>
       <label class="check"><input type="checkbox" id="optMute"> Mute all sound</label>
       <div class="acct-row" id="settingsAcct" hidden><span>Signed in as <b id="settingsAcctName"></b></span><button type="button" id="settingsLogout">Log out</button></div>
+      <div class="acct-row" id="cloudRow" hidden><span id="cloudInfo">Cloud save</span><button type="button" id="cloudNow">Sync now</button></div>
     </div>
     <div id="credits" class="credits" hidden></div>
     <div class="row"><button data-go="back" class="primary">Done</button></div>

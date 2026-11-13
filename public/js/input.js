@@ -197,6 +197,18 @@ try {
 } catch { /* ignore */ }
 let touchRoot = null;
 export function saveTouchLayout() { try { localStorage.setItem(TOUCH_STORE, JSON.stringify(touchLayout)); } catch { /* ignore */ } }
+// Layout presets: mirrored for left-handed play, or everything within one thumb's reach
+const TOUCH_PRESETS = {
+  standard: TOUCH_DEFAULT,
+  left: { stick: { x: 0.87, y: 0.72, s: 1 }, shoot: { x: 0.1, y: 0.76, s: 1 }, pass: { x: 0.21, y: 0.86, s: 1 }, move: { x: 0.2, y: 0.62, s: 1 }, sprint: { x: 0.09, y: 0.52, s: 1 }, switch: { x: 0.3, y: 0.72, s: 1 } },
+  oneRight: { stick: { x: 0.86, y: 0.72, s: 0.9 }, shoot: { x: 0.6, y: 0.8, s: 1 }, pass: { x: 0.62, y: 0.58, s: 0.9 }, move: { x: 0.82, y: 0.38, s: 0.85 }, sprint: { x: 0.5, y: 0.68, s: 0.8 }, switch: { x: 0.7, y: 0.4, s: 0.8 } },
+  oneLeft: { stick: { x: 0.14, y: 0.72, s: 0.9 }, shoot: { x: 0.4, y: 0.8, s: 1 }, pass: { x: 0.38, y: 0.58, s: 0.9 }, move: { x: 0.18, y: 0.38, s: 0.85 }, sprint: { x: 0.5, y: 0.68, s: 0.8 }, switch: { x: 0.3, y: 0.4, s: 0.8 } },
+};
+export function applyTouchPreset(name) {
+  const P = TOUCH_PRESETS[name] || TOUCH_DEFAULT;
+  for (const k of Object.keys(TOUCH_DEFAULT)) touchLayout[k] = { ...P[k] };
+  saveTouchLayout(); applyTouchLayout();
+}
 export function resetTouchLayout() { for (const k of Object.keys(TOUCH_DEFAULT)) touchLayout[k] = { ...TOUCH_DEFAULT[k] }; saveTouchLayout(); applyTouchLayout(); }
 export function applyTouchLayout() {
   if (!touchRoot) return;

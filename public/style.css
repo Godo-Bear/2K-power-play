@@ -688,3 +688,9 @@ html, body { height: 100%; height: 100dvh; }
 .cr-body .line { display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
 .cr-body .line.me { border-color: var(--accent); }
 .cr-body .line b { color: #ffd60a; }
+
+/* ---------- Accessibility ---------- */
+html[data-cb="1"] { --green: #35b6ff; --hot: #ffb000; }
+html[data-cb="1"] #meter .zone { background: rgba(53,182,255,0.9); }
+.screen { zoom: var(--ui, 1); }
+.inline-sel { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--muted); }

@@ -1,4 +1,5 @@
 import { SLIDERS, PRESETS, PRESET_KEYS, presetValues, getTactics, saveTactics, resetTactics, matchPreset, tacticsNorm, traits as tacTraits } from './tactics.js';
+import { cloudSync, push as cloudPush, onCloudStatus } from './cloud.js';
 import { SYMBOLS, SHAPES, PALETTE, SHOE_COLORS, getKit, saveKit, applyAllKits } from './kit.js';
 import { PERK_TEXT } from './styles.js';
 import * as THREE from 'three';
@@ -10,6 +11,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TEAMS, DIFFICULTY } from './data.js';
 import { buildArena, C } from './arena.js';
 import { Game } from './game.js';
+import { applyTouchPreset } from './input.js';
 import { input, pollInput, setupTouch, tapAction, ACTIONS, bindings, setKey, setPad, resetBindings, keyName, padName, firstGamepad, touchLayout, saveTouchLayout, resetTouchLayout, applyTouchLayout } from './input.js';
 import { initAudio, setMuted, setQuiet, sfx, startMusic, stopMusic, audioReady } from './audio.js';
 import { loadCustomAssets, custom, portrait } from './assets.js';
@@ -306,6 +308,18 @@ $('#optBright').value = settings.bright;
 $('#brightVal').textContent = `${settings.bright}%`;
 setMuted(settings.mute);
 setVoice(settings.voice && !settings.mute);
+// Accessibility: color-blind friendly palette and larger text
+const applyAccess = () => {
+  document.documentElement.dataset.cb = settings.cb ? '1' : '';
+  document.documentElement.style.setProperty('--ui', String(settings.ui || 1));
+};
+applyAccess();
+$('#optCb').checked = !!settings.cb;
+$('#optCb').addEventListener('change', (e) => { settings.cb = e.target.checked; applyAccess(); saveSettings(); });
+$('#optUi').value = String(settings.ui || 1);
+$('#optUi').addEventListener('change', (e) => { settings.ui = Number(e.target.value); applyAccess(); saveSettings(); });
+$('#touchPreset').value = settings.touchPreset || 'standard';
+$('#touchPreset').addEventListener('change', (e) => { settings.touchPreset = e.target.value; saveSettings(); applyTouchPreset(e.target.value); sfx.menu(); });
 $('#optSpeed').value = String(settings.speed);
 if (!$('#optSpeed').value) { settings.speed = 0.85; $('#optSpeed').value = '0.85'; }
 $('#optSpeed').addEventListener('change', (e) => { settings.speed = Number(e.target.value); saveSettings(); });
@@ -524,6 +538,7 @@ const hud = {
   hideToast() { $('#toast').classList.remove('show'); },
   feedback(text, color = '#fff') {
     const f = $('#feedback');
+    if (settings.cb) color = ({ '#3dff7a': '#35b6ff', '#ff3b3b': '#ffb000', '#ff8c1a': '#ffd60a' })[color] || color;
     f.textContent = text; f.style.color = color;
     f.classList.remove('show'); void f.offsetWidth; f.classList.add('show');
   },
@@ -2072,7 +2087,13 @@ function showLogin(unreachable) {
   show('login');
   setTimeout(() => { try { $('#loginUser').focus(); } catch { /* ignore */ } }, 60);
 }
-function enterGame() { updateAccountUI(); renderHome(); show('menu'); musicMaybe(); }
+function enterGame() {
+  updateAccountUI(); renderHome(); show('menu'); musicMaybe();
+  // Cloud save: take the newer copy of your careers, kits and settings, then keep it up to date
+  if (auth.token && !auth.offline) cloudSync().then((r) => { if (r === 'applied') location.reload(); });
+}
+onCloudStatus((s) => { const el = $('#cloudInfo'); if (el) el.textContent = s; const row = $('#cloudRow'); if (row) row.hidden = !(auth.token && !auth.offline); });
+$('#cloudNow').addEventListener('click', async () => { sfx.menu(); await cloudPush(); });
 async function doLogout() {
   sfx.menu();
   quitToMenu();          // leaves any game and online room first
