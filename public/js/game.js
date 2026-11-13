@@ -566,9 +566,10 @@ export class Game {
     const driving = sp > 2.4 && toHoop.x * p.vel.x + toHoop.z * p.vel.z > 1.5;
     let style;
     if (d < 2.6) {
-      const canDunk = p.r.dunk >= 68 && (p.sprinting || sp > 3 || d < 1.4) && p.stamina > 0.1;
-      p.state = canDunk && Math.random() < 0.4 + p.r.dunk / 200 ? 'dunk' : 'layup';
-      if (p.state === 'dunk') {
+      const canDunk = p.forceDunkStyle || (p.r.dunk >= 68 && (p.sprinting || sp > 3 || d < 1.4) && p.stamina > 0.1);
+      p.state = canDunk && (p.forceDunkStyle || Math.random() < 0.4 + p.r.dunk / 200) ? 'dunk' : 'layup';
+      if (p.state === 'dunk' && p.forceDunkStyle) { style = p.forceDunkStyle; p.forceDunkStyle = null; }
+      else if (p.state === 'dunk') {
         // Wide open: show off. Crowded: power it home with two hands.
         if (!def || dd > 3) style = Math.random() < 0.5 ? 'windmill' : 'tomahawk';
         else if (dd < 1.5) style = 'twohand';
@@ -635,6 +636,7 @@ export class Game {
     } else {
       // Layup / dunk
       prob = Math.max(prob, p.state === 'dunk' ? 0.9 : 0.62) * (0.7 + p.r.inside / 330);
+      if (this.opts.contest === 'dunk' && p.state === 'dunk') prob = 1;   // contest dunks always go down; the judges score the style
       if (p.state === 'dunk') prob = Math.min(0.97, prob * Math.min(1.05, info.contest + 0.25));
     }
     if (!team.human) prob *= this.diff.aiShot * (1 + team.skill * 0.08);

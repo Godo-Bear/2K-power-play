@@ -92,6 +92,7 @@
         <span class="t-title">Practice</span>
         <span class="t-sub">Work on your game</span>
       </button>
+      <button class="tile small" id="tileContests"><span class="t-title">Contests</span><span class="t-sub">3-point &amp; dunk contest</span></button>
       <button class="tile small" id="tutorialBtn"><span class="t-title">Tutorial</span><span class="t-sub">Learn every move</span></button>
       <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
       <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
@@ -237,7 +238,8 @@
       </div>
     </div>
     <!-- Practice panel -->
-    <div id="pracPanel">
+    <div id="contestPanel"></div>
+  <div id="pracPanel">
       <div class="tut-head"><span>Practice</span><button id="pracExit">Exit</button></div>
       <div class="prac-row"><span>Your team</span><div class="seg" id="pracMine"></div></div>
       <div class="prac-row"><span>Opponents</span><div class="seg" id="pracOpp"></div></div>
@@ -293,6 +295,24 @@
       <button data-go="settings">Settings</button>
       <button id="quitBtn">Quit to Menu</button>
     </nav>
+  </div>
+
+  <!-- Contests -->
+  <div id="contests" class="screen">
+    <h2>Contests</h2>
+    <p class="hint">Show off your shooting and your dunks. Both use your active team's players.</p>
+    <div class="row">
+      <button id="cstThree" class="primary">3-Point Contest<small style="display:block;font-weight:500">5 racks · 25 balls · 70 seconds</small></button>
+      <button id="cstDunk" class="primary">Dunk Contest<small style="display:block;font-weight:500">3 rounds · judges score your style</small></button>
+    </div>
+    <p class="hint" id="cstBest"></p>
+    <div class="row"><button data-go="menu">Back</button></div>
+  </div>
+
+  <div id="contestResult" class="screen overlay">
+    <h2 id="crTitle">Results</h2>
+    <div id="crBody" class="cr-body"></div>
+    <div class="row"><button id="crAgain" class="primary">Again</button><button id="crMenu">Main Menu</button></div>
   </div>
 
   <!-- Halftime show -->

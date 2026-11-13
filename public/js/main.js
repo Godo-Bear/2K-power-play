@@ -483,6 +483,9 @@ function resume() {
 function endGameObjects() {
   if (game) { game.dispose(); game = null; }
   tutorial = null; attract = false; intro = null; practice = null;
+  if (contest && contest.realInput && game) game.user.input = contest.realInput;
+  contest = null;
+  $('#contestPanel').classList.remove('show');
   $('#pracPanel').classList.remove('show');
   stopAnnouncer();
   $('#tutPanel').classList.remove('show');
@@ -1548,6 +1551,216 @@ function openSlots() {
 }
 
 // ---------- Practice mode ----------
+// ---------- Contests: 3-point and dunk ----------
+let contest = null;
+const BEST_KEY = 'pph-contest-best';
+const bestScores = () => { try { return JSON.parse(localStorage.getItem(BEST_KEY)) || {}; } catch { return {}; } };
+function saveBest(k, v) {
+  const b = bestScores();
+  if (b[k] >= v) return false;
+  b[k] = v;
+  try { localStorage.setItem(BEST_KEY, JSON.stringify(b)); } catch { /* ignore */ }
+  return true;
+}
+function renderContestsHome() {
+  const b = bestScores();
+  $('#cstBest').textContent = `Best 3-point score: ${b.three ?? '-'} / 30   ·   Best dunk score: ${b.dunk ?? '-'} / 90`;
+}
+$('#tileContests').addEventListener('click', () => { initAudio(); sfx.select(); renderContestsHome(); show('contests'); });
+$('#cstThree').addEventListener('click', () => { initAudio(); sfx.select(); startContest('three'); });
+$('#cstDunk').addEventListener('click', () => { initAudio(); sfx.select(); startContest('dunk'); });
+$('#crMenu').addEventListener('click', () => { sfx.menu(); quitToMenu(); });
+$('#crAgain').addEventListener('click', () => { sfx.select(); startContest(contest ? contest.kind : 'three'); });
+
+const DUNK_STYLES = [
+  { k: 'twohand', label: 'Two-Hand', diff: 6.6 },
+  { k: 'onehand', label: 'One-Hand', diff: 7.1 },
+  { k: 'windmill', label: 'Windmill', diff: 8.2 },
+  { k: 'tomahawk', label: 'Tomahawk', diff: 8.7 },
+];
+
+function startContest(kind) {
+  endGameObjects();
+  session = { kind: 'contest', save: null };
+  const home = TEAMS[settings.home], away = TEAMS[settings.away];
+  buildWorld(home, away);
+  game = new Game(scene, arena, home, away, {
+    difficulty: 'rookie', quarterMinutes: 12, userSide: 'home', playerLock: -1, tutorial: true, practice: true, noFouls: true, noTimeouts: true, contest: kind,
+  }, hud);
+  hookFx(game);
+  game.tutorialPossession = 'user';
+  attachAnnouncer(game);
+  setQuiet(false); stopMusic();
+  mode = 'game';
+  camPos.set(0, 8.2, 16); camTarget.set(0, 1.2, 0);
+  game.practiceDefense = 'passive';
+  game.setTeamSize(game.user, 1);
+  game.setTeamSize(game.cpu, 0);
+  const dir = game.user.dir;
+  const me = game.user.players[0];
+  contest = { kind, over: false, wait: 0, me, dir, lastShots: 0 };
+  if (kind === 'three') {
+    // Five racks around the arc, each with four balls worth 1 and a money ball worth 2
+    const R = C.THREE_R + 0.45;
+    contest.spots = [-80, -40, 0, 40, 80].map((deg) => {
+      const a = deg * Math.PI / 180;
+      return new THREE.Vector3(dir * (C.HOOP_X - R * Math.cos(a)), 0, R * Math.sin(a));
+    });
+    Object.assign(contest, { rack: 0, ball: 0, pts: 0, t: 70, started: false, pending: false, moneyNow: false });
+    contestSpot(true);
+  } else {
+    Object.assign(contest, { round: 0, phase: 'pick', style: 'twohand', scores: [], running: false, runT: 0, judged: false, doneT: 0 });
+    contestDunkPlace();
+  }
+  game.on((type, d) => contestEvent(type, d));
+  show(null);
+  $('#hud').classList.add('show');
+  renderContestPanel();
+  hud.toast(kind === 'three' ? '3-POINT CONTEST' : 'DUNK CONTEST', kind === 'three' ? 'Shoot from each rack. The last ball is worth 2.' : 'Pick a style and go. Three judges score each dunk.', 3);
+}
+
+function contestSpot(first) {
+  const c = contest, g = game;
+  const s = c.spots[c.rack];
+  c.me.pos.copy(s); c.me.vel.set(0, 0, 0);
+  c.me.facing = c.me.targetFacing = Math.atan2(c.dir * C.HOOP_X - s.x, -s.z);
+  g.forcePossession(c.me);
+  c.moneyNow = c.ball === 4;
+  if (!first && c.ball === 0) hud.toast(`RACK ${c.rack + 1} OF 5`, 'Next spot', 1.4);
+}
+
+function contestDunkPlace() {
+  const c = contest, g = game;
+  c.me.pos.set(c.dir * (C.HOOP_X - 11), 0, 0); c.me.vel.set(0, 0, 0);
+  c.me.facing = c.me.targetFacing = c.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+  g.forcePossession(c.me);
+  c.running = false; c.judged = false; c.phase = 'pick';
+  renderContestPanel();
+}
+
+function contestEvent(type, d) {
+  const c = contest;
+  if (!c || c.over || !d.player || d.player !== c.me) return;
+  if (c.kind === 'three') {
+    if (type === 'shot') { c.pending = true; c.ball++; }
+    else if (type === 'score' && c.pending) { if (d.pts === 3) { const v = c.moneyNow ? 2 : 1; c.pts += v; hud.feedback(c.moneyNow ? 'MONEY BALL! +2' : '+1', '#ffd60a'); } c.pending = false; c.wait = 0; }
+    else if (type === 'miss' && c.pending) { c.pending = false; c.wait = 0; }
+  } else if (type === 'score' && !c.judged && (d.kind === 'dunk' || d.kind === 'layup')) {
+    c.judged = true; c.doneT = 0;
+    const st = DUNK_STYLES.find((s) => s.k === c.style) || DUNK_STYLES[0];
+    const judges = [0, 1, 2].map(() => Math.max(5, Math.min(10, +(st.diff + (c.me.r.dunk - 70) / 60 + (Math.random() - 0.4) * 1.4).toFixed(1))));
+    const total = +judges.reduce((a, b) => a + b, 0).toFixed(1);
+    c.scores.push({ style: st.label, judges, total });
+    sfx.cheer(1);
+    c.judgesShown = { judges, total, style: st.label };
+    renderContestPanel();
+  }
+}
+
+function contestUpdate(dt) {
+  const c = contest, g = game;
+  if (!c || c.over || !g) return;
+  if (c.kind === 'three') {
+    if (c.started) c.t -= dt;
+    if (g.state === 'live' && (c.pending || g.ball.state === 'shot')) c.started = true;
+    const busy = g.ball.state === 'shot' || g.ball.state === 'pass';
+    const mine = g.ball.state === 'held' && g.ball.holder === c.me;
+    if (c.t <= 0 && !busy) { finishContest(); return; }
+    if (!mine && !busy && !c.pending) {
+      c.wait += dt;
+      if (c.wait > 0.9) {
+        c.wait = 0;
+        if (c.ball >= 5) { c.rack++; c.ball = 0; if (c.rack >= 5) { finishContest(); return; } }
+        contestSpot(false);
+      }
+    }
+    c.lastT = c.lastT || 0; c.lastT += dt;
+    if (c.lastT > 0.2) { c.lastT = 0; renderContestPanel(); }
+  } else {
+    const me = c.me;
+    if (c.running) {
+      // Scripted run-up: a stand-in controller sprints at the rim, then the dunk takes over
+      c.runT += dt;
+      const hoop = g.hoopOf(g.user);
+      const dx = hoop.x - me.pos.x, dist = Math.abs(dx);
+      if (dist > 2.45 || me.state !== 'idle') { c.fake.moveX = Math.sign(dx); }
+      if (c.runT > 9) { g.user.input = c.realInput; contestDunkPlace(); return; }   // safety: restart the run
+      if (dist <= 2.45 && me.state === 'idle' && g.ball.holder === me) {
+        me.forceDunkStyle = c.style;
+        g.user.input = c.realInput;
+        g.startShot(me);
+        c.running = false;
+      }
+    } else if (c.judged) {
+      c.doneT += dt;
+      if (c.doneT > 3.2 && me.state === 'idle') {
+        c.round++;
+        c.judgesShown = null;
+        if (c.round >= 3) { finishContest(); return; }
+        contestDunkPlace();
+      }
+    }
+  }
+}
+
+function contestGo() {
+  const c = contest;
+  if (!c || c.kind !== 'dunk' || c.phase !== 'pick' || c.over) return;
+  c.phase = 'run'; c.running = true; c.runT = 0; c.judgesShown = null;
+  c.realInput = game.user.input;
+  const none = new Proxy({}, { get: () => false });
+  c.fake = { moveX: 0, moveY: 0, sprint: true, pressed: none, held: none, usingGamepad: false };
+  game.user.input = c.fake;
+  sfx.select();
+  renderContestPanel();
+}
+
+function renderContestPanel() {
+  const p = $('#contestPanel'), c = contest;
+  if (!c) { p.classList.remove('show'); return; }
+  p.classList.add('show');
+  if (c.kind === 'three') {
+    const t = Math.max(0, c.t);
+    p.innerHTML = `<b>3-Point Contest</b><div class="big">${c.pts} <small style="font-size:12px;color:var(--muted)">/ 30</small></div><div>Rack ${Math.min(5, c.rack + 1)} of 5 · Ball ${Math.min(5, c.ball + 1)} of 5${c.moneyNow ? ' · MONEY BALL' : ''} · ${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}</div>`;
+    return;
+  }
+  const total = c.scores.reduce((a, s) => a + s.total, 0).toFixed(1);
+  const j = c.judgesShown;
+  p.innerHTML = `<b>Dunk Contest · Round ${Math.min(3, c.round + 1)} of 3</b><div class="big">${total}</div>` +
+    (j ? `<div>${j.style}: ${j.judges.map((x) => `<b>${x}</b>`).join(' · ')} = <b>${j.total}</b></div>` :
+      c.phase === 'pick' ? `<div class="row">${DUNK_STYLES.map((s) => `<button class="${s.k === c.style ? 'on' : ''}" data-st="${s.k}">${s.label}</button>`).join('')}<button class="on" id="cstGo">Go!</button></div>` : '<div>Here he goes...</div>');
+  $$('#contestPanel [data-st]').forEach((b) => b.addEventListener('click', () => { c.style = b.dataset.st; sfx.menu(); renderContestPanel(); }));
+  const go = $('#cstGo'); if (go) go.addEventListener('click', contestGo);
+}
+
+function finishContest() {
+  const c = contest;
+  if (!c || c.over) return;
+  c.over = true;
+  const isThree = c.kind === 'three';
+  const score = isThree ? c.pts : +c.scores.reduce((a, s) => a + s.total, 0).toFixed(1);
+  const newBest = saveBest(isThree ? 'three' : 'dunk', score);
+  let rows = '';
+  if (isThree) {
+    const rivals = [['Rival A', 14 + Math.floor(Math.random() * 7)], ['Rival B', 12 + Math.floor(Math.random() * 8)], ['Rival C', 10 + Math.floor(Math.random() * 8)]];
+    const all = [['You', score, true], ...rivals].sort((a, b) => b[1] - a[1]);
+    rows = all.map((r, i) => `<div class="line${r[2] ? ' me' : ''}"><span>${i + 1}. ${r[0]}</span><b>${r[1]}</b></div>`).join('');
+    $('#crTitle').textContent = all[0][2] ? '3-Point Champion!' : '3-Point Contest';
+  } else {
+    const st = Object.values({});
+    void st;
+    const base = 62 + (c.me.r.dunk - 70) * 0.35;
+    const rivals = [['Rival A', +(base + Math.random() * 18).toFixed(1)], ['Rival B', +(base + Math.random() * 16).toFixed(1)], ['Rival C', +(base + Math.random() * 14).toFixed(1)]];
+    const all = [['You', score, true], ...rivals].sort((a, b) => b[1] - a[1]);
+    rows = c.scores.map((s, i) => `<div class="line"><span>Round ${i + 1}: ${s.style}</span><b>${s.total}</b></div>`).join('') + all.map((r, i) => `<div class="line${r[2] ? ' me' : ''}"><span>${i + 1}. ${r[0]}</span><b>${r[1]}</b></div>`).join('');
+    $('#crTitle').textContent = all[0][2] ? 'Dunk Contest Champion!' : 'Dunk Contest';
+  }
+  $('#crBody').innerHTML = `<div class="line"><span>Your score</span><b>${score}${newBest ? ' · NEW BEST' : ''}</b></div>${rows}`;
+  $('#contestPanel').classList.remove('show');
+  sfx.cheer(1);
+  setTimeout(() => { if (contest === c) show('contestResult'); }, 900);
+}
+
 function startPractice() {
   endGameObjects();
   session = { kind: 'practice', save: null };
@@ -1793,6 +2006,7 @@ function frame() {
       stepGame(dt);
       if (tutorial) tutorial.update(dt);
       if (practice && game) practiceUpdate(dt);
+      if (contest && game) contestUpdate(dt);
       if (game && !intro) updateHUD(dt);
     } else if (mode === 'over' || (mode === 'menu' && attract)) stepGame(dt);
   }
@@ -1901,7 +2115,7 @@ $('#settingsLogout').addEventListener('click', doLogout);
 
 // Debug handle for testing in the browser console
 window.pph = {
-  manual: false, input, Season, portrait, camera, auth, gfxStats, renderer,
+  manual: false, input, Season, portrait, camera, auth, gfxStats, renderer, getContest: () => contest,
   get game() { return game; }, get tutorial() { return tutorial; }, get session() { return session; }, get intro() { return intro; },
   endIntro,
   // Step the game with a fixed input state (used by automated tests)

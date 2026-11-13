@@ -675,3 +675,16 @@ html, body { height: 100%; height: 100dvh; }
 .chips button.fit { border-color: rgba(61,255,122,0.35); }
 .fitnote { color: var(--green) !important; margin-top: 2px; }
 .ps .pos-tag { margin-bottom: 3px; align-self: flex-start; }
+
+/* ---------- Contests ---------- */
+#contestPanel { position: absolute; top: max(64px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); z-index: 12; display: none; min-width: min(420px, calc(100vw - 24px)); padding: 10px 14px; border-radius: 12px; background: rgba(10,14,24,0.92); border: 1px solid var(--line); border-left: 4px solid #ffd60a; text-align: center; }
+#contestPanel.show { display: block; }
+#contestPanel b { font-family: var(--display); font-style: italic; text-transform: uppercase; letter-spacing: 0.04em; }
+#contestPanel .big { font-size: 22px; color: #ffd60a; font-weight: 900; }
+#contestPanel .row { margin-top: 8px; gap: 6px; }
+#contestPanel button { padding: 8px 12px; border-radius: 9px; border: 1px solid var(--line); background: rgba(255,255,255,0.08); font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; min-width: 0; }
+#contestPanel button.on { background: var(--accent); color: #031018; border-color: transparent; }
+.cr-body { display: grid; gap: 8px; min-width: min(420px, 90vw); font-size: 15px; }
+.cr-body .line { display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+.cr-body .line.me { border-color: var(--accent); }
+.cr-body .line b { color: #ffd60a; }
