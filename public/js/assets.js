@@ -129,8 +129,13 @@ function findBones(model) {
   for (const k of Object.keys(b)) {
     const bone = b[k];
     const named = byId[BONE_CHILD[boneId(bone.name)]];
-    const child = named && named.parent === bone ? named : bone.children.find((c) => c.isBone && c.position.lengthSq() > 1e-8) || bone.children[0];
+    // The next real joint down the limb. This rig puts a helper node ("...scaleCompensation") between every bone and its child,
+    // so the joint is found by name and checked to be somewhere below this bone, instead of assuming it is a direct child.
+    let below = false;
+    for (let n = named; n && !below; n = n.parent) if (n === bone) below = true;
+    const child = below ? named : bone.children.find((c) => c.isBone && c.position.lengthSq() > 1e-8) || bone.children[0];
     bone.userData.rest = child && child.position.lengthSq() > 1e-8 ? child.position.clone().normalize() : new THREE.Vector3(0, 1, 0);
+    bone.userData.child = child || null;   // the next joint down the limb: its world position gives the bone's current direction
   }
   return b;
 }
@@ -449,12 +454,26 @@ function toWorld(d, facing, out) {
   const c = Math.cos(facing), s = Math.sin(facing);
   return out.set(d[0] * c + d[2] * s, d[1], -d[0] * s + d[2] * c);
 }
+// Swing a bone so it points along `dirWorld`, changing only its direction. The roll (twist) about its own axis stays as the
+// animation left it, so thighs and arms never wring themselves out at the hip and shoulder (that tore the shorts and shirt).
+const _aimP = new THREE.Vector3(), _aimC = new THREE.Vector3(), _aimD = new THREE.Vector3(), _aimT = new THREE.Vector3(), _aimS = new THREE.Vector3();
+const _aimQ = new THREE.Quaternion(), _aimW = new THREE.Quaternion(), _aimPQ = new THREE.Quaternion();
 function aim(bone, dirWorld, w) {
-  bone.parent.updateWorldMatrix(true, false);
-  bone.parent.getWorldQuaternion(_pq).invert();
-  _v.copy(dirWorld).applyQuaternion(_pq).normalize();
-  _q.setFromUnitVectors(bone.userData.rest, _v);
-  bone.quaternion.slerp(_q, w);
+  const child = bone.userData.child;
+  if (!child) return;
+  bone.updateWorldMatrix(true, false);
+  child.updateWorldMatrix(true, false);
+  bone.matrixWorld.decompose(_aimP, _aimW, _aimS);                    // where the bone is and how it is turned now
+  _aimC.setFromMatrixPosition(child.matrixWorld);
+  _aimD.subVectors(_aimC, _aimP);
+  if (_aimD.lengthSq() < 1e-10) return;
+  _aimD.normalize();
+  _aimT.copy(dirWorld).normalize();
+  _aimQ.setFromUnitVectors(_aimD, _aimT);                              // the smallest turn from where it points to where it should
+  _aimQ.multiply(_aimW);                                               // new world rotation
+  bone.parent.matrixWorld.decompose(_aimP, _aimPQ, _aimS);
+  _aimQ.premultiply(_aimPQ.invert());                                  // back into the parent's space
+  bone.quaternion.slerp(_aimQ, w);
 }
 
 // Which pose each arm/leg should take. Returns { aL, aR, lL, lR } with [upperDir, lowerDir] or null.
