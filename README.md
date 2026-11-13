@@ -22,6 +22,7 @@ built with Three.js and deployed on Cloudflare Workers.
 - **Customize kit & shoes**: change your team's colors, logo (20 emblems, 4 shapes), home kit style and sneaker colors, with a 3D front-and-back preview. Your players wear the logo, number and name on their jerseys.
 - **Real rules**: 24-second shot clock, 8 seconds to cross half court, no going back over it (backcourt), 3 seconds in the lane, goaltending, free throws and the bonus, and the possession arrow (the team that loses the opening tip starts Q2 and Q3, with a sideline inbound). The CPU manages the clock, fouls on purpose when trailing late, and avoids throwing into defended lanes
 - **More moves**: pump fake (tap Pass while winding up a shot), post-ups, defensive slides, pick-and-roll, hot and cold streaks, and CPU coaches who adjust to the score
+- **Move Guide**: a screen (Pause menu, Controls, home footer) that lists every move and which button does it, using your own key bindings
 - **Referees and benches**: two officials run with the play and signal fouls, violations and baskets; substitutes sit on their bench
 - Timed shot meter, layups, dunks, aimed passes, steals, blocks and rebounds
 - **Automatic moves**: the game picks the right move for the situation. Fadeaways, step-backs, pull-ups, floaters,
