@@ -97,7 +97,7 @@
       <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
       <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
     </div>
-    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
+    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
   </div>
 
   <!-- Career slots -->
@@ -175,6 +175,7 @@
       <label class="inline-sel">Touch layout
         <select id="touchPreset"><option value="standard">Standard (two thumbs)</option><option value="left">Left-handed</option><option value="oneRight">One-handed (right thumb)</option><option value="oneLeft">One-handed (left thumb)</option></select>
       </label>
+      <button id="controlsMoves">Move guide</button>
       <button id="editTouch">Edit touch layout</button>
       <button id="resetKeys">Reset to defaults</button>
       <button data-go="back" class="primary">Done</button>
@@ -299,10 +300,20 @@
       <button class="openSubs">Substitutions</button>
       <button id="pauseTimeout">Call Timeout</button>
       <button id="pauseTactics">Team Tactics</button>
+      <button id="pauseMoves">Move Guide</button>
       <button data-go="controls">Controls</button>
       <button data-go="settings">Settings</button>
       <button id="quitBtn">Quit to Menu</button>
     </nav>
+  </div>
+
+  <!-- Move guide -->
+  <div id="moves" class="screen">
+    <h2>Move Guide</h2>
+    <p class="hint">What every button does. The keys shown are your own bindings.</p>
+    <div class="chips" id="movesTabs"></div>
+    <div id="movesBody" class="moves-body"></div>
+    <div class="row"><button id="movesDone" class="primary">Done</button></div>
   </div>
 
   <!-- Contests -->
@@ -339,8 +350,11 @@
     <div class="tac-head"><span id="kitCrest"></span><div><h2>Customize Kit</h2><small id="kitTeam"></small></div></div>
     <div class="tac-body">
       <div class="tac-left">
-        <div class="tac-label">Colors</div>
+        <div class="tac-label">Quick looks</div>
+        <div class="chips" id="kitLooks"></div>
+        <div class="tac-label" style="margin-top:14px">Colors</div>
         <div id="kitColors"></div>
+        <div id="kitExtra"></div>
         <div class="tac-label" style="margin-top:14px">Home kit</div>
         <div class="chips" id="kitHome"></div>
         <div class="tac-label" style="margin-top:14px">Logo</div>

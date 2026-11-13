@@ -72,6 +72,7 @@ export class Game {
       isUser: (opts.userSide === 'home') === isHome,
       jerseyColor: isHome ? (data.homeStyle === 'color' ? data.primary : '#f5f5f5') : data.primary,
       trimColor: isHome ? (data.homeStyle === 'color' ? data.accent : data.primary) : data.accent,
+      shortsColor: data.shorts || null,
       players: [],
       quarterScores: [],
       timeouts: 5,
@@ -100,7 +101,8 @@ export class Game {
       for (const p of [...t.players, ...t.bench]) applyCustomPlayer(p);
     }
     this.autoSubs = opts.autoSubs !== false;
-    if (!opts.tutorial && !opts.practice) {
+    this.extras = !opts.tutorial && !opts.practice && !Game.lite;   // referees and seated benches: High and Ultra only, they cost draw calls
+    if (this.extras) {
       this.benchProps = buildBenches(scene);
       for (const t of this.teams) t.bench.forEach((p, i) => { p.seated = true; p.root.visible = true; this.placeSeat(p, t, i); });
       this.wantOfficials = true;
@@ -561,6 +563,7 @@ export class Game {
 
   // ---------- Actions ----------
   // Labels shown when the game picks a special move for you
+  static lite = false;   // set by the graphics level: Low and Medium skip referees and benches
   static MOVE_LABEL = {
     fadeaway: 'FADEAWAY', stepback: 'STEP-BACK', floater: 'FLOATER', euro: 'EURO STEP', reverse: 'REVERSE LAYUP',
     twohand: 'TWO-HAND SLAM', windmill: 'WINDMILL!', tomahawk: 'TOMAHAWK!', alley: 'ALLEY-OOP!', spin: 'SPIN MOVE', hesi: 'HESITATION',
@@ -869,7 +872,7 @@ export class Game {
     inn.facing = inn.targetFacing = out.facing;
     inn.index = courtIdx; out.index = benchIdx;
     inn.state = 'idle'; inn.jumpT = -1; inn.y = 0; inn.faceTarget = null; inn.stamina = 1;
-    out.seated = true; out.root.visible = true; inn.seated = false; inn.root.visible = true;
+    out.seated = true; out.root.visible = this.extras; inn.seated = false; inn.root.visible = true;
     this.placeSeat(out, team, benchIdx);
     out.streak = 0; out.onFire = false;
     team.players[courtIdx] = inn; team.bench[benchIdx] = out;
@@ -1421,11 +1424,16 @@ export class Game {
 
   // Poses, ball and nets. Separate from the simulation so an online guest can render received state.
   animateAll(dt) {
-    for (const t of this.teams) {
-      for (const p of t.bench) {
-        if (!p.seated) continue;
-        p.animate(dt, { hasBall: false, dribble: false, defending: false, released: false });
-        updateCustomPlayer(p, dt, 'sit', 0, { hasBall: false });
+    // Seated substitutes barely move: refresh them every fourth frame
+    this.benchTick = ((this.benchTick || 0) + 1) % 4;
+    if (this.extras && this.benchTick === 0) {
+      for (const t of this.teams) {
+        for (const p of t.bench) {
+          if (!p.seated) continue;
+          p.animate(dt * 4, { hasBall: false, dribble: false, defending: false, released: false });
+          updateCustomPlayer(p, dt * 4, 'sit', 0, { hasBall: false, freezeMixer: p.seatInit });
+          p.seatInit = true;
+        }
       }
     }
     if (this.officials) this.officials.update(dt);

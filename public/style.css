@@ -694,3 +694,53 @@ html[data-cb="1"] { --green: #35b6ff; --hot: #ffb000; }
 html[data-cb="1"] #meter .zone { background: rgba(53,182,255,0.9); }
 .screen { zoom: var(--ui, 1); }
 .inline-sel { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--muted); }
+
+/* ---------- Hub: tidy the bottom row (4 small tiles) and phone spacing ---------- */
+.hub-grid #tileContests { grid-column: 1; grid-row: 3; }
+.hub-grid .tile.small[data-go=controls] { grid-column: 2; grid-row: 3; }
+.hub-grid .tile.small[data-go=settings] { grid-column: 3 / span 2; grid-row: 3; }
+.tile.small .t-sub { text-align: right; font-size: 12px; }
+@media (max-width: 760px) {
+  .hub-grid { gap: 10px; grid-auto-rows: minmax(76px, auto); }
+  .hub-grid .tile, .hub-grid #tutorialBtn, .hub-grid .tile.small[data-go], .hub-grid #tileContests { grid-column: span 1; grid-row: auto; }
+  .tile.hero, .tile.career { grid-column: span 2 !important; min-height: 120px; }
+  .hub-grid .tile.small[data-go=settings] { grid-column: span 2; }
+  .tile.small, .hub-grid #tutorialBtn { flex-direction: column !important; align-items: flex-start !important; justify-content: flex-end !important; padding: 12px 14px; gap: 2px; }
+  .tile.small .t-sub { text-align: left; }
+  .tile { padding: 12px 14px; }
+  .tile.career { padding-right: 14px !important; }
+}
+
+/* ---------- Move guide ---------- */
+#moves { background: rgba(3,5,10,0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); justify-content: flex-start; z-index: 16; }
+.moves-body { display: grid; gap: 8px; width: 100%; max-width: 860px; }
+.mv { display: grid; grid-template-columns: 190px 1fr; gap: 14px; padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); align-items: start; }
+.mv-keys { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.mv-keys kbd { padding: 4px 9px; border-radius: 7px; background: rgba(53,240,255,0.14); border: 1px solid rgba(53,240,255,0.4); font-size: 12px; font-weight: 800; color: #fff; }
+.mv-keys i { color: var(--muted); font-style: normal; font-weight: 800; }
+.mv-keys small { flex-basis: 100%; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.mv-txt b { font-family: var(--display); font-style: italic; text-transform: uppercase; font-size: 15px; }
+.mv-txt p { margin: 3px 0 0; font-size: 13px; line-height: 1.45; color: #c6cfe2; }
+@media (max-width: 640px) { .mv { grid-template-columns: 1fr; gap: 6px; } }
+
+.foot-btn { padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(53,240,255,0.5); background: rgba(53,240,255,0.12); color: #fff; font-weight: 800; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.foot-btn:hover { background: rgba(53,240,255,0.25); }
+
+/* ---------- Hub tiles: text scales with the tile so nothing wraps or gets cut off ---------- */
+.hub-grid .tile { container-type: inline-size; }
+.hub-grid .tile .t-title { font-size: clamp(17px, 10.5cqw, 44px); line-height: 1.02; white-space: nowrap; max-width: 100%; }
+.hub-grid .tile.hero .t-title { font-size: clamp(26px, 10cqw, 72px); }
+.hub-grid .tile.career .t-title { font-size: clamp(20px, 6.4cqw, 42px); }
+.hub-grid .tile.small .t-title, .hub-grid #tutorialBtn .t-title { font-size: clamp(14px, 7.5cqw, 22px); }
+.hub-grid .tile .t-kicker { font-size: clamp(9px, 3.4cqw, 12px); letter-spacing: 0.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.hub-grid .tile .t-sub { font-size: clamp(11px, 3.8cqw, 14px); line-height: 1.25; }
+.hub-grid .tile.career { padding-right: 36%; }
+
+/* ---------- Kit customiser, second pass ---------- */
+.kit-preview { flex-direction: column; align-items: center; gap: 8px; }
+.kit-preview img.big { width: min(260px, 70%); height: auto; max-height: 52vh; object-fit: contain; }
+.kit-preview .thumbs { display: flex; gap: 10px; justify-content: center; }
+.kit-preview .thumbs img { width: 84px; height: auto; cursor: pointer; opacity: 0.8; border: 1px solid var(--line); border-radius: 8px; }
+.kit-preview .thumbs img:hover { opacity: 1; border-color: var(--accent); }
+#kitView .ang { margin-left: 4px; }
+#kitLooks button { font-size: 11px; padding: 6px 10px; }

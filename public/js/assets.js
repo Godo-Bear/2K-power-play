@@ -2,6 +2,7 @@
 // Everything here is optional: if a file is missing or fails to load, the game
 // falls back to its built-in procedural graphics.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { buildHair, scalpTint } from './hair.js';
@@ -94,6 +95,7 @@ function tintColor(player, kind) {
   switch (kind) {
     case 'jersey': return player.team.jerseyColor;
     case 'trim': return player.team.trimColor;
+    case 'shorts': return player.team.shortsColor || player.team.jerseyColor;
     case 'skin': return player.data.skin;
     case 'hair': return player.data.hairStyle === 0 ? player.data.skin : player.data.hair; // style 0 = bald
     case 'shoe': return player.index % 2 ? '#ffffff' : player.team.data.secondary;
@@ -200,6 +202,10 @@ function tintModel(model, cfg, fake) {
   model.traverse((o) => {
     if (!o.isMesh) return;
     o.frustumCulled = false; // skinned meshes can be culled wrongly when animated
+    // Fewer, cheaper draw calls: the mouth parts, nails and lashes are never visible at game distance, and only the big parts cast shadows
+    const mname = ((Array.isArray(o.material) ? o.material[0] : o.material).name || '');
+    if (/Tongue|Teeth|Nails|Eyelash|Cornea/i.test(mname)) o.visible = false;
+    o.castShadow = /Skin|T_shirt|Shorts/i.test(mname);
     const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
       const c = mt.clone();
       const rule = rules.find(([k]) => (mt.name || '').toLowerCase().includes(k));
@@ -208,7 +214,8 @@ function tintModel(model, cfg, fake) {
       if (col && c.color) {
         c.color.set(col);
         // Kit made from photo textures (a red shirt, say) would stain the team colour: use a flat colour and keep the fabric's normal map
-        if (c.map && ['jersey', 'trim', 'shoe'].includes(rule[1]) && cfg.flatColors !== false) c.map = null;
+        if (c.map && ['jersey', 'trim', 'shoe', 'shorts'].includes(rule[1]) && cfg.flatColors !== false) c.map = null;
+        if (['jersey', 'trim', 'shorts'].includes(rule[1])) { c.normalMap = null; c.bumpMap = null; c.aoMap = null; c.roughness = 0.82; c.metalness = 0; }   // clean fabric: no baked wrinkles
       }
       return c;
     });
@@ -218,32 +225,45 @@ function tintModel(model, cfg, fake) {
 
 // ---------- Kit customisation: shoe colours and the logo / number on the jersey ----------
 const shoeCache = new Map();
-// Recoloured copy of a shoe: `upper` replaces the dark leather, `sole` tints the midsole and outsole
+// A clean, flat-coloured copy of a shoe merged into a single mesh (vertex colours for the upper, midsole, trim and dark parts) so it is cheap to draw.
+// `upper` and `sole` are optional custom colours; the default is the classic black and white.
 function shoeVariant(side, upper, sole) {
-  const base = custom.shoes[side];
-  if (!upper && !sole) return base;
   const key = `${side}|${upper || ''}|${sole || ''}`;
   if (shoeCache.has(key)) return shoeCache.get(key);
-  const copy = base.clone(true);
-  const cloned = new Map();
-  copy.traverse((o) => {
+  const base = custom.shoes[side];
+  const roleOf = (n) => (n === 'upper' ? 'upper' : n === 'midsole' ? 'midsole' : n === 'trim' ? 'trim' : 'dark');
+  const col = {
+    upper: new THREE.Color(upper || '#17171c'),
+    midsole: new THREE.Color(sole || '#f2f2f4'),
+    trim: new THREE.Color('#d5d9e0'),
+    dark: sole ? new THREE.Color(sole).multiplyScalar(0.28) : new THREE.Color('#2a2b31'),
+  };
+  const geos = [];
+  base.updateMatrixWorld(true);
+  base.traverse((o) => {
     if (!o.isMesh) return;
-    const m = o.material;
-    if (!cloned.has(m)) {
-      const c = m.clone();
-      if (upper && m.name === 'upper') { c.map = null; c.color.set(upper); c.roughness = 0.55; }
-      else if (sole && (m.name === 'midsole' || m.name === 'outsole')) { c.color.set(sole); }
-      cloned.set(m, c);
-    }
-    o.material = cloned.get(m);
+    const ge = (o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone()).applyMatrix4(o.matrixWorld);
+    for (const k of Object.keys(ge.attributes)) if (k !== 'position' && k !== 'normal') ge.deleteAttribute(k);
+    const c = col[roleOf(o.material.name)], n = ge.attributes.position.count, arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+    ge.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    geos.push(ge);
   });
-  shoeCache.set(key, copy);
-  return copy;
+  // One mesh, one draw call: the colours ride on the vertices
+  const group = new THREE.Group();
+  const geo = mergeGeometries(geos, false);
+  if (geo) {
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.08 }));
+    mesh.castShadow = false; mesh.frustumCulled = false;
+    group.add(mesh);
+  }
+  shoeCache.set(key, group);
+  return group;
 }
 
 const decalCache = new Map();
 function decalTexture(team, player, back) {
-  const t = team.data, fg = team.trimColor;
+  const t = team.data, fg = t.numColor || team.trimColor;
   const sym = (t.logo && t.logo.symbol) || '';
   const key = [back ? 'b' : 'f', fg, sym, t.id, player.data.number, back ? player.data.last : ''].join('|');
   if (decalCache.has(key)) return decalCache.get(key);
@@ -252,14 +272,21 @@ function decalTexture(team, player, back) {
   const g = cv.getContext('2d');
   g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillStyle = fg; g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = 6;
-  const text = (s, y, size, w = 240) => { g.font = `900 ${size}px "Arial Black", Impact, sans-serif`; g.strokeText(s, 128, y, w); g.fillText(s, 128, y, w); };
+  // Text is sized to fit the canvas (and so the shirt): shrink until it is no wider than maxW
+  const text = (s, y, size, maxW = 190) => {
+    let px = size;
+    g.font = `900 ${px}px "Arial Black", Impact, sans-serif`;
+    while (px > 14 && g.measureText(s).width > maxW) { px -= 2; g.font = `900 ${px}px "Arial Black", Impact, sans-serif`; }
+    g.lineWidth = Math.max(3, px * 0.07);
+    g.strokeText(s, 128, y); g.fillText(s, 128, y);
+  };
   if (back) {
-    text(String(player.data.last || '').toUpperCase(), 44, 38);
-    text(String(player.data.number), 150, 150);
+    text(String(player.data.last || '').toUpperCase(), 52, 40, 200);
+    text(String(player.data.number), 150, 130, 150);
   } else {
-    if (sym) { g.font = '110px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; g.fillStyle = '#fff'; g.fillText(sym, 128, 70); g.fillStyle = fg; }
-    else text(t.id, 66, 72);
-    text(String(player.data.number), 175, 96);
+    if (sym) { g.font = '84px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif'; g.fillStyle = '#fff'; g.fillText(sym, 128, 62); g.fillStyle = fg; }
+    else text(t.id, 60, 62, 170);
+    text(String(player.data.number), 160, 92, 120);
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -282,7 +309,7 @@ function attachDecals(holder, model, bones, player, cfg) {
   if (!pts.length) return;
   let minY = 1e9, maxY = -1e9;
   for (const p of pts) { minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }
-  const cy = minY + (maxY - minY) * 0.6, size = (maxY - minY) * 0.55;
+  const cy = minY + (maxY - minY) * 0.62, size = Math.min(0.3, (maxY - minY) * 0.5);
   let zF = -1e9, zB = 1e9, cx = 0, n = 0;
   for (const p of pts) if (Math.abs(p.y - cy) < size * 0.3) { cx += p.x; n++; }
   cx = n ? cx / n : 0;
@@ -350,9 +377,9 @@ function attachShoes(holder, model, bones, player) {
 const _qs = { h: new THREE.Quaternion(), i: new THREE.Quaternion(), p: new THREE.Quaternion(), r: new THREE.Quaternion(), d: new THREE.Quaternion(), pitch: new THREE.Quaternion(), yaw: new THREE.Quaternion() };
 const _vs = { a: new THREE.Vector3(), b: new THREE.Vector3() };
 const _AX = new THREE.Vector3(1, 0, 0), _AY = new THREE.Vector3(0, 1, 0);
-function orientShoes(player) {
+function orientShoes(player, fresh = false) {
   const h = player.customModel;
-  h.updateMatrixWorld(true);
+  if (!fresh) h.updateMatrixWorld(true);
   h.getWorldQuaternion(_qs.h);
   _qs.i.copy(_qs.h).invert();
   _qs.yaw.setFromAxisAngle(_AY, -Math.PI / 2);
@@ -642,7 +669,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
         player.currentClip = want;
       }
     }
-    player.mixer.update(dt);
+    if (!ctx.freezeMixer) player.mixer.update(dt);
   }
   const b = player.bones;
   if (!b || !player.limb) return;
@@ -660,7 +687,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   const fixTarget = ctx.airborne || state === 'dunk' || state === 'layup' ? 0 : groundFix(player);
   player.fixY = (player.fixY || 0) + (fixTarget - (player.fixY || 0)) * Math.min(1, dt * 16);
   h.position.y = (player.bobY || 0) - player.fixY;
-  if (player.shoes && player.shoes.length) orientShoes(player);
+  if (player.shoes && player.shoes.length) orientShoes(player, true);
 }
 
 const _gv = { a: new THREE.Vector3(), b: new THREE.Vector3() };
@@ -724,10 +751,10 @@ export function placeCustomCourt(scene) {
 let pRenderer = null, pScene = null, pCam = null;
 const portraitCache = new Map();
 // `yaw` turns the model (degrees) and `zoom` (0 to 1) moves the camera in on the head; both are for previews
-export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff', yaw = 0, zoom = 0, body = false, kit = null }) {
+export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff', shorts = null, yaw = 0, zoom = 0, body = false, kit = null }) {
   const cp = custom.player;
   if (!cp) return null;
-  const key = [skin, hair, hairStyle, jersey, trim, yaw, zoom, body, kit ? JSON.stringify(kit) : ''].join('|');
+  const key = [skin, hair, hairStyle, jersey, trim, shorts, yaw, zoom, body, kit ? JSON.stringify(kit) : ''].join('|');
   if (portraitCache.has(key)) return portraitCache.get(key);
   try {
     if (!pRenderer) {
@@ -743,7 +770,7 @@ export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim =
     let model = SkeletonUtils.clone(cp.scene);
     model.rotation.y = THREE.MathUtils.degToRad(cp.cfg.rotationY || 0);
     fitToHeight(model, 2);
-    const fake = { team: { jerseyColor: jersey, trimColor: trim, data: { secondary: trim, ...((kit && kit.team) || {}) } }, data: { skin, hair, hairStyle, number: kit ? kit.number : 7, last: kit ? kit.last : 'STAR', shoeUpper: kit ? kit.shoeUpper : null, shoeSole: kit ? kit.shoeSole : null }, index: 1 };
+    const fake = { team: { jerseyColor: jersey, trimColor: trim, shortsColor: shorts, data: { secondary: trim, ...((kit && kit.team) || {}) } }, data: { skin, hair, hairStyle, number: kit ? kit.number : 7, last: kit ? kit.last : 'STAR', shoeUpper: kit ? kit.shoeUpper : null, shoeSole: kit ? kit.shoeSole : null }, index: 1 };
     tintModel(model, cp.cfg, fake);
     const pHolder = new THREE.Group();
     pHolder.add(model);
@@ -761,8 +788,11 @@ export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim =
     model = pHolder;
     model.rotation.y = THREE.MathUtils.degToRad(yaw);
     pScene.add(model);
+    pRenderer.setSize(body ? 360 : 320, body ? 540 : 320, false);
+    pCam.aspect = body ? 360 / 540 : 1;
+    pCam.updateProjectionMatrix();
     if (body) {
-      pCam.position.set(0, 1.0, 4.4);
+      pCam.position.set(0, 1.02, 4.9);
       pCam.lookAt(0, 0.98, 0);
     } else if (zoom > 0) {
       // Head close-up, looking straight at the face (so yaw shows the side/back)

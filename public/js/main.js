@@ -1,11 +1,12 @@
 import { SLIDERS, PRESETS, PRESET_KEYS, presetValues, getTactics, saveTactics, resetTactics, matchPreset, tacticsNorm, traits as tacTraits } from './tactics.js';
 import { cloudSync, push as cloudPush, onCloudStatus } from './cloud.js';
-import { SYMBOLS, SHAPES, PALETTE, SHOE_COLORS, getKit, saveKit, applyAllKits } from './kit.js';
+import { SYMBOLS, SHAPES, PALETTE, SHOE_COLORS, LOOKS, getKit, saveKit, applyAllKits } from './kit.js';
 import { PERK_TEXT } from './styles.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { TEAMS, DIFFICULTY } from './data.js';
@@ -56,7 +57,7 @@ const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
 camera.position.set(0, 9, 17);
 
-let scene, arena, composer, bloomPass, renderPass, fx;
+let scene, arena, composer, bloomPass, renderPass, fx, sharpenPass;
 let game = null;
 let tutorial = null;
 let attract = false;        // a CPU-vs-CPU game playing behind the menus
@@ -89,6 +90,7 @@ function targetRatio() {
 }
 function applyQuality() {
   const q = TIERS[settings.gfx] ? settings.gfx : 'high';
+  Game.lite = q === 'low' || q === 'medium';
   const T = TIERS[q];
   renderer.setPixelRatio(targetRatio());
   renderer.shadowMap.enabled = T.shadow;
@@ -106,6 +108,7 @@ function applyQuality() {
   }
   if (composer) for (const rt of [composer.renderTarget1, composer.renderTarget2]) if (rt.samples !== T.msaa) { rt.samples = T.msaa; rt.dispose(); }
   if (bloomPass) bloomPass.enabled = T.post;
+  if (sharpenPass) sharpenPass.enabled = T.post;
   resize();
 }
 
@@ -127,6 +130,20 @@ function buildWorld(home, away) {
   bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.18, 0.3, 0.95);
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
+  // A light unsharp mask after tone mapping: keeps characters and lines crisp (multisampling softens edges slightly)
+  sharpenPass = new ShaderPass({
+    uniforms: { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1, 1) }, amount: { value: 0.38 } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 resolution; uniform float amount; varying vec2 vUv;
+      void main() {
+        vec2 px = 1.0 / resolution;
+        vec4 c = texture2D(tDiffuse, vUv);
+        vec3 blur = (texture2D(tDiffuse, vUv + vec2(px.x, 0.0)).rgb + texture2D(tDiffuse, vUv - vec2(px.x, 0.0)).rgb + texture2D(tDiffuse, vUv + vec2(0.0, px.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, px.y)).rgb) * 0.25;
+        vec3 sharp = c.rgb + (c.rgb - blur) * amount;
+        gl_FragColor = vec4(clamp(sharp, 0.0, 1.0), c.a);
+      }`,
+  });
+  composer.addPass(sharpenPass);
   applyQuality();
 }
 
@@ -135,6 +152,7 @@ function resize() {
   renderer.setSize(w, h, false);
   if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
   gfxStats.w = Math.round(w * renderer.getPixelRatio()); gfxStats.h = Math.round(h * renderer.getPixelRatio());
+  if (sharpenPass) sharpenPass.uniforms.resolution.value.set(gfxStats.w, gfxStats.h);
   camera.aspect = w / h;
   camera.fov = w / h < 1 ? 62 : w / h < 1.4 ? 50 : 40;
   camera.updateProjectionMatrix();
@@ -776,28 +794,39 @@ function drawKit() {
   $('#kitCrest').innerHTML = kitCrestHTML();
   $('#kitColors').innerHTML = [['primary', 'Primary (jersey)'], ['secondary', 'Secondary (logo background)'], ['accent', 'Accent (numbers and trim)']].map(([f, label]) =>
     `<div class="kit-row"><label>${label}</label><div class="sws">${kitSwatches(PALETTE, k[f], f)}<input type="color" value="${k[f]}" data-pick="${f}" aria-label="Custom colour for ${label}"></div></div>`).join('');
+  $('#kitLooks').innerHTML = `<button data-look="orig">Original</button>` + LOOKS.map((l, i) => `<button data-look="${i}" style="border-left:6px solid ${l.primary}">${l.name}</button>`).join('');
+  $$('#kitLooks button').forEach((b) => b.addEventListener('click', () => {
+    const o = t._orig;
+    const l = b.dataset.look === 'orig' ? { primary: o.primary, secondary: o.secondary, accent: o.accent, homeStyle: 'white' } : LOOKS[Number(b.dataset.look)];
+    Object.assign(k, { primary: l.primary, secondary: l.secondary, accent: l.accent, homeStyle: l.homeStyle, shorts: null, numColor: null });
+    sfx.menu(); drawKit();
+  }));
+  $('#kitExtra').innerHTML = `<div class="kit-row"><label>Shorts (the arrow matches the jersey)</label><div class="sws">${kitSwatches([null, ...PALETTE], k.shorts, 'shorts')}</div></div><div class="kit-row"><label>Numbers and name (the arrow uses the accent color)</label><div class="sws">${kitSwatches([null, ...PALETTE], k.numColor, 'numColor')}</div></div>`;
   $('#kitHome').innerHTML = [['white', 'Classic white'], ['color', 'Team colors']].map(([v, l]) => `<button class="${k.homeStyle === v ? 'on' : ''}" data-hs="${v}">${l}</button>`).join('');
   $('#kitSymbols').innerHTML = SYMBOLS.map((s) => `<button class="${k.logo.symbol === s ? 'on' : ''}" data-sym="${s}">${s || t.id}</button>`).join('');
   $('#kitShapes').innerHTML = Object.entries(SHAPES).map(([v, l]) => `<button class="${k.logo.shape === v ? 'on' : ''}" data-shape="${v}">${l}</button>`).join('');
   $('#kitShoeUpper').innerHTML = kitSwatches(SHOE_COLORS, k.shoeUpper, 'shoeUpper');
   $('#kitShoeSole').innerHTML = kitSwatches(SHOE_COLORS, k.shoeSole, 'shoeSole');
-  $('#kitView').innerHTML = [['home', 'Home'], ['away', 'Away']].map(([v, l]) => `<button class="${kitEd.view === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('');
-  $$('#kit .sw').forEach((b) => b.addEventListener('click', () => { k[b.dataset.f] = b.dataset.val || null; drawKit(); }));
+  $('#kitView').innerHTML = [['home', 'Home kit'], ['away', 'Away kit']].map(([v, l]) => `<button class="${kitEd.view === v ? 'on' : ''}" data-v="${v}">${l}</button>`).join('') + [['0', 'Front'], ['90', 'Side'], ['180', 'Back']].map(([v, l]) => `<button class="ang ${String(kitEd.yaw ?? 0) === v ? 'on' : ''}" data-yaw="${v}">${l}</button>`).join('');
+  $$('#kit .sw').forEach((b) => b.addEventListener('click', () => { const f = b.dataset.f; k[f] = b.dataset.val || ((f === 'primary' || f === 'secondary' || f === 'accent') ? k[f] : null); drawKit(); }));
   $$('#kit input[type=color]').forEach((i) => i.addEventListener('input', () => { k[i.dataset.pick] = i.value; $('#kitCrest').innerHTML = kitCrestHTML(); clearTimeout(kitTimer); kitTimer = setTimeout(renderKitPreview, 150); }));
   $$('#kitHome button').forEach((b) => b.addEventListener('click', () => { k.homeStyle = b.dataset.hs; drawKit(); }));
   $$('#kitSymbols button').forEach((b) => b.addEventListener('click', () => { k.logo.symbol = b.dataset.sym; drawKit(); }));
   $$('#kitShapes button').forEach((b) => b.addEventListener('click', () => { k.logo.shape = b.dataset.shape; drawKit(); }));
-  $$('#kitView button').forEach((b) => b.addEventListener('click', () => { kitEd.view = b.dataset.v; drawKit(); }));
+  $$('#kitView button').forEach((b) => b.addEventListener('click', () => { if (b.dataset.yaw !== undefined) kitEd.yaw = Number(b.dataset.yaw); else kitEd.view = b.dataset.v; drawKit(); }));
   clearTimeout(kitTimer);
   kitTimer = setTimeout(renderKitPreview, 60);
 }
 function renderKitPreview() {
   if (!kitEd) return;
   const k = kitEd.kit, t = kitEd.team, j = kitJerseys();
-  const kit = { team: { id: t.id, secondary: k.secondary, logo: k.logo, shoeUpper: k.shoeUpper, shoeSole: k.shoeSole }, number: 7, last: t.name, shoeUpper: k.shoeUpper, shoeSole: k.shoeSole };
-  const img = (yaw) => portrait({ skin: '#c68642', hair: '#111111', hairStyle: 1, jersey: j.jersey, trim: j.trim, yaw, body: true, kit });
-  const a = img(0), b = img(180);
-  $('#kitPreview').innerHTML = a ? `<img src="${a}" alt="Front of the kit"><img src="${b}" alt="Back of the kit">` : '<p class="hint">The preview needs the 3D player model.</p>';
+  const kit = { team: { id: t.id, secondary: k.secondary, logo: k.logo, shoeUpper: k.shoeUpper, shoeSole: k.shoeSole, numColor: k.numColor }, number: 7, last: t.name, shoeUpper: k.shoeUpper, shoeSole: k.shoeSole };
+  const img = (yaw) => portrait({ skin: '#c68642', hair: '#111111', hairStyle: 1, jersey: j.jersey, trim: j.trim, shorts: k.shorts, yaw, body: true, kit });
+  // the chosen angle large, with the other two beside it
+  const main = kitEd.yaw ?? 0, others = [0, 90, 180].filter((y) => y !== main);
+  const a = img(main);
+  $('#kitPreview').innerHTML = a ? `<img class="big" src="${a}" alt="The kit"><div class="thumbs">${others.map((y) => `<img src="${img(y)}" alt="" data-yaw="${y}">`).join('')}</div>` : '<p class="hint">The preview needs the 3D player model.</p>';
+  $$('#kitPreview .thumbs img').forEach((im) => im.addEventListener('click', () => { kitEd.yaw = Number(im.dataset.yaw); drawKit(); }));
 }
 $('#kitSave').addEventListener('click', () => {
   sfx.select();
@@ -809,10 +838,63 @@ $('#kitBack').addEventListener('click', () => { sfx.menu(); const cb = kitEd.onC
 $('#kitReset').addEventListener('click', () => {
   sfx.menu();
   const o = kitEd.team._orig;
-  kitEd.kit = { primary: o.primary, secondary: o.secondary, accent: o.accent, homeStyle: 'white', logo: { symbol: '', shape: 'circle' }, shoeUpper: null, shoeSole: null };
+  kitEd.kit = { primary: o.primary, secondary: o.secondary, accent: o.accent, homeStyle: 'white', logo: { symbol: '', shape: 'circle' }, shoeUpper: null, shoeSole: null, shorts: null, numColor: null };
   drawKit();
 });
 $('#selKit').addEventListener('click', () => { sfx.menu(); openKit(TEAMS[settings[settings.side]], () => { renderSelect(); show('select'); }); });
+
+// ---------- Move guide: what every button does ----------
+const bindLabel = (id) => {
+  const k = bindings.keys[id] && bindings.keys[id][0];
+  const pad = bindings.pad[id];
+  return [k ? keyName(k) : null, pad != null && pad >= 0 ? padName(pad) : null].filter(Boolean).join(' / ') || '—';
+};
+const MOVE_TABS = [
+  { id: 'ball', label: 'With the ball', items: [
+    { b: ['shoot'], how: 'Hold, then release', t: 'Jump shot', d: 'A meter fills while you hold. Let go in the green zone and it almost always goes in. The game picks the shot: pull-up on the move, step-back after a step-back, fadeaway when guarded close, floater in the lane.' },
+    { b: ['shoot'], how: 'Tap near the rim', t: 'Layup and dunk', d: 'Close to the basket the same button goes up for a layup. Sprint in with speed and it becomes a dunk: a windmill or tomahawk when you are open, a two-hand slam when crowded, plus euro-steps and reverse layups.' },
+    { b: ['pass'], how: 'Tap, point the stick', t: 'Pass', d: 'Aim the stick at a teammate. The game chooses a chest pass, a bounce pass through traffic, or a lob for an alley-oop near the rim.' },
+    { b: ['move'], how: 'Tap', t: 'Crossover moves', d: 'The situation picks the move: crossover, behind-the-back, hesitation, step-back, or a spin when a defender is on you and you are driving. Good handles make defenders stumble.' },
+    { b: ['move'], how: 'Stand still near the rim', t: 'Post-up', d: 'A big player near the basket with a defender on his back can back him down. He turns and finishes on his own when the move ends.' },
+    { b: ['shoot', 'pass'], how: 'Hold Shoot, tap Pass', t: 'Pump fake', d: 'Cancel the shot and fake it. A defender who bites jumps and is out of the play, so drive past him.' },
+    { b: ['sprint'], how: 'Hold', t: 'Sprint', d: 'Faster, and needed for dunks and fast breaks. It tires players, so rotate your bench.' },
+    { b: ['shoot'], how: 'Hold, then release', t: 'Free throws', d: 'Same meter as a jump shot. Wait for the green zone.' },
+  ] },
+  { id: 'off', label: 'Without the ball', items: [
+    { b: ['pass'], how: 'Tap', t: 'Call for the ball', d: 'Your teammate with the ball throws it to you.' },
+    { b: ['switch'], how: 'Tap', t: 'Switch player', d: 'Take control of another teammate, or turn on Player Lock to stay on one player.' },
+    { b: ['shoot'], how: 'Tap', t: 'Jump for a rebound', d: 'When a shot is in the air, jump to grab the board. Offensive rebounds reset the shot clock to 14.' },
+    { b: ['move'], how: 'Move the stick', t: 'Cut and space the floor', d: 'Run to open space, cut to the rim for a lob or a pass, and stay out of the lane: three seconds there is a violation.' },
+    { b: ['timeout'], how: 'Tap', t: 'Call timeout', d: 'Stops the clock, lets you rest and sub, and changes tactics from the Pause menu.' },
+  ] },
+  { id: 'def', label: 'On defense', items: [
+    { b: ['shoot'], how: 'Tap, timed', t: 'Contest and block', d: 'Jump at the shooter. Time it as the ball goes up for a block. Touch it on the way down to the rim and it is goaltending, so the basket counts.' },
+    { b: ['pass'], how: 'Tap near the ball', t: 'Steal', d: 'A lunge with a poke or a swipe. Close and good hands win the ball, but a reach-in can be a foul.' },
+    { b: [], how: 'Stand in the lane', t: 'Intercept', d: 'Step into a passing lane and the pass is yours. Stay close to the receiver you are guarding.' },
+    { b: ['move'], how: 'Tap', t: 'Quick switch', d: 'Instantly take control of the defender nearest the ball.' },
+    { b: ['sprint'], how: 'Hold', t: 'Recover', d: 'Sprint back to the basket on a fast break. Defenders slide on their own in a low stance when you hold the stick sideways.' },
+  ] },
+  { id: 'rules', label: 'The rules', items: [
+    { b: [], how: '24 seconds', t: 'Shot clock', d: 'Get a shot up before it hits zero. After an offensive rebound it resets to 14.' },
+    { b: [], how: '8 seconds', t: 'Half court', d: 'Bring the ball over the half-court line within eight seconds, and never carry it back over once you are across.' },
+    { b: [], how: '3 seconds', t: 'The lane', d: 'No offensive player can stay in the paint more than three seconds while his team has the ball.' },
+    { b: [], how: 'Q2 and Q3', t: 'Possession', d: 'The team that loses the opening tip gets the ball to start the second and third quarters, and the tip winner gets the fourth.' },
+    { b: [], how: 'Fouls', t: 'Fouls and the bonus', d: 'Contact on a shooter is a shooting foul. After five team fouls in a quarter, every foul is two free throws. Six personal fouls and a player is out.' },
+  ] },
+];
+let movesTab = 'ball';
+function renderMoves() {
+  $('#movesTabs').innerHTML = MOVE_TABS.map((t) => `<button class="${t.id === movesTab ? 'on' : ''}" data-t="${t.id}">${t.label}</button>`).join('');
+  $$('#movesTabs button').forEach((b) => b.addEventListener('click', () => { movesTab = b.dataset.t; sfx.menu(); renderMoves(); }));
+  const tab = MOVE_TABS.find((t) => t.id === movesTab) || MOVE_TABS[0];
+  $('#movesBody').innerHTML = tab.items.map((m) => `<div class="mv"><div class="mv-keys">${m.b.map((id) => `<kbd>${bindLabel(id)}</kbd>`).join('<i>+</i>')}<small>${m.how}</small></div><div class="mv-txt"><b>${m.t}</b><p>${m.d}</p></div></div>`).join('');
+}
+let movesReturn = 'menu';
+function openMoves(back) { movesReturn = back; renderMoves(); show('moves'); }
+$('#movesDone').addEventListener('click', () => { sfx.menu(); show(movesReturn); });
+$('#pauseMoves').addEventListener('click', () => openMoves('pause'));
+$('#controlsMoves').addEventListener('click', () => openMoves('controls'));
+$('#hubMoves').addEventListener('click', () => { initAudio(); sfx.menu(); openMoves('menu'); });
 
 // ---------- Team tactics ----------
 let tac = null;
@@ -1989,8 +2071,9 @@ function adaptResolution(dt) {
   adaptT = 0; adaptN = 0; adaptSum = 0;
   if (!settings.adaptive || mode === 'menu' && !attract) return;
   const before = renderScale;
-  if (avg > 1 / 48) renderScale = Math.max(0.5, renderScale - (avg > 1 / 30 ? 0.2 : 0.1));
-  else if (avg < 1 / 62 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.05);
+  // Only trade sharpness for speed when the frame rate is really struggling, and never go below 80% (stays crisp)
+  if (avg > 1 / 40) renderScale = Math.max(0.8, renderScale - (avg > 1 / 28 ? 0.1 : 0.05));
+  else if (avg < 1 / 56 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.05);
   if (renderScale !== before) { renderer.setPixelRatio(targetRatio()); resize(); }
   const st = $('#gfxInfo');
   if (st && st.offsetParent) st.textContent = `Rendering ${gfxStats.w}x${gfxStats.h} at ${Math.round(gfxStats.fps)} fps`;

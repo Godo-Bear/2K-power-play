@@ -1,7 +1,7 @@
 // Hair styles. Everything is built around a unit "skull" (a sphere of radius 1 centred in the head: +y up, +z toward the face)
 // and the whole group is scaled to the real head, so the hair hugs the skull instead of sitting on it like a hat.
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const HAIR_STYLES = ['Bald', 'Buzz Cut', 'Short', 'High Top', 'Afro', 'Mohawk', 'Locs', 'Top Bun', 'Cornrows', 'Curly Top'];
 
@@ -71,34 +71,58 @@ export function buildHair(style, color, r, { cap = false, skin = '#c68642', dims
     case 2: // Short (only when the model has no hair of its own)
       if (cap) shell(hairMat, 1.120, 0.46, 0.5);
       break;
-    case 3: // High top: faded sides and a flat top
+    case 3: { // High top: faded sides and a rounded, tall flat-top (a lathed column, no hard box edges)
       if (cap) shell(fadeMat, 1.090, 0.45, 0.5);
-      add(new RoundedBoxGeometry(1.95, 0.7, 1.75, 3, 0.26), hairMat, 0, 0.84, -0.06);
+      const prof = [[0, 0.5], [0.96, 0.5], [0.99, 0.7], [0.96, 1.0], [0.9, 1.14], [0.8, 1.22], [0.6, 1.27], [0, 1.29]].map(([x, y]) => new THREE.Vector2(x, y));
+      const col = add(new THREE.LatheGeometry(prof, 28), hairMat, 0, 0, -0.05);
+      col.scale.set(1.0, 1.0, 0.96);
       break;
-    case 4: // Afro: a full round crown that clears the face
-      if (cap) shell(hairMat, 1.110, 0.45, 0.5);
-      add(new THREE.SphereGeometry(1, 32, 24), hairMat, 0, 0.5, -0.36).scale.set(1.5, 1.32, 1.38);
-      break;
-    case 5: { // Mohawk: shaved sides and a ridge from the forehead to the nape
-      if (cap) shell(fadeMat, 1.080, 0.45, 0.5);
-      for (let i = 0; i < 10; i++) {
-        const a = -2.1 + i * (3.0 / 9);
-        const n = new THREE.Vector3(0, Math.cos(a), Math.sin(a));
-        const m = add(new THREE.SphereGeometry(1, 16, 12), hairMat, 0, n.y * 1.12, n.z * 1.12);
-        m.scale.set(0.2, 0.4 + 0.1 * Math.sin((i / 9) * Math.PI), 0.34);
-        m.rotation.x = a;
+    }
+    case 4: { // Afro: a soft, slightly irregular round crown that leaves the forehead clear
+      if (cap) shell(hairMat, 1.100, 0.45, 0.5);
+      const core = add(new THREE.SphereGeometry(1, 20, 14), hairMat, 0, 0.62, -0.36);
+      core.scale.set(1.3, 1.14, 1.22);
+      // Small puffs around the outline give a soft, fluffy edge instead of a smooth helmet
+      for (let i = 0; i < 46; i++) {
+        const u = rnd() * 2 - 1, phi = rnd() * Math.PI * 2, sq = Math.sqrt(1 - u * u);
+        const nx = sq * Math.sin(phi), ny = u, nz = sq * Math.cos(phi);
+        if (nz > 0.45 && ny < 0.55) continue;                 // keep the face clear
+        if (ny < -0.25) continue;
+        const rad = 0.13 + rnd() * 0.08;
+        add(new THREE.SphereGeometry(rad, 6, 4), hairMat, nx * 1.24, 0.62 + ny * 1.08, -0.36 + nz * 1.16);
       }
       break;
     }
-    case 6: { // Locs: strands that start at the scalp and hang down around the back and sides
-      if (cap) shell(hairMat, 1.110, 0.46, 0.5);
-      for (let i = 0; i < 40; i++) {
-        const phi = THREE.MathUtils.degToRad(62 + (i / 39) * 236);          // around the back, leaving the face and temples clear
-        const th = (0.37 + rnd() * 0.07) * Math.PI;
-        const rr = 1.08 * Math.sin(th), yy = 1.08 * Math.cos(th);
-        const len = 0.7 + rnd() * 0.8;
-        const m = add(new THREE.CapsuleGeometry(0.052, len, 3, 8), hairMat, Math.sin(phi) * rr, yy - len / 2, Math.cos(phi) * rr);
-        m.rotation.set(Math.cos(phi) * 0.18, 0, -Math.sin(phi) * 0.18);       // flare slightly away from the head
+    case 5: { // Mohawk: shaved sides and one smooth fin from the forehead to the nape
+      if (cap) shell(fadeMat, 1.080, 0.45, 0.5);
+      const shape = new THREE.Shape();
+      const top = [], base = [];
+      for (let k = 0; k <= 16; k++) {
+        const a = 0.95 - (k / 16) * 3.05;                       // from the forehead, over the crown, down the back
+        const hh = 0.18 + 0.32 * Math.sin((k / 16) * Math.PI);  // a fin that rises toward the middle
+        top.push([(1.02 + hh) * Math.sin(a), (1.02 + hh) * Math.cos(a)]);
+        base.push([0.98 * Math.sin(a), 0.98 * Math.cos(a)]);
+      }
+      shape.moveTo(base[0][0], base[0][1]);
+      top.forEach(([x, y]) => shape.lineTo(x, y));
+      for (let k = base.length - 1; k >= 0; k--) shape.lineTo(base[k][0], base[k][1]);
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.34, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.06, bevelSegments: 3, curveSegments: 8 });
+      geo.rotateY(-Math.PI / 2);
+      geo.translate(0.17, 0, 0);
+      add(geo, hairMat);
+      break;
+    }
+    case 6: { // Locs: thin strands that start at the scalp and hang down around the back and sides
+      if (cap) shell(hairMat, 1.100, 0.46, 0.5);
+      for (let i = 0; i < 60; i++) {
+        const phi = THREE.MathUtils.degToRad(58 + (i / 59) * 244 + (rnd() - 0.5) * 6);   // around the back, leaving the face and temples clear
+        const th = (0.3 + rnd() * 0.16) * Math.PI;
+        const rr = 1.07 * Math.sin(th), yy = 1.07 * Math.cos(th);
+        const len = 0.55 + rnd() * 0.75;
+        const out = 0.14 + rnd() * 0.1, sway = (rnd() - 0.5) * 0.12;
+        const dx = Math.sin(phi), dz = Math.cos(phi);
+        const pts = [0, 0.33, 0.66, 1].map((t) => new THREE.Vector3(dx * (rr + out * t * t) + sway * t, yy - len * t, dz * (rr + out * t * t)));
+        add(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 8, 0.05 - 0.012 * rnd(), 4, false), hairMat);
       }
       break;
     }
@@ -124,17 +148,35 @@ export function buildHair(style, color, r, { cap = false, skin = '#c68642', dims
     case 9: { // Curly top: tight curls packed over the crown
       if (cap) shell(hairMat, 1.090, 0.45, 0.5);
       let made = 0;
-      for (let tries = 0; tries < 400 && made < 54; tries++) {
-        const th = rnd() * 0.46 * Math.PI, phi = rnd() * Math.PI * 2;
+      for (let tries = 0; tries < 900 && made < 120; tries++) {
+        const th = rnd() * 0.47 * Math.PI, phi = rnd() * Math.PI * 2;
         const y = Math.cos(th);
-        if (Math.abs(((phi + Math.PI) % (Math.PI * 2)) - Math.PI) < 1.1 && y < 0.62) continue; // keep the forehead clear
-        const rad = 0.26 + rnd() * 0.08;
-        add(new THREE.SphereGeometry(rad, 10, 8), hairMat, 1.0 * Math.sin(th) * Math.sin(phi), y * 1.02 - 0.02, 1.0 * Math.sin(th) * Math.cos(phi) - 0.08);
+        if (Math.abs(((phi + Math.PI) % (Math.PI * 2)) - Math.PI) < 1.05 && y < 0.7) continue; // keep the forehead clear
+        const rad = 0.15 + rnd() * 0.07;
+        add(new THREE.SphereGeometry(rad, 6, 4), hairMat, 1.02 * Math.sin(th) * Math.sin(phi), y * 1.03, 1.02 * Math.sin(th) * Math.cos(phi) - 0.06);
         made++;
       }
       break;
     }
     default: break;
   }
+  return mergeByMaterial(g);
+}
+
+// One draw call per material instead of one per curl, loc or puff
+function mergeByMaterial(g) {
+  const byMat = new Map();
+  g.children.forEach((m) => { if (!byMat.has(m.material)) byMat.set(m.material, []); byMat.get(m.material).push(m); });
+  const merged = [];
+  for (const [mat, meshes] of byMat) {
+    const geos = meshes.map((m) => { m.updateMatrix(); const ge = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone(); ge.applyMatrix4(m.matrix); for (const k of Object.keys(ge.attributes)) if (!['position', 'normal', 'uv'].includes(k)) ge.deleteAttribute(k); return ge; });
+    const geo = mergeGeometries(geos, false);
+    if (!geo) continue;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = false;
+    merged.push(mesh);
+  }
+  g.clear();
+  merged.forEach((m) => g.add(m));
   return g;
 }

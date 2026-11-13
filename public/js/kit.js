@@ -1,6 +1,16 @@
 // Kit customisation: team colours, home kit style, logo and shoes. Saved per team in this browser and applied
 // straight onto the team data, so every screen, the court and the 3D players pick it up.
 export const SYMBOLS = ['', '🏀', '⚡', '🔥', '👑', '🐺', '🦅', '⭐', '🌊', '🛡️', '⚔️', '🦂', '🏔️', '🐍', '🦏', '🚀', '💎', '🌵', '🌙', '☀️'];
+export const LOOKS = [
+  { name: 'Midnight', primary: '#0b1f3a', secondary: '#35f0ff', accent: '#ffffff', homeStyle: 'color' },
+  { name: 'Sunset', primary: '#ff6a13', secondary: '#3b1466', accent: '#ffe8d6', homeStyle: 'color' },
+  { name: 'Royal', primary: '#5b2bd1', secondary: '#f5c542', accent: '#ffffff', homeStyle: 'color' },
+  { name: 'Forest', primary: '#19c37d', secondary: '#0a1f17', accent: '#eafff5', homeStyle: 'color' },
+  { name: 'Crimson', primary: '#e63946', secondary: '#1d3557', accent: '#f1faee', homeStyle: 'color' },
+  { name: 'Ice', primary: '#7fd8ff', secondary: '#0c2f4f', accent: '#ffffff', homeStyle: 'white' },
+  { name: 'Blackout', primary: '#1c1c1c', secondary: '#c9a227', accent: '#f5e6b3', homeStyle: 'color' },
+  { name: 'Neon', primary: '#ff2e88', secondary: '#120a1c', accent: '#35f0ff', homeStyle: 'color' },
+];
 export const SHAPES = { circle: 'Circle', square: 'Rounded', shield: 'Shield', pill: 'Pill' };
 export const PALETTE = ['#e63946', '#ff6a13', '#ffd60a', '#3dff7a', '#19c37d', '#0fb5ae', '#35f0ff', '#3c8bff', '#5b2bd1', '#7b2cbf', '#ff2e88', '#ffffff', '#aab4c0', '#1c1c1c', '#0b1f3a', '#7a1024'];
 export const SHOE_COLORS = [null, '#ffffff', '#1c1c1c', '#e63946', '#ff6a13', '#ffd60a', '#3dff7a', '#35f0ff', '#3c8bff', '#5b2bd1', '#ff2e88', '#c9a227'];
@@ -10,7 +20,7 @@ const write = (o) => { try { localStorage.setItem(KEY, JSON.stringify(o)); } cat
 
 export const defaultKit = (t) => ({
   primary: t._orig.primary, secondary: t._orig.secondary, accent: t._orig.accent,
-  homeStyle: 'white', logo: { symbol: '', shape: 'circle' }, shoeUpper: null, shoeSole: null,
+  homeStyle: 'white', logo: { symbol: '', shape: 'circle' }, shoeUpper: null, shoeSole: null, shorts: null, numColor: null,
 });
 export function getKit(t) { remember(t); return { ...defaultKit(t), ...(read()[t.id] || {}), logo: { ...defaultKit(t).logo, ...((read()[t.id] || {}).logo || {}) } }; }
 
@@ -20,7 +30,7 @@ export function applyKit(t) {
   const k = { ...defaultKit(t), ...(read()[t.id] || {}) };
   t.primary = k.primary; t.secondary = k.secondary; t.accent = k.accent;
   t.homeStyle = k.homeStyle; t.logo = { symbol: '', shape: 'circle', ...(k.logo || {}) };
-  t.shoeUpper = k.shoeUpper; t.shoeSole = k.shoeSole;
+  t.shoeUpper = k.shoeUpper; t.shoeSole = k.shoeSole; t.shorts = k.shorts; t.numColor = k.numColor;
 }
 export function applyAllKits(teams) { teams.forEach(applyKit); }
 export function saveKit(t, kit) { const all = read(); all[t.id] = kit; write(all); applyKit(t); }
