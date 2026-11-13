@@ -269,7 +269,7 @@ function decalTexture(team, player, back) {
 
 // Put the team logo and number on the chest and the name and number on the back, riding on the spine bone
 function attachDecals(holder, model, bones, player, cfg) {
-  if (!bones || !bones.chest || !player.team || !player.team.data) return;
+  if (!bones || !bones.chest || !player.team || !player.team.data || player.team.data.noDecals) return;
   const rules = Object.entries(cfg.tint || {}).filter(([, v]) => v === 'jersey').map(([k]) => k.toLowerCase());
   if (!rules.length) return;
   holder.updateMatrixWorld(true);
@@ -436,7 +436,24 @@ function choosePose(p, state, ctx) {
   const mir = (d) => [-d[0], d[1], d[2]];
   const both = (u, f) => { out.aL = [u, f]; out.aR = [mir(u), mir(f)]; };
   const style = ctx.style;
-  if (ctx.passT > 0 && ctx.passLocal) {
+  if (ctx.refSignal) {
+    // Referee signals
+    const t = ctx.t || 0;
+    switch (ctx.refSignal) {
+      case 'foul': out.aR = [[-0.15, 1, 0.05], [-0.05, 1, 0.12]]; break;                       // fist raised
+      case 'two': out.aR = [[-0.2, 0.98, 0.05], [-0.05, 1, 0.1]]; break;
+      case 'three': both([0.25, 0.95, 0.1], [0.1, 1, 0.1]); break;                            // both arms up
+      case 'point': { const d = ctx.refPoint || [0, 0.05, 1]; out.aR = [d, d]; break; }        // arm out toward the end
+      case 'tee': out.aL = [[0.55, 0.4, 0.45], [0.1, 0.95, 0.1]]; out.aR = [[-0.1, 0.05, 0.9], [0.45, 0.1, 0.9]]; break; // timeout T
+      case 'travel': {                                                                          // rolling hands
+        const a = t * 9;
+        out.aL = [[0.45, -0.15, 0.5], [0.25, Math.sin(a) * 0.7, 0.6 + Math.cos(a) * 0.35]];
+        out.aR = [[-0.45, -0.15, 0.5], [-0.25, Math.sin(a + 3) * 0.7, 0.6 + Math.cos(a + 3) * 0.35]];
+        break;
+      }
+      default: break;
+    }
+  } else if (ctx.passT > 0 && ctx.passLocal) {
     // Push the ball toward the target: chest pass, low bounce pass or a high lob
     const [px, pz] = ctx.passLocal;
     const y = ctx.passStyle === 'bounce' ? -0.5 : ctx.passStyle === 'lob' ? 0.65 : -0.05;

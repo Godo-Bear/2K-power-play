@@ -6,6 +6,7 @@ import { DIFFICULTY } from './data.js';
 import { input } from './input.js';
 import { sfx } from './audio.js';
 import { custom, applyCustomPlayer, updateCustomPlayer, makeCustomBall } from './assets.js';
+import { Referees, buildBenches, seatPos } from './referee.js';
 import { simCareerLine } from './season.js';
 
 const G = 9.8;
@@ -94,10 +95,16 @@ export class Game {
       t.cp = null;
       t.lock = null;
       t.meter = { visible: false, value: 0, target: METER_TARGET, win: this.diff.greenWindow, result: null };
+      // substitutes sit on their bench (practice and the tutorial keep them out of sight)
       for (const p of t.bench) p.root.visible = false;
       for (const p of [...t.players, ...t.bench]) applyCustomPlayer(p);
     }
     this.autoSubs = opts.autoSubs !== false;
+    if (!opts.tutorial && !opts.practice) {
+      this.benchProps = buildBenches(scene);
+      for (const t of this.teams) t.bench.forEach((p, i) => { p.seated = true; p.root.visible = true; this.placeSeat(p, t, i); });
+      this.wantOfficials = true;
+    }
     this.fc = false; this.bcT = 0;   // frontcourt reached / seconds spent in the backcourt (backcourt rules)
     this.ring = []; this.pendingClips = []; this.recAcc = 0; this.replay = null;
     this.recording = !(opts.attract || opts.tutorial || opts.practice || opts.versus || opts.guest);
@@ -145,6 +152,7 @@ export class Game {
     this.pendingInbound = null;
     this.events = [];
     this.listeners = [];
+    if (this.wantOfficials) this.officials = new Referees(this, scene);
     this.run = { team: null, pts: 0 };
     this.contactCd = 0;
     this.ft = null;
@@ -839,7 +847,8 @@ export class Game {
     inn.facing = inn.targetFacing = out.facing;
     inn.index = courtIdx; out.index = benchIdx;
     inn.state = 'idle'; inn.jumpT = -1; inn.y = 0; inn.faceTarget = null; inn.stamina = 1;
-    out.root.visible = false; inn.root.visible = true;
+    out.seated = true; out.root.visible = true; inn.seated = false; inn.root.visible = true;
+    this.placeSeat(out, team, benchIdx);
     out.streak = 0; out.onFire = false;
     team.players[courtIdx] = inn; team.bench[benchIdx] = out;
     const b = this.ball;
@@ -1382,8 +1391,22 @@ export class Game {
     this.animateAll(dt);
   }
 
+  placeSeat(p, team, slot) {
+    const s = seatPos(team, slot);
+    p.pos.set(s.x, 0, s.z); p.vel.set(0, 0, 0); p.y = 0; p.jumpT = -1; p.state = 'idle';
+    p.facing = p.targetFacing = 0;     // facing the court
+  }
+
   // Poses, ball and nets. Separate from the simulation so an online guest can render received state.
   animateAll(dt) {
+    for (const t of this.teams) {
+      for (const p of t.bench) {
+        if (!p.seated) continue;
+        p.animate(dt, { hasBall: false, dribble: false, defending: false, released: false });
+        updateCustomPlayer(p, dt, 'sit', 0, { hasBall: false });
+      }
+    }
+    if (this.officials) this.officials.update(dt);
     for (const p of this.allPlayers) {
       const hasBall = this.ball.holder === p;
       p.animate(dt, {
@@ -2152,5 +2175,7 @@ export class Game {
     for (const t of this.teams) for (const p of [...(t.full || t.players), ...t.bench]) this.scene.remove(p.root);
     if (this.ball.ring) this.scene.remove(this.ball.ring);
     this.scene.remove(this.ball.mesh);
+    if (this.officials) this.officials.dispose();
+    if (this.benchProps) this.scene.remove(this.benchProps);
   }
 }

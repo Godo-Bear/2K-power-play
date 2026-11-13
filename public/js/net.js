@@ -164,7 +164,7 @@ export function applySnapshot(g, s) {
       if (bi >= 0) {
         const out = t.players[slot], inn = t.bench[bi];
         inn.pos.set(a[1], 0, a[2]); inn.index = slot; out.index = bi;
-        out.root.visible = false; inn.root.visible = true; out.setControlled(false);
+        out.seated = true; out.root.visible = true; inn.seated = false; inn.root.visible = true; out.setControlled(false); if (g.placeSeat) g.placeSeat(out, t, bi);
         t.players[slot] = inn; t.bench[bi] = out;
         if (t.cp === out) t.cp = null;
       }
