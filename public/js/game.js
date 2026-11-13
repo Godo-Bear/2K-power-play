@@ -98,6 +98,7 @@ export class Game {
       for (const p of [...t.players, ...t.bench]) applyCustomPlayer(p);
     }
     this.autoSubs = opts.autoSubs !== false;
+    this.fc = false; this.bcT = 0;   // frontcourt reached / seconds spent in the backcourt (backcourt rules)
     this.ring = []; this.pendingClips = []; this.recAcc = 0; this.replay = null;
     this.recording = !(opts.attract || opts.tutorial || opts.practice || opts.versus || opts.guest);
     this.slowT = 0;
@@ -451,6 +452,7 @@ export class Game {
     p.holdT = 0; p.decT = 0.3;
     if (!silent) sfx.catch();
     if (p.team !== prevTeam) {
+      this.fc = false; this.bcT = 0;
       this.possession = p.team;
       this.shotClock = 24;
       this.shotClockFrozen = false;
@@ -686,6 +688,15 @@ export class Game {
     b.vel.set((target.x - start.x) / T, (target.y - start.y + 0.5 * G * T * T) / T, (target.z - start.z) / T);
     b.spin = -8;
     if (kind === 'dunk') { b.vel.set((target.x - start.x) / T, (target.y - start.y) / T - 2, (target.z - start.z) / T); }
+  }
+
+  // Is a defender standing in the passing lane between two players?
+  passLaneBlocked(from, to) {
+    const ax = to.pos.x - from.pos.x, az = to.pos.z - from.pos.z, dd = Math.hypot(ax, az) || 1;
+    return this.other(from.team).players.some((q) => {
+      const t = ((q.pos.x - from.pos.x) * ax + (q.pos.z - from.pos.z) * az) / (dd * dd);
+      return t > 0.15 && t < 0.85 && Math.hypot(q.pos.x - (from.pos.x + ax * t), q.pos.z - (from.pos.z + az * t)) < 1.05;
+    });
   }
 
   startPass(p, target) {
@@ -1177,6 +1188,7 @@ export class Game {
     this.shotClock = shotClock ?? 24;
     this.celebrateTeam = null;
     this.shotClockFrozen = false;
+    this.fc = false; this.bcT = 0;
     this.setHolder(p, { silent: true });
     this.ball.reboundable = false;
     this.state = 'live';
@@ -1291,7 +1303,7 @@ export class Game {
       }
       if (this.state !== 'ft') this.separatePlayers();
       this.updateBall(dt);
-      if (this.state === 'live') this.checkRules();
+      if (this.state === 'live') { this.checkRules(); this.ruleTick(dt); }
     }
 
     this.animateAll(dt);
@@ -1402,6 +1414,29 @@ export class Game {
   endHalftime() { if (this.halftime) { this.halftime = false; this.stateT = 0.4; } }
 
   periodName() { return this.period <= 4 ? `Q${this.period}` : this.period === 5 ? 'OT' : `${this.period - 4}OT`; }
+
+  // Real rules: 8 seconds to cross half court, no going back over it, 3 seconds in the lane
+  ruleTick(dt) {
+    if (this.opts.tutorial || this.opts.practice || this.opts.noFouls || this.opts.noViolations) return;
+    const b = this.ball, off = this.possession, dir = off.dir, h = b.holder;
+    const ballTeam = h ? h.team : (b.state === 'pass' && b.pass ? b.pass.from.team : null);
+    if (ballTeam === off && b.state !== 'shot') {
+      if (h && h.pos.x * dir > 0.6) this.fc = true;
+      if (!this.fc) {
+        this.bcT += dt;
+        if (this.bcT > 8) { this.bcT = 0; this.turnover(off, '8-SECOND VIOLATION'); return; }
+      } else if (h && h.pos.x * dir < -0.5) { this.fc = false; this.turnover(off, 'BACKCOURT VIOLATION'); return; }
+    }
+    // Three seconds: an offensive player can't camp in the lane while his team has the ball (the count stops on a shot)
+    for (const p of off.players) {
+      const inLane = p.pos.x * dir > C.HALF_L - 5.8 && Math.abs(p.pos.z) < C.KEY_W / 2;
+      if (inLane && ballTeam === off && b.state !== 'shot' && b.state !== 'loose') {
+        p.paintT = (p.paintT || 0) + dt;
+        if (p.paintT > 2.2 && !p.paintWarned && p.team.human && this.ctl(p)) { p.paintWarned = true; this.hud.feedback('LEAVE THE LANE!', '#ffd60a'); }
+        if (p.paintT > 3.05) { this.lastViolation = { idx: p.index, holder: h ? h.index : -1, bstate: b.state, cut: p.cutT, x: +p.pos.x.toFixed(1), z: +p.pos.z.toFixed(1), drive: p.driveT, st: p.state }; for (const q of off.players) { q.paintT = 0; q.paintWarned = false; } this.turnover(off, '3-SECOND VIOLATION'); return; }
+      } else { p.paintT = 0; p.paintWarned = false; }
+    }
+  }
 
   checkRules() {
     const b = this.ball;
@@ -1625,7 +1660,7 @@ export class Game {
           ps.checked.add(q);
           // Standing in the passing lane is an interception: the closer to the ball's path, the surer it is
           let chance = (d < 0.5 ? 0.9 : 0.62) + q.r.steal / 1000 + q.perk.steal * 0.5;
-          if (!q.team.human) chance *= Math.min(1, 0.55 + this.diff.aiSteal * 0.45) * (1 + q.team.skill * 0.1);
+          if (!q.team.human) chance *= 0.55 * Math.min(1, 0.55 + this.diff.aiSteal * 0.45) * (1 + q.team.skill * 0.1); // the CPU reads lanes less cleanly than a person who steps into one
           chance *= 1 - ps.from.team.skill * 0.12;      // sharp passers read the lane
           if (q.state === 'steal' || q.stumbleT > 0) chance *= 0.6; // off balance
           chance = Math.min(0.97, chance);
@@ -1686,6 +1721,20 @@ export class Game {
               this.cameraShake = 0.25;
               s.fouled = null; // a clean block is not a foul: no whistle, no free throws
               return;
+            }
+          }
+        }
+      }
+      // Goaltending: a defender who swats a shot on its way down to the rim gives the shooter the points
+      if (s.t >= 0.45 && b.vel.y < 0 && s.kind !== 'ft' && !s.goaltended && !s.made && !this.opts.tutorial && !this.opts.noViolations) {
+        const hoopG = this.hoopOf(s.team);
+        if (Math.hypot(b.pos.x - hoopG.x, b.pos.z) < 0.7 && b.pos.y > C.RIM_H - 0.12 && b.pos.y < C.RIM_H + 1.0) {
+          for (const q of this.other(s.team).players) {
+            if (q.airborne && Math.hypot(q.pos.x - b.pos.x, q.pos.z - b.pos.z) < 0.95 && q.reach > b.pos.y - 0.15) {
+              s.goaltended = true; s.made = true; s.fouled = null;
+              this.hud.toast('GOALTENDING', `Basket counts for ${s.team.data.name}`, 1.6);
+              sfx.whistle();
+              break;
             }
           }
         }
@@ -1829,7 +1878,7 @@ export class Game {
   offenseSpot(team, i, p) {
     const dir = team.dir;
     const spots = [
-      [7.6, 0], [7.4, 0.95], [7.0, -1.33], [5.0, -0.55], [2.4, 0.95],
+      [7.6, 0], [7.4, 0.95], [7.0, -1.33], [5.0, -0.55], [2.8, 1.18],
     ];
     if (p.cutT > 0) return tmp.set(dir * (C.HOOP_X - 1.4), 0, (p.cutZ || 0));
     let [r, a] = spots[i];
@@ -1837,7 +1886,9 @@ export class Game {
     if (i <= 2) r *= 0.92 + tc.threes * 0.2;               // shooters stand deeper when the team hunts threes
     else r *= 1 - (tc.attack - 0.5) * 0.16;                 // bigs set up closer when attacking the rim
     const jitter = Math.sin(this.time * 0.5 + i * 2) * 0.5;
-    return tmp.set(dir * (C.HOOP_X - r * Math.cos(a)), 0, r * Math.sin(a) + jitter);
+    let z = r * Math.sin(a) + jitter;
+    if (i >= 3) z = Math.sign(r * Math.sin(a) || 1) * (Math.abs(r * Math.sin(a)) + Math.abs(jitter)); // bigs hover just outside the lane
+    return tmp.set(dir * (C.HOOP_X - r * Math.cos(a)), 0, z);
   }
 
   aiControl(p, off, def, dt) {
@@ -1856,6 +1907,8 @@ export class Game {
       p.cutT = Math.max(0, (p.cutT || 0) - dt);
       if (live && p.cutT <= 0 && Math.random() < dt * (0.03 + 0.08 * off.tac.attack) && p.index !== 0) { p.cutT = 1.6; p.cutZ = rand(-1.2, 1.2); }
       let target = this.offenseSpot(off, p.index, p).clone();
+      // Never camp in the lane: step out before the three-second call
+      if ((p.paintT || 0) > 1.7) { p.cutT = 0; target.set(target.x - off.dir * 1.2, 0, (p.pos.z >= 0 ? 1 : -1) * 3.3); }
       // Crash the boards on a shot
       if (b.state === 'shot' && p.index >= 5 - (1 + Math.round(off.tac.glass * 3))) target.set(off.dir * (C.HOOP_X - 1.8), 0, (p.index % 2 ? -1.2 : 1.2) * (0.7 + (p.index % 3) * 0.35));
       this.moveTo(p, target, hdist(p.pos, target) > 5);
@@ -1887,6 +1940,13 @@ export class Game {
     if (hdist(p.pos, man.pos) < 3) p.faceTarget = man.pos;
 
     if (!live || this.passive()) return;
+    // Late and behind: foul on purpose to stop the clock
+    if (!p.team.human && !this.opts.noFouls && this.period >= 4 && this.gameClock < 40 && this.gameClock > 3 && p.team.score < off.score && off.score - p.team.score <= 10 &&
+        onBall && man.state === 'idle' && !p.airborne && hdist(p.pos, man.pos) < 1.25 && this.time - (this.lastIntFoul || -9) > 2.5) {
+      this.lastIntFoul = this.time;
+      this.nonShootingFoul(p, man, 'INTENTIONAL FOUL');
+      return;
+    }
     // Contest shots
     const shooter = b.holder && b.holder.team === off && b.holder.state !== 'idle' ? b.holder : null;
     if (shooter && !p.airborne && hdist(p.pos, shooter.pos) < 2.3 && shooter.actionT > this.diff.react * 0.7) {
@@ -1928,22 +1988,28 @@ export class Game {
     }
     if (!p.aiTarget || p.decT <= 0) {
       p.decT = rand(0.45, 0.8) * (1.25 - tc.pace * 0.5);
+      if (backcourt && this.gameClock < 1.4 && dHoop < 26) { this.startShot(p); return; } // end-of-quarter heave
       if (backcourt) {
         p.aiTarget = new THREE.Vector3(dir * 5, 0, rand(-2, 2));
         if (p.index !== 0 && p.holdT > 0.5) {
           const pg = off.players[0];
-          if (this.nearestDefender(pg).d > 1.5 && Math.random() < 0.6) { this.startPass(p, pg); return; }
+          if (this.nearestDefender(pg).d > 1.5 && !this.passLaneBlocked(p, pg) && Math.random() < 0.6) { this.startPass(p, pg); return; }
         }
       } else {
+        if ((p.paintT || 0) > 2.0) { this.startShot(p); return; }  // don't hold the ball in the lane
         const me = this.shotChance(p);
+        // Clock sense: always get a shot up before the quarter ends, and run the clock when protecting a late lead
+        if (this.gameClock < 2.6 && this.gameClock > 0 && p.holdT > 0.15) { this.startShot(p); return; }
+        const lead = off.score - this.other(off).score;
+        const burn = this.period >= 4 && this.gameClock < 45 && lead > 0 && lead <= 10 && this.shotClock > 7;
         const ev = me.p * (me.three ? 3 * (0.7 + tc.threes * 0.6) : 2 * (1.08 - tc.threes * 0.16));
         const open = this.nearestDefender(p).d;
         if (this.shotClock < 2.5 + Math.random()) { this.startShot(p); return; }
         if (dHoop < 2.3) { this.startShot(p); return; }
-        if (open > 1.7 && ev > 0.9 + sk * 0.06 - (tc.pace - 0.5) * 0.2 && p.holdT > 0.5 && Math.random() < 0.55) { this.startShot(p); return; }
+        if (open > 1.7 && ev > 0.9 + sk * 0.06 - (tc.pace - 0.5) * 0.2 && p.holdT > 0.5 && !burn && Math.random() < 0.55) { this.startShot(p); return; }
         // A teammate cutting to the rim, open: throw it up to him
         const cutter = off.players.find((q) => q !== p && (q.cutT || 0) > 0.3 && q.r.dunk >= 70 && Math.hypot(q.pos.x - hoop.x, q.pos.z) < 3 && this.nearestDefender(q).d > 0.9);
-        if (cutter && dHoop > 4 && Math.random() < 0.18) { this.startPass(p, cutter); return; }
+        if (cutter && dHoop > 4 && !this.passLaneBlocked(p, cutter) && Math.random() < 0.18) { this.startPass(p, cutter); return; }
         // Lane to the rim?
         const laneOpen = this.allPlayers.every((q) => {
           if (q.team === off) return true;
@@ -1954,13 +2020,14 @@ export class Game {
           const px = p.pos.x + ax * t, pz = p.pos.z + az * t;
           return Math.hypot(q.pos.x - px, q.pos.z - pz) > 1.1;
         });
-        if (laneOpen && dHoop < 9 && Math.random() < 0.5 + p.r.inside / 300 + (tc.attack - 0.5) * 0.7) { p.driveT = 1.6; return; }
+        if (laneOpen && dHoop < 9 && !burn && Math.random() < 0.5 + p.r.inside / 300 + (tc.attack - 0.5) * 0.7) { p.driveT = 1.6; return; }
         // Dribble move to shake a tight defender
         if (open < 1.3 && Math.random() < 0.18 + p.r.handle / 500) this.dribbleMove(p);
         // Pass to a better option
         let bestMate = null, bestEv = ev;
         for (const q of off.players) {
           if (q === p) continue;
+          if (this.passLaneBlocked(p, q)) continue;   // don't throw it into a defender
           const c = this.shotChance(q);
           const qev = c.p * (c.three ? 3 * (0.7 + tc.threes * 0.6) : 2) * (this.nearestDefender(q).d > 1.8 ? 1.15 : 0.85);
           if (qev > bestEv) { bestEv = qev; bestMate = q; }
