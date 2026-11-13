@@ -1361,9 +1361,15 @@ function openCareerCreate() {
   };
   const chips = () => {
     // New players start around 70 OVR, so only the starter styles are open; the others unlock as you improve
-    $('#cnArch').innerHTML = Object.entries(Season.ARCHETYPES).map(([k, a]) => {
+    // Every style is listed; the ones that suit the chosen position come first and say so
+    const posIdx = Number($('#cnPos').value) || 0;
+    const POSN = ['PG', 'SG', 'SF', 'PF', 'C'];
+    const fits = (a) => a.pos.includes(posIdx);
+    const styles = Object.entries(Season.ARCHETYPES).sort((x, y) => (fits(y[1]) ? 1 : 0) - (fits(x[1]) ? 1 : 0));
+    $('#cnArch').innerHTML = styles.map(([k, a]) => {
       const locked = a.unlock > 0;
-      return `<button class="${k === create.arch ? 'on' : ''}${locked ? ' locked' : ''}" data-k="${k}" ${locked ? 'disabled' : ''}>${locked ? '🔒 ' : ''}${a.label}<small>${locked ? `Unlocks at ${a.unlock} OVR` : a.desc}</small></button>`;
+      const tag = a.pos.length === 5 ? 'ALL' : a.pos.map((i) => POSN[i]).join(' · ');
+      return `<button class="${k === create.arch ? 'on' : ''}${locked ? ' locked' : ''}${fits(a) ? ' fit' : ''}" data-k="${k}" ${locked ? 'disabled' : ''}><span class="pos-tag">${tag}</span>${locked ? '🔒 ' : ''}${a.label}<small>${locked ? `Unlocks at ${a.unlock} OVR` : a.desc}</small>${fits(a) ? '<small class="fitnote">✓ Fits your position</small>' : ''}</button>`;
     }).join('');
     $('#cnSkin').innerHTML = SKINS.map((c) => `<button class="${c === create.skin ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="Skin tone"></button>`).join('');
     $('#cnHair').innerHTML = HAIRS.map((c) => `<button class="${c === create.hair ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="Hair color"></button>`).join('');
@@ -1374,7 +1380,8 @@ function openCareerCreate() {
     $$('#cnHairStyle button').forEach((b) => b.addEventListener('click', () => { create.hairStyle = Number(b.dataset.i); chips(); }));
     preview();
   };
-  for (const id of ['#cnFirst', '#cnLast', '#cnPos', '#cnNum']) $(id).oninput = preview;
+  for (const id of ['#cnFirst', '#cnLast', '#cnNum']) $(id).oninput = preview;
+  $('#cnPos').oninput = chips; $('#cnPos').onchange = chips;
   $('#cnNext').onclick = () => {
     const c = preview();
     if (!c.first) c.first = 'Rookie';
@@ -1473,10 +1480,11 @@ function renderHub() {
       }).join('') + (() => {
         const ovr = Season.careerOvr(c), extra = Season.extraStyles(c);
         return `<h4 class="ps-h">Play Styles <small>Unlock with OVR · equip up to ${Season.MAX_EXTRA_STYLES} extras (+40% of their boosts)</small></h4><div class="ps-grid">` +
-          Object.entries(Season.ARCHETYPES).map(([k, a]) => {
+          Object.entries(Season.ARCHETYPES).sort((x, y) => (y[1].pos.includes(c.pos) ? 1 : 0) - (x[1].pos.includes(c.pos) ? 1 : 0)).map(([k, a]) => {
+            const posTag = a.pos.length === 5 ? 'ALL' : a.pos.map((i) => ['PG', 'SG', 'SF', 'PF', 'C'][i]).join(' · ');
             const primary = k === c.archetype, on = extra.includes(k), open = Season.styleUnlocked(ovr, k);
             const status = primary ? '<em>Primary</em>' : !open ? `<em>🔒 ${a.unlock} OVR</em>` : on ? '<em class="on">Equipped</em>' : extra.length >= Season.MAX_EXTRA_STYLES ? '<em>Slots full</em>' : '<em>Tap to equip</em>';
-            return `<button class="ps${primary || on ? ' on' : ''}${open ? '' : ' locked'}" data-ps="${k}" ${primary || !open ? 'disabled' : ''}><b>${a.label}</b><small>${PERK_TEXT[k] || a.desc}</small>${status}</button>`;
+            return `<button class="ps${primary || on ? ' on' : ''}${open ? '' : ' locked'}${a.pos.includes(c.pos) ? ' fit' : ''}" data-ps="${k}" ${primary || !open ? 'disabled' : ''}><span class="pos-tag">${posTag}</span><b>${a.label}</b><small>${PERK_TEXT[k] || a.desc}</small>${status}</button>`;
           }).join('') + '</div>';
       })();
     $$('#hubTab .ps').forEach((b) => b.addEventListener('click', () => { if (Season.toggleStyle(s, b.dataset.ps)) { sfx.select(); renderHub(); } }));

@@ -668,3 +668,10 @@ html, body { height: 100%; height: 100dvh; }
 .chips.symbols button { min-width: 44px; text-align: center; font-size: 16px; padding: 6px 8px; }
 .kit-preview { display: flex; gap: 6px; justify-content: center; min-height: 200px; }
 .kit-preview img { width: 50%; max-width: 260px; height: auto; border-radius: 10px; background: radial-gradient(circle at 50% 30%, rgba(255,255,255,0.07), transparent 70%); }
+
+/* ---------- Position tags on play styles ---------- */
+.pos-tag { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(255,255,255,0.12); color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 0.08em; vertical-align: middle; }
+.chips button.fit .pos-tag, .ps.fit .pos-tag { background: rgba(61,255,122,0.2); color: var(--green); }
+.chips button.fit { border-color: rgba(61,255,122,0.35); }
+.fitnote { color: var(--green) !important; margin-top: 2px; }
+.ps .pos-tag { margin-bottom: 3px; align-self: flex-start; }
