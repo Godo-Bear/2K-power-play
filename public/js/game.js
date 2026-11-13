@@ -456,9 +456,10 @@ export class Game {
       this.possession = p.team;
       this.shotClock = 24;
       this.shotClockFrozen = false;
-      if (wasReboundable) p.stats.reb++;
+      if (wasReboundable) { p.stats.reb++; this.emit('rebound', { player: p, off: false }); }
     } else if (wasReboundable) {
       p.stats.reb++;
+      this.emit('rebound', { player: p, off: true });
       if (this.shotClockFrozen) this.shotClock = Math.max(this.shotClock, 14);
       this.shotClockFrozen = false;
     }
@@ -1156,6 +1157,7 @@ export class Game {
   turnover(team, reason) {
     // `team` loses the ball
     sfx.whistle();
+    this.emit('turnover', { team, reason });
     this.hud.toast(reason, `${this.other(team).data.name} ball`);
     const offender = this.ball.holder || (this.ball.shot && this.ball.shot.shooter);
     if (offender) offender.stats.to++;
@@ -1733,6 +1735,7 @@ export class Game {
             if (q.airborne && Math.hypot(q.pos.x - b.pos.x, q.pos.z - b.pos.z) < 0.95 && q.reach > b.pos.y - 0.15) {
               s.goaltended = true; s.made = true; s.fouled = null;
               this.hud.toast('GOALTENDING', `Basket counts for ${s.team.data.name}`, 1.6);
+              this.emit('goaltend', { player: q });
               sfx.whistle();
               break;
             }
