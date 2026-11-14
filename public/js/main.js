@@ -48,7 +48,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 const baseExposure = () => 0.9 * (settings.bright / 100);
 const applyBrightness = () => { renderer.toneMappingExposure = baseExposure(); };
 applyBrightness();

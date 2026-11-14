@@ -50,6 +50,7 @@ const MESSAGES = {
   'bad-username': 'Usernames are 3 to 16 characters: letters, numbers and underscores.',
   'bad-password': 'Passwords need at least 8 characters.',
   taken: 'That username is already taken.',
+  reserved: 'That name is reserved. Please pick another one.',
   bad: 'Wrong username or password.',
   banned: 'This account has been suspended. Ask the admin if you think that is a mistake.',
   closed: 'New accounts are paused right now. Please try again later.',
@@ -62,7 +63,8 @@ async function submit(path, username, password) {
     if (status === 200 && data && data.token) { auth.user = data.username; auth.token = data.token; remember(); return { ok: true }; }
     if (status === 429) {
       const mins = Math.max(1, Math.ceil(((data && data.retry) || 300) / 60));
-      return { ok: false, message: `Too many wrong tries. Try again in ${mins} minute${mins === 1 ? '' : 's'}.` };
+      const what = data && data.error === 'slow-down' ? 'Too many attempts from this network' : 'Too many wrong tries';
+      return { ok: false, message: `${what}. Try again in ${mins} minute${mins === 1 ? '' : 's'}.` };
     }
     if (data && MESSAGES[data.error]) return { ok: false, message: MESSAGES[data.error] };
     return { ok: false, message: 'Could not reach the login server.' };

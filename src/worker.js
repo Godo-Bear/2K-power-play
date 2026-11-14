@@ -26,6 +26,13 @@ const ADMIN_LOCK_MS = 10 * 60 * 1000;
 const ONLINE_MS = 150 * 1000;                   // seen in the last 2.5 minutes counts as online (players check in every 90 s)
 // The admin code is kept as a salted hash, not as text. To use a different code, set a secret named ADMIN_CODE
 // (Cloudflare dashboard: Workers > your Worker > Settings > Variables and Secrets, or `npx wrangler secret put ADMIN_CODE`).
+// Names nobody can register, so no player can pass for the admins or staff
+const RESERVED_NAMES = /^(root|system|support|staff|moderator|mod|owner|official|server|operator|webmaster|null|undefined|cpu|referee)\d*$|^admin/;
+// Per-network limits against scripted sign-up and password-guessing floods. They sit well above what a classroom of
+// friends signing in together would ever do. Another reserved object ("~rl", also the User class) keeps the counters.
+const RL_ID = '~rl';
+const RL_REGISTER = { limit: 40, windowMs: 60 * 60 * 1000 };
+const RL_LOGIN = { limit: 150, windowMs: 10 * 60 * 1000 };
 const ADMIN_SALT = '9c3b5146a974ac501756343a1ecfa811';
 const ADMIN_HASH = '39a96c969962d951b5f1e558f8a66142436e894135a0b27a4a92e4f78ea6a23a';
 const normCode = (c) => String(c).trim().toLowerCase().replace(/\s+/g, ' ');   // case and extra spaces don't matter
@@ -246,6 +253,22 @@ export class User extends DurableObject {
   }
   async getUserEntry(name) { return (await this.ctx.storage.get(`u:${name}`)) || null; }
   async removeUser(name) { await this.ctx.storage.delete(`u:${name}`); return true; }
+
+  // Rate limiting: counts hits per key in a time window. Returns 0 when allowed, otherwise the seconds left to wait.
+  async rateHit(key, limit, windowMs) {
+    const now = Date.now(), k = 'rl:' + key;
+    let rec = await this.ctx.storage.get(k);
+    if (!rec || now - rec.t0 > windowMs) rec = { n: 0, t0: now };
+    rec.n++;
+    await this.ctx.storage.put(k, rec);
+    this.rlCount = (this.rlCount || 0) + 1;
+    if (this.rlCount % 200 === 0) {            // now and then forget old counters so the list never grows for ever
+      const old = [];
+      for (const [name, v] of await this.ctx.storage.list({ prefix: 'rl:' })) if (now - v.t0 > 2 * 3600 * 1000) old.push(name);
+      for (let i = 0; i < old.length; i += 100) await this.ctx.storage.delete(old.slice(i, i + 100));
+    }
+    return rec.n <= limit ? 0 : Math.max(1, Math.ceil((rec.t0 + windowMs - now) / 1000));
+  }
   async listUsers() {
     const all = await this.ctx.storage.list({ prefix: 'u:' });
     return [...all].map(([k, v]) => ({ username: k.slice(2), ...v }));
@@ -385,7 +408,17 @@ async function handleAccount(request, env, path, ctx) {
   if (!USERNAME_RE.test(username)) return json({ error: 'bad-username' }, 400);
   if (password.length < 8 || password.length > 128) return json({ error: 'bad-password' }, 400);
 
+  // Slow down floods from one network before the expensive password hashing. Cloudflare always sets CF-Connecting-IP;
+  // without it (local testing) nothing is limited. Only a hash of the address is kept.
+  const ip = request.headers.get('CF-Connecting-IP');
+  if (ip && (path === '/api/register' || path === '/api/login')) {
+    const rl = path === '/api/register' ? RL_REGISTER : RL_LOGIN;
+    const wait = await env.USERS.get(env.USERS.idFromName(RL_ID)).rateHit(`${path === '/api/register' ? 'reg' : 'login'}:${(await sha256('rl|' + ip)).slice(0, 24)}`, rl.limit, rl.windowMs);
+    if (wait) return json({ error: 'slow-down', retry: wait }, 429);
+  }
+
   if (path === '/api/register') {
+    if (RESERVED_NAMES.test(username)) return json({ error: 'reserved' }, 400);
     if (!(await adminStub(env).getSettings()).signups) return json({ error: 'closed' }, 403);
     const r = await userStub(env, username).register(username, password);
     if (!r.ok) return json({ error: 'taken' }, 409);
