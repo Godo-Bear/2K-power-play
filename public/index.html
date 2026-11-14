@@ -15,6 +15,13 @@
   <meta name="apple-mobile-web-app-title" content="2K Power Play">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="stylesheet" href="style.css">
+  <div id="giftModal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="giftTitle">
+      <h3 id="giftTitle">You have something from the admin</h3>
+      <div id="giftList"></div>
+      <div class="row"><button type="button" id="giftOk" class="primary">Nice!</button></div>
+    </div>
+  </div>
   <script type="importmap">
   {
     "imports": {
@@ -48,18 +55,39 @@
       <p class="login-error" id="loginError" role="alert"></p>
       <button type="submit" class="primary" id="loginSubmit">Log in</button>
       <button type="button" id="loginOffline" hidden>Play offline (no account)</button>
+      <p class="login-notice" id="loginNotice" hidden></p>
       <p class="hint" id="loginHint">Sign in to play. Accounts are also needed for online games.</p>
     </form>
   </div>
 
+  <!-- Admin: the code page, then the panel (built by js/admin.js) -->
+  <div id="adminLogin" class="screen">
+    <form class="login-card admin-card" id="adminForm" autocomplete="off" novalidate>
+      <div class="admin-ball" aria-hidden="true"></div>
+      <h2>Admin</h2>
+      <label>Admin code
+        <span class="pw-row"><input type="password" id="adminCode" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="100" placeholder="Enter the admin code"><button type="button" id="adminShow">Show</button></span>
+      </label>
+      <p class="login-error" id="adminError" role="alert"></p>
+      <button type="submit" class="primary" id="adminGo">Unlock</button>
+      <button type="button" data-go="menu">Back</button>
+      <p class="hint">Only game admins can open this panel.</p>
+    </form>
+  </div>
+  <div id="admin" class="screen"></div>
+
   <!-- Home hub -->
   <div id="menu" class="screen">
     <header class="hub-top">
-      <div class="logo mini"><span>2K</span><b>POWER PLAY</b></div>
+      <div class="hub-brand"><div class="logo mini"><span>2K</span><b>POWER PLAY</b></div>
+        <button type="button" id="adminBall" class="ball-btn" aria-label="Admin panel" title="Admin">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><defs><radialGradient id="ballG" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffb25e"/><stop offset=".55" stop-color="#ee7a24"/><stop offset="1" stop-color="#a84a12"/></radialGradient></defs><circle cx="50" cy="50" r="46" fill="url(#ballG)" stroke="#3a1c08" stroke-width="3"/><path d="M50 4v92M4 50h92" stroke="#2b1405" stroke-width="3.2" fill="none"/><path d="M16 17c20 14 20 52 0 66M84 17c-20 14-20 52 0 66" stroke="#2b1405" stroke-width="3.2" fill="none"/></svg>
+        </button></div>
       <div class="hub-live" id="hubLive"></div>
       <div class="hub-clock" id="hubClock"></div>
       <div class="hub-acct" id="hubAcct" hidden><span id="acctName"></span><button type="button" id="acctLogout">Log out</button></div>
     </header>
+    <div id="hubNotice" class="hub-notice" hidden><span class="ico">📣</span><span id="hubNoticeText"></span><button type="button" id="hubNoticeX" aria-label="Dismiss">×</button></div>
     <div class="hub-grid">
       <button class="tile hero" data-go="select">
         <span class="t-badge">Tonight's game</span>

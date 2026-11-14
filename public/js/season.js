@@ -246,7 +246,7 @@ export const ARCHETYPES = {
 // Like FC PlayStyles: the starter styles are open from day one, the rest unlock as your OVR rises.
 // A style you have unlocked can be equipped (up to 2 extras) for 40% of its rating boosts on top of your primary style.
 export const MAX_EXTRA_STYLES = 2;
-export function styleUnlocked(ovr, key) { return ovr >= ARCHETYPES[key].unlock; }
+export function styleUnlocked(ovr, key, c) { return !!(c && c.adminUnlock) || ovr >= ARCHETYPES[key].unlock; }
 export function extraStyles(c) { return (c.styles || []).filter((k) => ARCHETYPES[k] && k !== c.archetype); }
 export function effectiveRatings(c) {
   const r = { ...c.ratings };
@@ -255,7 +255,7 @@ export function effectiveRatings(c) {
 }
 export function toggleStyle(s, key) {
   const c = s.career;
-  if (!styleUnlocked(careerOvr(c), key) || key === c.archetype) return false;
+  if (!styleUnlocked(careerOvr(c), key, c) || key === c.archetype) return false;
   c.styles = extraStyles(c);
   if (c.styles.includes(key)) c.styles = c.styles.filter((k) => k !== key);
   else if (c.styles.length < MAX_EXTRA_STYLES) c.styles.push(key);

@@ -21,7 +21,9 @@ import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
 import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer } from './announcer.js';
 import * as Season from './season.js';
-import { auth, checkSession, register as authRegister, login as authLogin, logout as authLogout } from './auth.js';
+import { initAdmin, openAdmin } from './admin.js';
+import { collectGifts, fetchAnnouncements, seenAnnouncements, markSeen } from './gifts.js';
+import { auth, heartbeat, checkSession, register as authRegister, login as authLogin, logout as authLogout } from './auth.js';
 import { Room, makeCode, makeRemoteInput, makeInputSender, packEvent, unpackEvent, snapshot, applySnapshot, guestFrame } from './net.js';
 applyAllKits(TEAMS); // saved kit, logo and shoe customisations
 
@@ -265,7 +267,7 @@ function padMenuNav() {
   if (now.next && !padNavPrev.next) { input.usingGamepad = true; moveFocus(1); }
   if (now.prev && !padNavPrev.prev) { input.usingGamepad = true; moveFocus(-1); }
   if (now.ok && !padNavPrev.ok && document.activeElement && shown().contains(document.activeElement)) document.activeElement.click();
-  if (now.back && !padNavPrev.back) { const b = shown().querySelector('[data-go=back], [data-go=menu], #subsDone, #hubBack'); if (b) b.click(); }
+  if (now.back && !padNavPrev.back) { const b = shown().querySelector('[data-go=back], [data-go=menu], #subsDone, #hubBack, #admExit'); if (b) b.click(); }
   padNavPrev = now;
 }
 
@@ -1582,7 +1584,7 @@ function renderHub() {
         return `<h4 class="ps-h">Play Styles <small>Unlock with OVR · equip up to ${Season.MAX_EXTRA_STYLES} extras (+40% of their boosts)</small></h4><div class="ps-grid">` +
           Object.entries(Season.ARCHETYPES).sort((x, y) => (y[1].pos.includes(c.pos) ? 1 : 0) - (x[1].pos.includes(c.pos) ? 1 : 0)).map(([k, a]) => {
             const posTag = a.pos.length === 5 ? 'ALL' : a.pos.map((i) => ['PG', 'SG', 'SF', 'PF', 'C'][i]).join(' · ');
-            const primary = k === c.archetype, on = extra.includes(k), open = Season.styleUnlocked(ovr, k);
+            const primary = k === c.archetype, on = extra.includes(k), open = Season.styleUnlocked(ovr, k, c);
             const status = primary ? '<em>Primary</em>' : !open ? `<em>🔒 ${a.unlock} OVR</em>` : on ? '<em class="on">Equipped</em>' : extra.length >= Season.MAX_EXTRA_STYLES ? '<em>Slots full</em>' : '<em>Tap to equip</em>';
             return `<button class="ps${primary || on ? ' on' : ''}${open ? '' : ' locked'}${a.pos.includes(c.pos) ? ' fit' : ''}" data-ps="${k}" ${primary || !open ? 'disabled' : ''}><span class="pos-tag">${posTag}</span><b>${a.label}</b><small>${PERK_TEXT[k] || a.desc}</small>${status}</button>`;
           }).join('') + '</div>';
@@ -2162,6 +2164,7 @@ function updateAccountUI() {
 }
 function showLogin(unreachable) {
   setLoginMode('login');
+  refreshNotice();
   $('#loginOffline').hidden = !unreachable;
   $('#loginHint').textContent = unreachable
     ? "Can't reach the login server here (this is probably a local copy of the game). You can still play offline."
@@ -2172,9 +2175,52 @@ function showLogin(unreachable) {
 }
 function enterGame() {
   updateAccountUI(); renderHome(); show('menu'); musicMaybe();
-  // Cloud save: take the newer copy of your careers, kits and settings, then keep it up to date
-  if (auth.token && !auth.offline) cloudSync().then((r) => { if (r === 'applied') location.reload(); });
+  refreshNotice();
+  // Cloud save: take the newer copy of your careers, kits and settings, then collect any gifts from the admin
+  if (auth.token && !auth.offline) cloudSync().then((r) => { if (r === 'applied') location.reload(); else applyInbox(); });
 }
+
+// ---------- Admin: gifts, announcements, check-ins ----------
+async function applyInbox() {
+  const lines = await collectGifts();
+  if (!lines.length) return;
+  $('#giftList').innerHTML = lines.map((l) => `<div class="gift-item"><span class="gi">${l.icon}</span><div><b>${esc(l.title)}</b>${l.who ? `<small>${esc(l.who)}</small>` : ''}${l.text ? `<p>${esc(l.text)}</p>` : ''}</div></div>`).join('');
+  $('#giftModal').hidden = false;
+  sfx.levelUp();
+  renderHome();
+}
+$('#giftOk').addEventListener('click', () => { sfx.select(); $('#giftModal').hidden = true; renderHome(); });
+
+async function refreshNotice() {
+  const items = await fetchAnnouncements();
+  const seen = seenAnnouncements();
+  const fresh = items.filter((a) => !seen.includes(a.id)).pop();
+  const bar = $('#hubNotice');
+  if (fresh) { $('#hubNoticeText').textContent = fresh.text; bar.dataset.id = fresh.id; bar.hidden = false; } else bar.hidden = true;
+  const ln = $('#loginNotice'), latest = items[items.length - 1];
+  if (ln) { ln.textContent = latest ? `📣 ${latest.text}` : ''; ln.hidden = !latest; }
+}
+$('#hubNoticeX').addEventListener('click', () => { const bar = $('#hubNotice'); if (bar.dataset.id) markSeen(bar.dataset.id); bar.hidden = true; sfx.menu(); });
+
+const activityNow = () => {
+  if (mode === 'game' || mode === 'paused') {
+    if (online && netPlaying()) return 'online';
+    if (tutorial) return 'tutorial';
+    const k = session && session.kind;
+    return k === 'career' ? 'career' : k === 'season' ? 'season' : k === 'practice' ? 'practice' : k === 'contest' ? 'contest' : 'game';
+  }
+  return 'menu';
+};
+setInterval(async () => {
+  if (!auth.token || auth.offline) return;
+  const r = await heartbeat(activityNow());
+  if (r === 'none') { quitToMenu(); updateAccountUI(); showLogin(false); $('#loginError').textContent = 'You were signed out. Please log in again.'; return; }
+  if (r === 'ok') { refreshNotice(); if ($('#giftModal').hidden) applyInbox(); }
+}, 90000);
+
+// The basketball next to the logo opens the admin code page
+$('#adminBall').addEventListener('click', () => { initAudio(); sfx.menu(); openAdmin(); });
+initAdmin({ $, $$, show, sfx, esc, exit: () => { renderHome(); show('menu'); } });
 onCloudStatus((s) => { const el = $('#cloudInfo'); if (el) el.textContent = s; const row = $('#cloudRow'); if (row) row.hidden = !(auth.token && !auth.offline); });
 $('#cloudNow').addEventListener('click', async () => { sfx.menu(); await cloudPush(); });
 async function doLogout() {

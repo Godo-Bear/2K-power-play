@@ -16,6 +16,8 @@
   // Durable Objects (all work on the free plan):
   //  - Room: one per online room code
   //  - User: one per account (password hash and sign-in sessions)
+  //    (the same class also runs the one reserved "~admin" object that the admin panel uses)
+  // Optional secret: ADMIN_CODE replaces the built-in admin code. Set it with `npx wrangler secret put ADMIN_CODE`.
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "Room" },

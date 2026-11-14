@@ -42,6 +42,7 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Accounts and accessibility**
 - Cloud save: careers, seasons, kits, tactics and settings follow your account to any device
+- **Admin panel**: the basketball next to the logo on the home screen opens a code page, then a panel where admins can see every account (who is online and what they are doing), look at careers, gift career-mode Rep Points, rating boosts and unlocks, send messages and announcements, reset passwords, suspend or delete accounts, pause sign-ups and read an activity log
 - Color-blind friendly colors, larger text, and one-handed or left-handed touch layouts
 
 **Controls**
@@ -100,6 +101,31 @@ in `wrangler.jsonc` to match.
 Online play only works on the deployed site or under `npx wrangler dev`. A plain static server
 (`npx serve public`) runs everything else.
 
+### The admin panel
+
+Click the basketball next to **2K POWER PLAY** on the home screen. It asks for the admin code, and the code is checked on the
+server (`src/worker.js`), never in the browser. Capitals and extra spaces in the code don't matter. Only a salted hash of the
+code is stored in the source, so the code itself is not written down anywhere in this repository.
+
+- **Overview**: accounts, who is online now (and in which mode), new sign-ups, a switch to pause new sign-ups.
+- **Players**: search every account, open one to see their saved careers (position, play style, OVR, Rep Points), season, devices and cloud save.
+  From there you can give **Rep Points**, **rating boosts**, **all ratings to 99**, **all play styles unlocked** or **championships** to
+  one career slot or all of them, send a message, reset their password, sign them out everywhere, suspend or unsuspend them, clear their cloud save or delete the account.
+- **Gift everyone**: the same gifts, sent to every account at once.
+- **Announcements**: a banner on every player's home screen and the login page until it expires.
+- **Activity log**: the last 300 admin actions.
+
+Gifts wait on the server and are applied the next time the player opens the game (career gifts wait until they have a career),
+then a pop-up tells them what they got. Players check in about every minute and a half, which is how "online" is worked out.
+Accounts appear in the list once they have signed in since the panel was added.
+
+**Change the admin code.** The built-in code is stored as a salted hash in `src/worker.js`, but a short, well-known phrase can still be
+guessed by anyone who reads that hash and tries common phrases offline. To use a stronger code, set a Worker secret named `ADMIN_CODE`
+(Cloudflare dashboard: your Worker, Settings, Variables and Secrets, or `npx wrangler secret put ADMIN_CODE`). When it is set it replaces the
+built-in code, and **Overview, Sign out all admins** ends every admin sign-in that used the old one. After 5 wrong tries the admin door locks for
+10 minutes. Clicking the ball always asks for the code, an admin sign-in lasts 2 hours at most, and **Exit and lock** ends it straight away.
+The panel needs the game's server, so it does not work on a plain static file server.
+
 ### How online play works
 
 The host's browser runs the match. The guest's browser sends its controls about 30 times a second and
@@ -123,6 +149,8 @@ public/
   js/assets.js              custom model/texture loader
   js/season.js              season, playoffs and career progression
   js/auth.js                login screen logic (sign up, log in, log out)
+  js/admin.js               admin panel (code page, players, gifts, announcements, activity log)
+  js/gifts.js               applies admin gifts to careers, announcements
   js/net.js                 online play (room connection, state sync)
   js/hair.js                hair styles
   js/fx.js                  particles, crowd flashes, confetti

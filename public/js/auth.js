@@ -34,11 +34,25 @@ export async function checkSession() {
   } catch { return 'unreachable'; }
 }
 
+// A quiet check-in about every minute and a half: it tells the admin you are online and what you are doing.
+// Returns 'ok', 'none' (this login is no longer valid: signed out or suspended) or 'unreachable'.
+export async function heartbeat(activity) {
+  if (!auth.token) return 'none';
+  try {
+    const r = await call(`/api/me?a=${encodeURIComponent(activity || 'menu')}`, { method: 'GET', token: auth.token });
+    if (r.status === 200) return 'ok';
+    if (r.status === 401) { forget(); return 'none'; }
+  } catch { /* offline */ }
+  return 'unreachable';
+}
+
 const MESSAGES = {
   'bad-username': 'Usernames are 3 to 16 characters: letters, numbers and underscores.',
   'bad-password': 'Passwords need at least 8 characters.',
   taken: 'That username is already taken.',
   bad: 'Wrong username or password.',
+  banned: 'This account has been suspended. Ask the admin if you think that is a mistake.',
+  closed: 'New accounts are paused right now. Please try again later.',
 };
 
 // Returns { ok: true } or { ok: false, message }
