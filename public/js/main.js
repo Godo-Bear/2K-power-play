@@ -2238,6 +2238,8 @@ function enterGame() {
 
 // ---------- Admin: gifts, announcements, check-ins ----------
 async function applyInbox() {
+  // While a game or a career hub is open its save is held in memory and would overwrite the change: wait for the menu
+  if ((game && !attract) || session.save) return;
   const lines = await collectGifts();
   if (!lines.length) return;
   $('#giftList').innerHTML = lines.map((l) => `<div class="gift-item"><span class="gi">${l.icon}</span><div><b>${esc(l.title)}</b>${l.who ? `<small>${esc(l.who)}</small>` : ''}${l.text ? `<p>${esc(l.text)}</p>` : ''}</div></div>`).join('');

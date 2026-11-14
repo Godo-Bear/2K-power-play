@@ -2,8 +2,13 @@
 // Every check happens on the server (src/worker.js): these pages only ask, and nothing here can grant access by itself.
 import { TEAMS } from './data.js';
 import * as Season from './season.js';
+import { trophyList } from './trophies.js';
 
 const ATTR_LABELS = Object.fromEntries(Season.ATTRS);
+const TROPHIES = trophyList();
+const TROPHY_NAME = Object.fromEntries(TROPHIES.map((t) => [t.id, t.name]));
+const attrOptionsHtml = () => ['<option value="all">All ratings</option>'].concat(Season.ATTRS.map(([k, l]) => `<option value="${k}">${e(l)}</option>`)).join('');
+const SLOT_OPTIONS = (all) => `<option value="0">${all}</option><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option>`;
 const ACTIVITY = { menu: 'Home screen', game: 'In a game', career: 'My Career', season: 'Season', online: 'Online match', practice: 'Practice', contest: 'Contest', tutorial: 'Tutorial' };
 
 let c = null;              // { $, $$, show, sfx, esc, exit } handed over by main.js
@@ -136,7 +141,7 @@ function ask({ title, text = '', input = null, confirm = 'OK', danger = false, e
 }
 
 // ---------- Layout ----------
-const TABS = [['overview', 'Overview'], ['players', 'Players'], ['gifts', 'Gift everyone'], ['announce', 'Announcements'], ['activity', 'Activity log']];
+const TABS = [['overview', 'Overview'], ['players', 'Players'], ['gifts', 'Gift everyone'], ['take', 'Take from everyone'], ['announce', 'Announcements'], ['activity', 'Activity log']];
 
 function buildShell() {
   c.$('#admin').innerHTML = `
@@ -172,6 +177,7 @@ function render(keepScroll) {
   if (state.tab === 'overview') renderOverview(body);
   else if (state.tab === 'players') renderPlayers(body);
   else if (state.tab === 'gifts') renderGifts(body);
+  else if (state.tab === 'take') renderTake(body);
   else if (state.tab === 'announce') renderAnnounce(body);
   else renderActivity(body);
   body.scrollTop = top;
@@ -284,9 +290,17 @@ function careerCard(cr) {
   </div>`;
 }
 
+const TAKE_TYPES = new Set(['takeRp', 'takeTitles', 'lockStyles', 'deleteCareer', 'resetTrophies', 'takeTrophy']);
+const isTake = (i) => TAKE_TYPES.has(i.type) || (i.type === 'attr' && i.amount < 0);
 function inboxLine(i) {
-  const names = { rp: `+${i.amount} Rep Points`, attr: `${i.attr === 'all' ? 'Every rating' : ATTR_LABELS[i.attr] || i.attr} ${i.amount > 0 ? '+' : ''}${i.amount}`, titles: `+${i.amount} championship${i.amount === 1 ? '' : 's'}`, maxRatings: 'All ratings to 99', unlockStyles: 'Unlock all play styles', message: `Message: ${i.text}` };
-  return `<li>${e(names[i.type] || i.type)}${i.slot ? ` <small>(slot ${i.slot})</small>` : ''}${i.note ? ` <small>“${e(i.note)}”</small>` : ''}</li>`;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const names = {
+    rp: `+${i.amount} Rep Points`, attr: `${i.attr === 'all' ? 'Every rating' : ATTR_LABELS[i.attr] || i.attr} ${i.amount > 0 ? '+' : ''}${i.amount}`, titles: `+${plural(i.amount, 'championship')}`,
+    maxRatings: 'All ratings to 99', unlockStyles: 'Unlock all play styles', message: `Message: ${i.text}`,
+    takeRp: `Take ${Number(i.amount).toLocaleString()} Rep Points`, takeTitles: `Take ${plural(i.amount, 'championship')}`, lockStyles: 'Lock the play styles again',
+    deleteCareer: 'Delete the career', resetTrophies: 'Reset the Trophy Room', takeTrophy: `Remove trophy: ${TROPHY_NAME[i.trophy] || i.trophy}`,
+  };
+  return `<li class="${isTake(i) ? 'take' : ''}"><span>${e(names[i.type] || i.type)}${i.slot ? ` <small>(slot ${i.slot})</small>` : ''}${i.note ? ` <small>“${e(i.note)}”</small>` : ''}</span><button type="button" class="adm-x" data-cancel="${e(i.id)}" aria-label="Cancel this one" title="Cancel this one">×</button></li>`;
 }
 
 async function openDetail(name) {
@@ -298,7 +312,10 @@ async function openDetail(name) {
   state.detail = data;
   const entry = data.entry || {};
   const t = data.season ? TEAMS[data.season.team] : null;
-  const attrOptions = ['<option value="all">All ratings</option>'].concat(Season.ATTRS.map(([k, l]) => `<option value="${k}">${e(l)}</option>`)).join('');
+  const attrOptions = attrOptionsHtml();
+  const got = new Set(data.trophies || []);
+  const trophyOptions = [...TROPHIES].sort((x, y) => (got.has(y.id) ? 1 : 0) - (got.has(x.id) ? 1 : 0)).map((t) => `<option value="${e(t.id)}">${got.has(t.id) ? '✓ ' : ''}${e(t.icon)} ${e(t.name)}</option>`).join('');
+  const delOptions = [1, 2, 3].map((n) => { const cr = data.careers.find((x) => x.slot === n); return `<option value="${n}">Slot ${n}${cr ? `: ${e(cr.name || 'Unnamed')} (${cr.ovr})` : ' (empty in the cloud)'}</option>`; }).join('');
   box.innerHTML = `<div class="adm-panel" role="dialog" aria-modal="true">
     <div class="adm-p-head">
       <div><h3><i class="dot ${entry.lastSeen && Date.now() - entry.lastSeen < 150000 ? 'on' : ''}"></i> ${e(data.username)} ${data.ban ? '<span class="adm-tag bad">suspended</span>' : ''}</h3>
@@ -308,10 +325,10 @@ async function openDetail(name) {
     </div>
     <div class="adm-sec"><h4>Career mode</h4>${data.careers.length ? data.careers.map(careerCard).join('') : '<p class="adm-empty">No career saved to the cloud yet. Gifts will wait until they start one.</p>'}</div>
     ${data.season ? `<div class="adm-sec"><h4>Season mode</h4><p class="adm-line">${t ? e(`${t.city} ${t.name}`) : 'Team'} · Year ${data.season.year} · ${data.season.wins}-${data.season.losses}${data.season.champion ? ' · champions' : ''}</p></div>` : ''}
-    ${data.inbox.length ? `<div class="adm-sec"><h4>Waiting for them</h4><ul class="adm-inbox">${data.inbox.map(inboxLine).join('')}</ul></div>` : ''}
+    ${data.inbox.length ? `<div class="adm-sec"><h4>Waiting for them <small>${data.inbox.length} not received yet</small><button type="button" class="adm-mini danger" id="admCancelAll">Cancel all</button></h4><ul class="adm-inbox">${data.inbox.map(inboxLine).join('')}</ul></div>` : ''}
     <div class="adm-sec" id="admGive"><h4>Give something</h4>
       <div class="adm-row">
-        <label>Career slot <select id="gSlot"><option value="0">All their careers</option><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option></select></label>
+        <label>Career slot <select id="gSlot">${SLOT_OPTIONS('All their careers')}</select></label>
         <label class="grow">Note for the player (optional) <input id="gNote" maxlength="200" placeholder="Shown when they receive it"></label>
       </div>
       <div class="adm-chips">
@@ -323,11 +340,27 @@ async function openDetail(name) {
         <label>Rating <select id="gAttr">${attrOptions}</select></label><label>Amount <input id="gAmt" type="number" min="-50" max="50" value="5"></label><button type="button" id="gAttrGo">Give</button></div>
       <div class="adm-row"><label class="grow">Message to the player <textarea id="gMsg" maxlength="400" rows="2" placeholder="They will see this the next time they open the game"></textarea></label><button type="button" id="gMsgGo">Send</button></div>
     </div>
+    <div class="adm-sec adm-take" id="admTake"><h4>Take something away</h4>
+      <p class="adm-note">Done the next time they open the game, like a gift, and they are told what was taken. Rep Points and championships stop at 0 and ratings stop at 40. Rep Points they have already spent stay spent.</p>
+      <div class="adm-row">
+        <label>Career slot <select id="tSlot">${SLOT_OPTIONS('All their careers')}</select></label>
+        <label class="grow">Reason for the player (optional) <input id="tNote" maxlength="200" placeholder="Shown when it happens"></label>
+      </div>
+      <div class="adm-chips">
+        <button type="button" class="danger" data-take="rp:100">−100 Rep Points</button><button type="button" class="danger" data-take="rp:500">−500</button><button type="button" class="danger" data-take="rp:1000">−1,000</button><button type="button" class="danger" data-take="rp:5000">−5,000</button>
+        <button type="button" class="danger" data-take="attr:all:5">−5 to every rating</button><button type="button" class="danger" data-take="titles:1">−1 championship</button>
+        <button type="button" class="danger" data-take="lockStyles">Lock play styles again</button>
+      </div>
+      <div class="adm-row"><label>Rep Points <input id="tRp" type="number" min="1" max="100000" placeholder="e.g. 250"></label><button type="button" class="danger" id="tRpGo">Take</button>
+        <label>Rating <select id="tAttr">${attrOptionsHtml()}</select></label><label>Points <input id="tAmt" type="number" min="1" max="50" value="5"></label><button type="button" class="danger" id="tAttrGo">Take</button></div>
+      <div class="adm-row"><label class="grow">Remove one trophy (${data.trophies ? `${data.trophies.length} of ${TROPHIES.length} earned` : 'nothing saved to the cloud yet'})<select id="tTrophy">${trophyOptions}</select></label><button type="button" class="danger" id="tTrophyGo">Remove trophy</button><button type="button" class="danger" id="tTrophiesGo">Reset Trophy Room</button></div>
+      <div class="adm-row"><label class="grow">Delete a whole career <select id="tDel">${delOptions}</select></label><button type="button" class="danger" id="tDelGo">Delete career</button></div>
+    </div>
     <div class="adm-sec"><h4>Account</h4>
       <div class="adm-chips">
         <button type="button" data-act="password">Reset password</button><button type="button" data-act="signout">Sign out everywhere</button>
         ${data.ban ? '<button type="button" data-act="unban" class="primary">Unsuspend</button>' : '<button type="button" data-act="ban" class="danger">Suspend</button>'}
-        <button type="button" data-act="clearsave" class="danger">Clear cloud save</button><button type="button" data-act="delete" class="danger">Delete account</button>
+        <button type="button" data-act="clearsocial" class="danger">Clear friends &amp; chats</button><button type="button" data-act="clearsave" class="danger">Clear cloud save</button><button type="button" data-act="delete" class="danger">Delete account</button>
       </div>
     </div>
   </div>`;
@@ -355,6 +388,47 @@ function wireDetail(box, name) {
   box.querySelector('#gAttrGo').onclick = () => { const n = Number(box.querySelector('#gAmt').value); if (!n || n < -50 || n > 50) return toast('Enter an amount from -50 to 50.', true); give({ type: 'attr', attr: box.querySelector('#gAttr').value, amount: n }); };
   box.querySelector('#gMsgGo').onclick = () => { const text = box.querySelector('#gMsg').value.trim(); if (!text) return toast('Write a message first.', true); give({ type: 'message', text }); };
 
+  // ----- Taking things away (the player loses it the next time they open the game) -----
+  const tSlot = () => Number(box.querySelector('#tSlot').value) || 0;
+  const tNote = () => box.querySelector('#tNote').value.trim();
+  const take = async (gift, { title, text, confirm = 'Take it', expect = null }) => {
+    if (!(await ask({ title, text, confirm, expect, danger: true }))) return;
+    const r = await api('/api/admin/gift', { method: 'POST', body: { username: name, gift: { slot: tSlot(), note: tNote(), ...gift } } });
+    if (r.status === 200) { c.sfx.select(); toast(`Queued for ${name}`); await openDetail(name); } else toast('That could not be sent.', true);
+  };
+  const where = () => (tSlot() ? ` in career slot ${tSlot()}` : ' in every career they have');
+  const takeRp = (n) => take({ type: 'takeRp', amount: n }, { title: `Take ${n.toLocaleString()} Rep Points from ${name}?`, text: `They lose them the next time they open the game${where()}. It stops at 0.` });
+  const takeAttr = (attr, n) => take({ type: 'attr', attr, amount: -n }, { title: `Take ${n} off ${attr === 'all' ? 'every rating' : ATTR_LABELS[attr]} for ${name}?`, text: `Applied the next time they open the game${where()}. No rating goes below 40.` });
+  box.querySelectorAll('[data-take]').forEach((b) => b.addEventListener('click', () => {
+    const [type, a, b2] = b.dataset.take.split(':');
+    if (type === 'rp') takeRp(Number(a));
+    else if (type === 'attr') takeAttr(a, Number(b2));
+    else if (type === 'titles') take({ type: 'takeTitles', amount: Number(a) }, { title: `Take ${a} championship${Number(a) === 1 ? '' : 's'} from ${name}?`, text: `Applied the next time they open the game${where()}. It stops at 0.` });
+    else take({ type: 'lockStyles' }, { title: `Lock ${name}'s play styles again?`, text: `Removes the unlock-everything gift${where()} and takes off any extra style they have equipped that their rating does not unlock on its own.` });
+  }));
+  box.querySelector('#tRpGo').onclick = () => { const n = Math.round(Number(box.querySelector('#tRp').value)); if (!(n >= 1 && n <= 100000)) return toast('Enter 1 to 100,000 Rep Points.', true); takeRp(n); };
+  box.querySelector('#tAttrGo').onclick = () => { const n = Math.round(Number(box.querySelector('#tAmt').value)); if (!(n >= 1 && n <= 50)) return toast('Enter an amount from 1 to 50.', true); takeAttr(box.querySelector('#tAttr').value, n); };
+  box.querySelector('#tTrophyGo').onclick = () => {
+    const id = box.querySelector('#tTrophy').value;
+    take({ type: 'takeTrophy', trophy: id }, { title: `Remove the "${TROPHY_NAME[id] || id}" trophy from ${name}?`, text: 'It goes back to locked and they have to earn it again (a trophy that counts wins, games or dunks has its count wound back to just under the goal). Rep Points it already paid stay paid: take those back separately if you want them.', confirm: 'Remove it' });
+  };
+  box.querySelector('#tTrophiesGo').onclick = () => take({ type: 'resetTrophies' }, { title: `Reset ${name}'s Trophy Room?`, text: 'Every trophy, daily challenge and the login streak start from scratch. Rep Points already paid out stay paid.', expect: 'reset', confirm: 'Reset it' });
+  box.querySelector('#tDelGo').onclick = () => {
+    const n = Number(box.querySelector('#tDel').value);
+    take({ type: 'deleteCareer', slot: n }, { title: `Delete ${name}'s career in slot ${n}?`, text: 'The whole career (ratings, Rep Points, history) is erased the next time they open the game, on their device and in the cloud. This cannot be undone.', expect: 'delete', confirm: 'Delete career' });
+  };
+  // Cancel things that are still waiting (once the player has received one it is done)
+  box.querySelectorAll('[data-cancel]').forEach((b) => b.addEventListener('click', async () => {
+    const r = await api('/api/admin/inbox/remove', { method: 'POST', body: { username: name, id: b.dataset.cancel } });
+    if (r.status === 200) { c.sfx.select(); toast(r.data && r.data.removed ? 'Cancelled' : 'They had already received that one'); await openDetail(name); } else toast('That did not work.', true);
+  }));
+  const cancelAll = box.querySelector('#admCancelAll');
+  if (cancelAll) cancelAll.onclick = async () => {
+    if (!(await ask({ title: `Cancel everything waiting for ${name}?`, text: 'Gifts, take-aways and messages they have not received yet are removed. Anything they already received stays as it is.', confirm: 'Cancel them all', danger: true }))) return;
+    const r = await api('/api/admin/inbox/clear', { method: 'POST', body: { username: name } });
+    if (r.status === 200) { c.sfx.select(); toast(`${r.data.removed} cancelled`); await openDetail(name); } else toast('That did not work.', true);
+  };
+
   const act = async (path, body, ok) => {
     const r = await api(path, { method: 'POST', body: { username: name, ...body } });
     if (r.status === 200) { c.sfx.select(); toast(ok); await refresh(true); render(true); await openDetail(name); } else toast('That did not work.', true);
@@ -372,6 +446,7 @@ function wireDetail(box, name) {
       if (reason) act('/api/admin/ban', { on: true, reason }, `${name} suspended`);
     } else if (a === 'unban') act('/api/admin/ban', { on: false }, `${name} can log in again`);
     else if (a === 'clearsave') { if (await ask({ title: 'Clear the cloud save?', text: `${name}'s careers, season, kits and tactics saved on the account are erased. Copies on their own devices stay until the next sync, which can bring them back.`, confirm: 'Clear it', danger: true })) act('/api/admin/clear-save', {}, 'Cloud save cleared'); }
+    else if (a === 'clearsocial') { if (await ask({ title: 'Clear friends and chats?', text: `${name}'s friends list, friend requests and chats are erased, and they disappear from their friends' lists too. They can add each other again.`, confirm: 'Clear them', danger: true })) act('/api/admin/clear-social', {}, 'Friends and chats cleared'); }
     else if (a === 'delete') {
       if (await ask({ title: `Delete ${name}?`, text: 'The account and everything saved on it are erased for good. This cannot be undone.', expect: name, confirm: 'Delete account', danger: true })) {
         const r = await api('/api/admin/delete', { method: 'POST', body: { username: name, confirm: name } });
@@ -407,6 +482,37 @@ function renderGifts(body) {
     if (!(await ask({ title: 'Send to everyone?', text: `This goes to all ${total} accounts and cannot be taken back.`, confirm: 'Send it', danger: true }))) return;
     const r = await api('/api/admin/gift', { method: 'POST', body: { username: '*', gift } });
     if (r.status === 200) { c.sfx.select(); toast(`Sent to ${r.data.sent} player${r.data.sent === 1 ? '' : 's'}`); state.audit = null; } else toast('That gift could not be sent.', true);
+  });
+}
+
+// ---------- Take from everyone ----------
+function renderTake(body) {
+  const total = state.data.stats.total;
+  body.innerHTML = `<div class="adm-sec adm-take"><h4>Take from everyone</h4>
+    <p class="adm-note">Removes something from all ${total} account${total === 1 ? '' : 's'} on the list. Each player loses it the next time they open the game and is told what happened. Rep Points and championships stop at 0 and ratings stop at 40. Deleting careers and resetting Trophy Rooms can only be done one player at a time, from their own page.</p>
+    <div class="adm-row"><label>What <select id="xType"><option value="takeRp">Rep Points</option><option value="attr">A rating</option><option value="takeTitles">Championships</option><option value="lockStyles">Lock play styles again</option></select></label>
+      <label id="xAttrWrap">Rating <select id="xAttr">${attrOptionsHtml()}</select></label>
+      <label id="xAmtWrap">Amount to take <input id="xAmt" type="number" value="100" min="1" max="100000"></label>
+      <label>Career slot <select id="xSlot">${SLOT_OPTIONS('All careers')}</select></label></div>
+    <div class="adm-row"><label class="grow">Reason, shown to every player (optional) <textarea id="xNote" rows="2" maxlength="200" placeholder="e.g. Season reset"></textarea></label><button type="button" id="xGo" class="danger">Take from everyone</button></div></div>`;
+  const sync = () => {
+    const t = c.$('#xType').value;
+    c.$('#xAttrWrap').style.display = t === 'attr' ? '' : 'none';
+    c.$('#xAmtWrap').style.display = t === 'lockStyles' ? 'none' : '';
+    c.$('#xAmt').max = t === 'takeRp' ? 100000 : 50;
+    c.$('#xAmt').value = t === 'takeRp' ? 100 : t === 'attr' ? 3 : 1;
+  };
+  c.$('#xType').addEventListener('change', sync); sync();
+  c.$('#xGo').addEventListener('click', async () => {
+    const type = c.$('#xType').value, amount = Math.round(Number(c.$('#xAmt').value));
+    const gift = { type, slot: Number(c.$('#xSlot').value) || 0, note: c.$('#xNote').value.trim() };
+    let what = 'the unlocked play styles';
+    if (type === 'takeRp') { if (!(amount >= 1 && amount <= 100000)) return toast('Enter 1 to 100,000 Rep Points.', true); gift.amount = amount; what = `${amount.toLocaleString()} Rep Points`; }
+    else if (type === 'attr') { if (!(amount >= 1 && amount <= 50)) return toast('Enter an amount from 1 to 50.', true); gift.attr = c.$('#xAttr').value; gift.amount = -amount; what = `${amount} off ${gift.attr === 'all' ? 'every rating' : ATTR_LABELS[gift.attr]}`; }
+    else if (type === 'takeTitles') { if (!(amount >= 1 && amount <= 50)) return toast('Enter 1 to 50 championships.', true); gift.amount = amount; what = `${amount} championship${amount === 1 ? '' : 's'}`; }
+    if (!(await ask({ title: `Take ${what} from everyone?`, text: `This changes all ${total} accounts the next time each player opens the game. There is no undo: to give it back you would have to send it as a gift.`, expect: 'everyone', confirm: 'Take it', danger: true }))) return;
+    const r = await api('/api/admin/gift', { method: 'POST', body: { username: '*', gift } });
+    if (r.status === 200) { c.sfx.select(); toast(`Queued for ${r.data.sent} player${r.data.sent === 1 ? '' : 's'}`); state.audit = null; } else toast('That could not be sent.', true);
   });
 }
 

@@ -136,6 +136,25 @@ export function claimDaily(i) {
   g.done = true; S.pending += def.rp; S.earned += def.rp; persist();
   return def.rp;
 }
+// Admin: wipe the Trophy Room, or take one trophy back (Rep Points already paid out stay paid)
+export function resetTrophies() { S = fresh(); persist(); return true; }
+export function takeTrophy(id) {
+  loadTrophies();
+  const a = ACH.find((x) => x.id === id);
+  if (!a || !S.got[id]) return a ? a.name : null;
+  delete S.got[id];
+  // A trophy that counts something would be earned straight back on the next check while the count still qualifies,
+  // so the counter behind it is wound back to just under the goal. (Which counter it reads is found by running its own test on a stand-in.)
+  if (a.val && a.of) {
+    let at = null;
+    const spy = (part) => new Proxy({}, { get: (_, k) => { at = [part, k]; return 0; } });
+    a.val({ cnt: spy('cnt'), streak: spy('streak') });
+    if (at && S[at[0]] && S[at[0]][at[1]] >= a.of) S[at[0]][at[1]] = a.of - 1;
+  }
+  persist();
+  return a.name;
+}
+export const trophyList = () => ACH.map(({ id, name, icon }) => ({ id, name, icon }));
 export const hasUnclaimed = () => { loadTrophies(); return S.daily.goals.some((g) => { const d = DAILY.find((x) => x.id === g.id); return d && !g.done && g.have >= d.need; }) || S.pending > 0; };
 
 export function renderTrophies(el, esc) {

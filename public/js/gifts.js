@@ -3,10 +3,12 @@
 // account like any other change) and tells the server they have been received.
 import * as Season from './season.js';
 import { auth } from './auth.js';
+import { resetTrophies, takeTrophy } from './trophies.js';
 
 const SEEN = 'pph-ann-seen';       // announcements this player has dismissed
 const DONE = 'pph-gifts-done';     // gifts already applied here, so a failed "received" message can never pay out twice
 const ATTR_LABELS = Object.fromEntries(Season.ATTRS);
+const TAKES = new Set(['takeRp', 'takeTitles', 'lockStyles']);
 const authHeaders = () => ({ Authorization: `Bearer ${auth.token}` });
 
 const readList = (key) => { try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
@@ -19,11 +21,18 @@ function applyGift(c, g) {
     case 'attr': {
       const keys = g.attr === 'all' ? Season.ATTRS.map(([k]) => k) : [g.attr];
       for (const k of keys) if (c.ratings && c.ratings[k] != null) c.ratings[k] = Math.max(40, Math.min(99, c.ratings[k] + g.amount));
-      return `${g.attr === 'all' ? 'Every rating' : ATTR_LABELS[g.attr] || g.attr} ${g.amount > 0 ? '+' : ''}${g.amount}`;
+      return `${g.attr === 'all' ? 'Every rating' : ATTR_LABELS[g.attr] || g.attr} ${g.amount > 0 ? '+' : '−'}${Math.abs(g.amount)}`;
     }
     case 'maxRatings': for (const k of Object.keys(c.ratings || {})) c.ratings[k] = 99; return 'All ratings set to 99';
     case 'unlockStyles': c.adminUnlock = true; return 'Every play style unlocked';
     case 'titles': c.titles = (c.titles || 0) + g.amount; return `+${g.amount} championship${g.amount === 1 ? '' : 's'}`;
+    // Taking things away: never below the floor (0 Rep Points, 0 championships; ratings are kept at 40 or more above)
+    case 'takeRp': c.rp = Math.max(0, (c.rp || 0) - g.amount); return `−${g.amount.toLocaleString()} Rep Points`;
+    case 'takeTitles': c.titles = Math.max(0, (c.titles || 0) - g.amount); return `−${g.amount} championship${g.amount === 1 ? '' : 's'}`;
+    case 'lockStyles':
+      c.adminUnlock = false;
+      c.styles = (c.styles || []).filter((k) => Season.ARCHETYPES[k] && Season.styleUnlocked(Season.careerOvr(c), k, c));   // equipped styles they no longer qualify for come off
+      return 'Play styles locked again (only the ones your rating unlocks)';
     default: return null;
   }
 }
@@ -46,12 +55,28 @@ export async function collectGifts() {
     if (!g || typeof g.id !== 'string') continue;
     if (done.includes(g.id)) { claim.push(g.id); continue; }       // applied before: just tell the server again
     if (g.type === 'message') { lines.push({ icon: '✉️', title: 'A message from the admin', text: g.text }); done.push(g.id); claim.push(g.id); continue; }
+    // Things that are not about one career's numbers
+    if (g.type === 'resetTrophies') { resetTrophies(); lines.push({ icon: '🔻', title: 'Your Trophy Room was reset', text: g.note || '' }); done.push(g.id); claim.push(g.id); continue; }
+    if (g.type === 'takeTrophy') { const nm = takeTrophy(g.trophy); lines.push({ icon: '🔻', title: `Trophy removed${nm ? `: ${nm}` : ''}`, text: g.note || '' }); done.push(g.id); claim.push(g.id); continue; }
+    if (g.type === 'deleteCareer') {
+      const victim = saves.find((x) => x.slot === g.slot);
+      if (victim) {
+        Season.clear('career', g.slot);
+        saves.splice(saves.indexOf(victim), 1); touched.delete(victim);
+        lines.push({ icon: '🔻', title: `Your career in slot ${g.slot} was removed`, who: `${victim.career.first} ${victim.career.last}`.trim(), text: g.note || '' });
+      }
+      done.push(g.id); claim.push(g.id); continue;                    // nothing in that slot: nothing to remove, and it does not wait
+    }
+    const taking = TAKES.has(g.type) || (g.type === 'attr' && g.amount < 0);
     const targets = saves.filter((s) => !g.slot || s.slot === g.slot);
-    if (!targets.length) continue;                                   // no career to give it to yet: it keeps waiting
+    if (!targets.length) {
+      if (taking) { done.push(g.id); claim.push(g.id); }            // taking from a career they do not have: nothing to take, and it must not hit a future career
+      continue;                                                      // a gift with no career to go to yet keeps waiting
+    }
     let what = null;
     for (const s of targets) { what = applyGift(s.career, g); touched.add(s); }
     if (what) {
-      lines.push({ icon: '🎁', title: what, who: targets.map((s) => `${s.career.first} ${s.career.last}`.trim()).join(', '), text: g.note || '' });
+      lines.push({ icon: taking ? '🔻' : '🎁', title: what, who: targets.map((s) => `${s.career.first} ${s.career.last}`.trim()).join(', '), text: g.note || '' });
       done.push(g.id); claim.push(g.id);
     }
   }

@@ -124,11 +124,13 @@ export class User extends DurableObject {
     const keys = {};
     const careers = [];
     let season = null;
+    let trophies = null;
     for (const [k, v] of saves) {
       keys[k.slice(5)] = typeof v === 'string' ? v.length : 0;
       try {
         if (/^save:pph-career-[1-3]$/.test(k)) { const c = summarizeCareer(JSON.parse(v)); if (c) careers.push(c); }
         else if (k === 'save:pph-season') season = summarizeSeason(JSON.parse(v));
+        else if (k === 'save:pph-trophies') { const t = JSON.parse(v); if (t && t.got && typeof t.got === 'object') trophies = Object.keys(t.got).filter((id) => /^[a-z0-9_]{1,24}$/.test(id)).slice(0, 100); }
       } catch { /* a save that isn't valid JSON is just skipped */ }
     }
     careers.sort((a, b) => a.slot - b.slot);
@@ -137,7 +139,7 @@ export class User extends DurableObject {
       sessions: Object.values(sessions).filter((e) => e > now).length,
       ban: (await this.ctx.storage.get('ban')) || null,
       saveAt: (await this.ctx.storage.get('saveAt')) || 0,
-      keys, careers, season,
+      keys, careers, season, trophies,
       inbox: (await this.ctx.storage.get('inbox')) || [],
     };
   }
@@ -182,6 +184,26 @@ export class User extends DurableObject {
     return true;
   }
   async getInbox() { return (await this.ctx.storage.get('inbox')) || []; }
+  // Admin: take waiting items back before the player has received them
+  async removeInbox(id) {
+    const inbox = (await this.ctx.storage.get('inbox')) || [];
+    const left = inbox.filter((i) => i.id !== id);
+    if (left.length) await this.ctx.storage.put('inbox', left); else await this.ctx.storage.delete('inbox');
+    return inbox.length - left.length;
+  }
+  async clearInbox() {
+    const n = ((await this.ctx.storage.get('inbox')) || []).length;
+    await this.ctx.storage.delete('inbox');
+    return n;
+  }
+  // Admin: forget every friend, request and chat of this account (the route tells the other accounts)
+  async clearSocial() {
+    const st = this.ctx.storage;
+    const friends = (await st.get('friends')) || [], incoming = (await st.get('reqIn')) || [], outgoing = (await st.get('reqOut')) || [];
+    const keys = [...(await st.list({ prefix: 'chat:' })).keys(), ...(await st.list({ prefix: 'seen:' })).keys(), 'friends', 'reqIn', 'reqOut'];
+    for (let i = 0; i < keys.length; i += 100) await st.delete(keys.slice(i, i + 100));
+    return { friends, incoming, outgoing };
+  }
   async claimInbox(ids) {
     const inbox = (await this.ctx.storage.get('inbox')) || [];
     const left = inbox.filter((i) => !ids.includes(i.id));
@@ -540,6 +562,14 @@ function cleanGift(g) {
     case 'titles': { const n = int(g.amount, 1, 50); return n === null ? null : { ...base, type: 'titles', amount: n }; }
     case 'maxRatings': return { ...base, type: 'maxRatings' };
     case 'unlockStyles': return { ...base, type: 'unlockStyles' };
+    // Taking things away. They are applied on the player's side exactly like gifts (once, with the admin's note shown),
+    // and never push a number past its floor: Rep Points stop at 0, ratings at 40, championships at 0.
+    case 'takeRp': { const n = int(g.amount, 1, 100000); return n === null ? null : { ...base, type: 'takeRp', amount: n }; }
+    case 'takeTitles': { const n = int(g.amount, 1, 50); return n === null ? null : { ...base, type: 'takeTitles', amount: n }; }
+    case 'lockStyles': return { ...base, type: 'lockStyles' };
+    case 'deleteCareer': return base.slot ? { ...base, type: 'deleteCareer' } : null;       // needs an explicit slot: never "all by accident"
+    case 'resetTrophies': return { ...base, type: 'resetTrophies', slot: 0 };
+    case 'takeTrophy': { const id = typeof g.trophy === 'string' && /^[a-z0-9_]{1,24}$/.test(g.trophy) ? g.trophy : null; return id ? { ...base, type: 'takeTrophy', trophy: id, slot: 0 } : null; }
     case 'message': {
       const text = typeof g.text === 'string' ? g.text.trim().slice(0, 400) : '';
       return text ? { ...base, type: 'message', text, slot: 0 } : null;
@@ -547,7 +577,9 @@ function cleanGift(g) {
     default: return null;
   }
 }
-const describeGift = (g) => ({ rp: `+${g.amount} Rep Points`, attr: `${g.attr === 'all' ? 'every rating' : g.attr} ${g.amount > 0 ? '+' : ''}${g.amount}`, titles: `+${g.amount} championship(s)`, message: 'message', maxRatings: 'all ratings to 99', unlockStyles: 'unlock all play styles' })[g.type] || g.type;
+const DESTRUCTIVE = ['deleteCareer', 'resetTrophies', 'takeTrophy'];   // never sent to everyone in one go
+const isTake = (g) => DESTRUCTIVE.includes(g.type) || ['takeRp', 'takeTitles', 'lockStyles'].includes(g.type) || (g.type === 'attr' && g.amount < 0);
+const describeGift = (g) => ({ rp: `+${g.amount} Rep Points`, attr: `${g.attr === 'all' ? 'every rating' : g.attr} ${g.amount > 0 ? '+' : ''}${g.amount}`, titles: `+${g.amount} championship(s)`, message: 'message', maxRatings: 'all ratings to 99', unlockStyles: 'unlock all play styles', takeRp: `-${g.amount} Rep Points`, takeTitles: `-${g.amount} championship(s)`, lockStyles: 'lock the play styles again', deleteCareer: 'delete the career', resetTrophies: 'reset the Trophy Room', takeTrophy: `remove trophy ${g.trophy}` })[g.type] || g.type;
 
 async function handleAdmin(request, env, path) {
   const admin = adminStub(env);
@@ -584,19 +616,47 @@ async function handleAdmin(request, env, path) {
     const gift = cleanGift(body.gift);
     if (!gift) return json({ error: 'bad-gift' }, 400);
     if (name === '*') {
+      if (DESTRUCTIVE.includes(gift.type)) return json({ error: 'not-for-everyone' }, 400);
       const users = (await admin.listUsers()).slice(0, 2000);
       let sent = 0;
       for (let i = 0; i < users.length; i += 25) {
         const batch = await Promise.all(users.slice(i, i + 25).map((u) => userStub(env, u.username).addInbox({ ...gift, id: toHex(crypto.getRandomValues(new Uint8Array(4))) })));
         sent += batch.filter(Boolean).length;
       }
-      await admin.audit({ a: 'gift to everyone', target: '*', detail: `${describeGift(gift)}${gift.slot ? ` (slot ${gift.slot})` : ''} sent to ${sent}` });
+      await admin.audit({ a: isTake(gift) ? 'taken from everyone' : 'gift to everyone', target: '*', detail: `${describeGift(gift)}${gift.slot ? ` (slot ${gift.slot})` : ''} sent to ${sent}` });
       return json({ ok: true, sent });
     }
     if (!needUser()) return json({ error: 'bad-username' }, 400);
     if (!(await userStub(env, name).addInbox(gift))) return json({ error: 'not-found' }, 404);
-    await admin.audit({ a: 'gift', target: name, detail: `${describeGift(gift)}${gift.slot ? ` (slot ${gift.slot})` : ''}` });
+    await admin.audit({ a: isTake(gift) ? 'take away' : 'gift', target: name, detail: `${describeGift(gift)}${gift.slot ? ` (slot ${gift.slot})` : ''}` });
     return json({ ok: true, sent: 1 });
+  }
+  if (path === '/api/admin/inbox/remove' || path === '/api/admin/inbox/clear') {
+    if (!needUser()) return json({ error: 'bad-username' }, 400);
+    const stub = userStub(env, name);
+    if (!(await stub.exists())) return json({ error: 'not-found' }, 404);
+    if (path === '/api/admin/inbox/clear') {
+      const n = await stub.clearInbox();
+      await admin.audit({ a: 'waiting gifts cancelled', target: name, detail: `${n} item${n === 1 ? '' : 's'} removed` });
+      return json({ ok: true, removed: n });
+    }
+    const id = typeof body.id === 'string' && /^[0-9a-f]{8}$/.test(body.id) ? body.id : null;
+    if (!id) return json({ error: 'bad' }, 400);
+    const n = await stub.removeInbox(id);
+    await admin.audit({ a: 'waiting gift cancelled', target: name, detail: id });
+    return json({ ok: true, removed: n });
+  }
+  if (path === '/api/admin/clear-social') {
+    if (!needUser()) return json({ error: 'bad-username' }, 400);
+    const stub = userStub(env, name);
+    if (!(await stub.exists())) return json({ error: 'not-found' }, 404);
+    const old = await stub.clearSocial();
+    // the other side forgets them too: friends, and requests in either direction
+    for (const f of old.friends) await userStub(env, f).dropFriend(name).catch(() => {});
+    for (const x of old.incoming) await userStub(env, x).listPut('reqOut', name, false, 30).catch(() => {});
+    for (const x of old.outgoing) await userStub(env, x).listPut('reqIn', name, false, 30).catch(() => {});
+    await admin.audit({ a: 'friends and chats cleared', target: name, detail: `${old.friends.length} friend${old.friends.length === 1 ? '' : 's'} removed` });
+    return json({ ok: true, friends: old.friends.length });
   }
   if (path === '/api/admin/ban') {
     if (!needUser()) return json({ error: 'bad-username' }, 400);

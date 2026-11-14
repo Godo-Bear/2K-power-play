@@ -42,7 +42,7 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Accounts and accessibility**
 - Cloud save: careers, seasons, kits, tactics and settings follow your account to any device
-- **Admin panel**: the basketball next to the logo on the home screen opens a code page, then a panel where admins can see every account (who is online and what they are doing), look at careers, gift career-mode Rep Points, rating boosts and unlocks, send messages and announcements, reset passwords, suspend or delete accounts, pause sign-ups and read an activity log
+- **Admin panel**: the basketball next to the logo on the home screen opens a code page, then a panel where admins can see every account (who is online and what they are doing), look at careers, gift career-mode Rep Points, rating boosts and unlocks (or take them away again), send messages and announcements, reset passwords, suspend or delete accounts, pause sign-ups and read an activity log
 - Color-blind friendly colors, larger text, and one-handed or left-handed touch layouts
 
 **Controls**
@@ -138,12 +138,20 @@ code is stored in the source, so the code itself is not written down anywhere in
 - **Players**: search every account, open one to see their saved careers (position, play style, OVR, Rep Points), season, devices and cloud save.
   From there you can give **Rep Points**, **rating boosts**, **all ratings to 99**, **all play styles unlocked** or **championships** to
   one career slot or all of them, send a message, reset their password, sign them out everywhere, suspend or unsuspend them, clear their cloud save or delete the account.
+  **Take something away** is the opposite of a gift: take Rep Points, rating points or championships, lock the play styles again, remove one trophy or reset
+  the whole Trophy Room, delete a career slot, or clear their friends and chats. Anything still waiting for them can be cancelled one by one (the × on each line) or all at once.
 - **Gift everyone**: the same gifts, sent to every account at once.
+- **Take from everyone**: take Rep Points, a rating, championships or the unlocked play styles from every account (you type *everyone* to confirm).
+  Deleting careers and resetting or editing Trophy Rooms can only be done for one player at a time.
 - **Announcements**: a banner on every player's home screen and the login page until it expires.
 - **Activity log**: the last 300 admin actions.
 
-Gifts wait on the server and are applied the next time the player opens the game (career gifts wait until they have a career),
-then a pop-up tells them what they got. Players check in about every minute and a half, which is how "online" is worked out.
+Gifts and take-aways wait on the server and are applied the next time the player opens the game (career gifts wait until they have a career),
+then a pop-up tells them what happened, with your note if you wrote one. Things are applied once, and numbers never go below their floor:
+Rep Points and championships stop at 0, ratings stop at 40. A take-away aimed at a career the player does not have is simply dropped, so it can never hit a career they
+start later. A trophy that counts something (wins, dunks, games) has its count wound back to just under the goal so it is not earned straight back.
+Rep Points a trophy already paid out stay paid unless you take them back too. A deleted career is removed from the device that opens the game first and from the
+cloud copy; another device with changes it has not synced yet could still bring the old copy back, as with Clear cloud save. Players check in about every minute and a half, which is how "online" is worked out.
 Accounts appear in the list once they have signed in since the panel was added.
 
 **Change the admin code.** The built-in code is stored as a salted hash in `src/worker.js`, but a short, well-known phrase can still be
