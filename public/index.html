@@ -256,6 +256,7 @@
     <div id="meter"><div class="fill"></div><div class="zone"></div><div class="mark"></div></div>
     <div id="feedback"></div>
     <div id="toast"><b></b><span></span></div>
+    <div id="irBanner" hidden><i class="rec">● REPLAY</i><div><b id="irHead"></b><span id="irText"></span></div><small>Press any button to skip</small></div>
     <div id="scorePop"></div>
     <div id="caption"></div>
     <div id="vignette"></div>
@@ -390,11 +391,13 @@
   <!-- Halftime show -->
   <div id="halftime" class="screen">
     <div class="ht-top">
-      <h2>Halftime</h2><div id="htScore"></div>
-      <div id="htLeaders"></div>
-      <div class="ht-btns"><button id="pauseTactics2">Team Tactics</button><button id="htNext">Next clip &rsaquo;</button><button id="htSkip" class="primary">Start second half</button></div>
+      <h2>Halftime</h2><div id="htScore"></div><div id="htQtr"></div>
+      <div class="ht-btns"><button id="pauseTactics2">Team Tactics</button><button id="htNext">Next play &rsaquo;</button><button id="htSkip" class="primary">Start second half</button></div>
     </div>
-    <div class="ht-mid"><div id="htClip"></div></div>
+    <div class="ht-main">
+      <div class="ht-left"><div id="htReel" class="ht-reel"></div><div id="htClip"></div></div>
+      <aside class="ht-panel"><div class="ht-tabs" id="htTabs"><button type="button" data-t="stats" class="on">Team stats</button><button type="button" data-t="stars">Stars</button><button type="button" data-t="keys">Keys</button></div><div id="htView"></div></aside>
+    </div>
     <div class="ht-bottom"><div class="ht-desk" id="htDesk"></div><div class="ht-bubble" id="htBubble"></div></div>
   </div>
 
@@ -458,6 +461,7 @@
   <div id="over" class="screen overlay">
     <h2 id="overTitle">Final</h2>
     <div id="finalScore"></div>
+    <button id="overReel" class="reel-btn" hidden>▶ Watch the game highlights</button>
     <div id="overExtras" class="over-extras"></div>
     <div id="boxscore"></div>
     <div class="row">

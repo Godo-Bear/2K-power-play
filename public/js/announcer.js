@@ -35,7 +35,7 @@ function voices() {
 }
 
 function speakNow(item) {
-  if (captionEl) {
+  if (captionEl && item.caption !== false) {
     captionEl.textContent = item.text;
     captionEl.dataset.who = item.who;
     captionEl.classList.add('show');
@@ -59,23 +59,23 @@ function speakNow(item) {
 
 // who: 0 = play-by-play, 1 = analyst. priority: 0 chatter, 1 normal, 2 big moment (interrupts)
 const spokenRecent = [];
-export function say(text, { who = 0, priority = 1 } = {}) {
+export function say(text, { who = 0, priority = 1, caption = true } = {}) {
   const now = performance.now();
   if (priority < 2) { if (spokenRecent.includes(text)) return; }
   spokenRecent.push(text); if (spokenRecent.length > 8) spokenRecent.shift();
   if (priority >= 2) {
     queue = [];
     if (window.speechSynthesis) speechSynthesis.cancel();
-    speakNow({ text, who });
+    speakNow({ text, who, caption });
     return;
   }
   if (now < busyUntil) {
     if (priority === 0) return;                // chatter never waits
     queue = queue.filter((q) => q.priority >= 1).slice(-1);
-    queue.push({ text, who, priority });
+    queue.push({ text, who, priority, caption });
     return;
   }
-  speakNow({ text, who });
+  speakNow({ text, who, caption });
 }
 // Called often: plays the next waiting line when the current one is done
 export function tickAnnouncer() {

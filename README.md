@@ -101,6 +101,17 @@ in `wrangler.jsonc` to match.
 Online play only works on the deployed site or under `npx wrangler dev`. A plain static server
 (`npx serve public`) runs everything else.
 
+### Highlights, instant replays and the halftime show
+
+A highlight director (`public/js/highlights.js`) rates every play by what actually happened: alley-oops, dunks over a defender,
+windmills, deep threes, blocks at the rim, buzzer-beaters, game-winners, the shot that ends a run or takes the lead, and sequences such
+as a steal that turns into a slam (one clip, not two). Plays that big get an **instant replay** during the next dead ball, with slow
+motion at the payoff and a cut-in camera; press any action button to skip. At **halftime** the show plays the best five plays with
+variety (never six threes by the same player), shows the line score, a team-stats comparison (field goals, threes, rebounds, turnovers,
+paint, fast-break and bench points, points off steals), the stars of the half, three data-driven "keys to the second half" and
+analysts whose lines are built from what decided the half. After the final whistle, **Game highlights** replays the best plays of the
+whole game with the player of the game.
+
 ### Friends and chat
 
 Open **Friends** from the home footer (needs a signed-in account). Add people by username, accept requests, see who is online and what
