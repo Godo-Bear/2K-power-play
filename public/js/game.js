@@ -2150,6 +2150,7 @@ export class Game {
     const dtc = p.team.tac;
     let gap = onBall ? 1.35 - dtc.pressure * 0.55 + (1 - this.diff.aiDef) * 0.8 : (1.5 + Math.min(2.2, hdist(man.pos, b.pos) / 5)) * (1.3 - dtc.line * 0.6);
     if (tut) gap += 1.4;
+    if (b.state === 'shot' && !tut) gap = Math.min(gap, 0.85);   // shot in the air: box out, keep your man behind you
     gap = Math.min(gap, Math.max(0.5, dh - 0.6));
     if (p.team.human) gap = onBall ? 1.1 : gap; // teammates of a human play solid D
     const target = tmp.set(man.pos.x + toHoop.x * gap, 0, man.pos.z + toHoop.z * gap);

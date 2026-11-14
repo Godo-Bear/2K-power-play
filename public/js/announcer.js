@@ -157,6 +157,12 @@ const L = {
   comeback2: ['{team} have clawed all the way back! The place is shaking!', 'What a comeback by {team}, they were down double digits!'],
   halfScore: ['{h} {hs}, {a} {as} at the break.', 'Halftime: {a} {as}, {h} {hs}.'],
   qScore: ['After {q}, it is {h} {hs}, {a} {as}.', 'Quarter over. {h} {hs}, {a} {as}.'],
+  passCorner: ['Kicks it out to the corner.', 'Swings it to the corner, he is open!', 'Finds the shooter in the corner.'],
+  passPost: ['Dumps it down low.', 'Feeds the big man inside.', 'Looks inside and delivers.', 'Into the paint.'],
+  passSwing: ['Swings it around the perimeter.', 'Ball movement, looking for the open man.', 'Skip pass to the weak side!', 'Moves it, the defense is rotating.'],
+  passLob: ['Lob! Alley-oop!', 'Throws it up for him...', 'Lobs it toward the rim!'],
+  passBounce: ['Bounce pass splits the defense.', 'Threads it through with a bounce pass.'],
+  passRun: ['Ahead to the runner!', 'Hits the man in stride!', 'Pushes it ahead, he has a step!'],
   intro: ['Welcome to {arena}! Tonight, the {a} take on the {h}.', "It's game night! {a} versus {h}. Let's get it started."],
 };
 
@@ -192,6 +198,7 @@ export function attachAnnouncer(game) {
   const margin = () => Math.abs(game.home.score - game.away.score);
   const clutch = () => game.period >= 4 && game.gameClock < 120 && margin() <= 6;
   const bonusSaid = new Set();
+  let lastPassSay = 0;
   let peak = { h: 0, a: 0 }, comebackSaid = { h: false, a: false }, minuteSaid = false, lastShotSaid = false;
   const checkDouble = (p) => {
     const st = p.stats, n = ['pts', 'reb', 'ast', 'stl', 'blk'].filter((k) => st[k] >= 10).length;
@@ -211,6 +218,15 @@ export function attachAnnouncer(game) {
   game.on((type, d) => {
     switch (type) {
       case 'tipoff': speak(pick(L.tipoff), { priority: 2 }); break;
+      case 'pass': {
+        if (d.user || performance.now() - lastPassSay < 7000 || Math.random() > 0.3) break;
+        const to = game.ball.pass && game.ball.pass.to, h = d.player && game.hoopOf(d.player.team);
+        if (!to || !h) break;
+        const dh = Math.hypot(to.pos.x - h.x, to.pos.z);
+        const list = d.style === 'lob' ? L.passLob : d.style === 'bounce' ? L.passBounce : game.transitionT > 0 ? L.passRun : dh < 3.8 ? L.passPost : (Math.abs(to.pos.z) > 5.6 && dh < 9.5) ? L.passCorner : L.passSwing;
+        lastPassSay = performance.now(); say(pick(list), { who: 0, priority: 0 });
+        break;
+      }
       case 'fastBreak': speak(pick(L.fast), { who: 0, priority: 1 }); break;
       case 'shot': {
         if (d.user && Math.random() < 0.35) break;               // don't talk over the player's own shot meter
