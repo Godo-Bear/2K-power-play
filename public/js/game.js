@@ -152,6 +152,7 @@ export class Game {
     this.netAnim = [0, 0];
     this.inbounder = null;
     this.pendingInbound = null;
+    this.inboundGrace = 0;   // seconds after an inbound during which the man taking it in may stand on the line
     this.events = [];
     this.listeners = [];
     if (this.wantOfficials) this.officials = new Referees(this, scene);
@@ -321,14 +322,24 @@ export class Game {
   // Play a saved clip back on the court. The simulation is frozen while it runs and everything is put back afterwards.
   startReplay(frames, speed = 0.8, onDone = null) {
     if (!frames || frames.length < 4) { if (onDone) onDone(); return false; }
+    // The clip moves everybody who is in it, including substitutes who have gone back to the bench since it was recorded.
+    // All of them are remembered, shown as normal players while it plays, and put back where they were afterwards.
+    const cast = new Set(this.allPlayers);
+    for (const f of frames) for (const r of f.rows) cast.add(r[0]);
     if (!this.replaySaved) {
       const b = this.ball;
       this.replaySaved = {
-        players: this.allPlayers.map((p) => ({ p, pos: p.pos.clone(), vel: p.vel.clone(), y: p.y, facing: p.facing, state: p.state, actionT: p.actionT, released: p.released, jumpT: p.jumpT, shotStyle: p.shotStyle, moveName: p.moveName, moveT: p.moveT, spinT: p.spinT, spinDir: p.spinDir, passT: p.passT, passStyle: p.passStyle, passLocal: p.passLocal, stealStyle: p.stealStyle, crossSide: p.crossSide, burstT: p.burstT, onFire: p.onFire, visible: p.root.visible })),
+        players: [],
         bench: [...this.home.bench, ...this.away.bench].map((p) => ({ p, visible: p.root.visible })),
         ball: { pos: b.pos.clone(), vel: b.vel.clone(), state: b.state, holder: b.holder, spin: b.spin },
       };
     }
+    const saved = new Set(this.replaySaved.players.map((s) => s.p));
+    for (const p of cast) {
+      if (saved.has(p)) continue;
+      this.replaySaved.players.push({ p, pos: p.pos.clone(), vel: p.vel.clone(), y: p.y, facing: p.facing, state: p.state, actionT: p.actionT, released: p.released, jumpT: p.jumpT, shotStyle: p.shotStyle, moveName: p.moveName, moveT: p.moveT, spinT: p.spinT, spinDir: p.spinDir, passT: p.passT, passStyle: p.passStyle, passLocal: p.passLocal, stealStyle: p.stealStyle, crossSide: p.crossSide, burstT: p.burstT, onFire: p.onFire, visible: p.root.visible });
+    }
+    this.replayActors = this.replaySaved.players.map((s) => s.p);
     this.replay = { frames, t: frames[0].t, end: frames[frames.length - 1].t, speed, onDone };
     return true;
   }
@@ -369,6 +380,7 @@ export class Game {
   stopReplay() {
     if (!this.replay) return;
     this.replay = null;
+    this.replayActors = null;
     const S = this.replaySaved;
     this.replaySaved = null;
     if (!S) return;
@@ -1297,6 +1309,7 @@ export class Game {
     this.ball.reboundable = false;
     this.state = 'live';
     this.pendingInbound = null;
+    this.inboundGrace = 1.2;
     if (team.human && !team.lock && !team.benchedMe) this.setCtl(team, p);
   }
 
@@ -1428,8 +1441,13 @@ export class Game {
     this.benchTick = ((this.benchTick || 0) + 1) % 4;
     if (this.extras && this.benchTick === 0) {
       for (const t of this.teams) {
-        for (const p of t.bench) {
+        for (let bi = 0; bi < t.bench.length; bi++) {
+          const p = t.bench[bi];
           if (!p.seated) continue;
+          if (this.replayActors && this.replayActors.includes(p)) continue;   // he is in the clip that is playing: animated with the others
+          // A substitute always sits on his own seat, whatever moved him (a replay, a sync): never left standing on the court
+          const seat = seatPos(t, bi);
+          if (Math.abs(p.pos.x - seat.x) > 0.05 || Math.abs(p.pos.z - seat.z) > 0.05 || p.y > 0.001) this.placeSeat(p, t, bi);
           p.animate(dt * 4, { hasBall: false, dribble: false, defending: false, released: false });
           updateCustomPlayer(p, dt * 4, 'sit', 0, { hasBall: false, freezeMixer: p.seatInit });
           p.seatInit = true;
@@ -1437,7 +1455,7 @@ export class Game {
       }
     }
     if (this.officials) this.officials.update(dt);
-    for (const p of this.allPlayers) {
+    for (const p of (this.replayActors || this.allPlayers)) {
       const hasBall = this.ball.holder === p;
       p.animate(dt, {
         hasBall,
@@ -1568,7 +1586,10 @@ export class Game {
   checkRules() {
     const b = this.ball;
     const h = b.holder;
-    if (h && (Math.abs(h.pos.x) > C.HALF_L + 0.02 || Math.abs(h.pos.z) > C.HALF_W + 0.02)) {
+    // The man taking the ball in starts on the line: a direction key still held from before must not lose the ball on the spot
+    if (this.inboundGrace > 0) this.inboundGrace = Math.max(0, this.inboundGrace - (this.dtNow || 0));
+    const takingIn = !!h && h === this.inbounder && this.inboundGrace > 0;
+    if (h && !takingIn && (Math.abs(h.pos.x) > C.HALF_L + 0.02 || Math.abs(h.pos.z) > C.HALF_W + 0.02)) {
       this.turnover(h.team, 'OUT OF BOUNDS');
       return;
     }
@@ -1948,11 +1969,19 @@ export class Game {
     const off = this.possession, def = this.other(off);
     const b = this.ball;
     const live = this.state === 'live';
+    const dead = this.state === 'dead';
     for (const p of this.allPlayers) {
       p.sprinting = false;
-      if (!live || !this.ctl(p)) this.aiControl(p, off, def, dt);
+      // In a dead ball (out of bounds, after a basket or a foul) a human keeps control of their player and can walk around.
+      // Only the man who has to take the ball in is placed by the game.
+      const yours = this.ctl(p) && (live || (dead && p !== this.inbounder));
+      if (!yours) this.aiControl(p, off, def, dt);
     }
-    if (live) for (const t of this.teams) if (t.cp && this.ctl(t.cp)) this.userControl(t.cp, dt);
+    if (live) {
+      for (const t of this.teams) if (t.cp && this.ctl(t.cp)) this.userControl(t.cp, dt);
+    } else if (dead) {
+      for (const t of this.teams) if (t.cp && t.cp !== this.inbounder && this.ctl(t.cp)) this.userWalk(t.cp);
+    }
     // Loose-ball chasing: closest two from each team chase
     if (live && b.state === 'loose') {
       for (const t of this.teams) {
@@ -1980,6 +2009,14 @@ export class Game {
     p.desired.set(dx / d * k, 0, dz / d * k);
     p.sprinting = sprint && d > 2.5;
     return d;
+  }
+
+  // Dead ball: movement only (no shooting, passing or stealing)
+  userWalk(p) {
+    const input = p.team.input;
+    p.desired.set(input.moveX, 0, input.moveY);
+    p.sprinting = input.sprint;
+    if (p.state === 'idle') p.faceTarget = null;
   }
 
   userControl(p, dt) {
