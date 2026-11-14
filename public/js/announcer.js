@@ -1,6 +1,15 @@
 // Commentary: a play-by-play voice and a color analyst, on-screen captions plus optional spoken commentary
 // (browser speech synthesis). Nobody is called by name: players are "the point guard", "the big man", "he".
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+// Never the same line twice in a row: each list remembers what it just used
+const recentPicks = new WeakMap();
+const pick = (arr) => {
+  const r = recentPicks.get(arr) || [];
+  let i, n = 0;
+  do { i = Math.floor(Math.random() * arr.length); } while (arr.length > 2 && r.includes(i) && ++n < 8);
+  r.push(i); if (r.length > Math.min(3, arr.length - 1)) r.shift();
+  recentPicks.set(arr, r);
+  return arr[i];
+};
 let voiceOn = true;
 let captionEl = null;
 let hideTimer = 0;
@@ -49,8 +58,11 @@ function speakNow(item) {
 }
 
 // who: 0 = play-by-play, 1 = analyst. priority: 0 chatter, 1 normal, 2 big moment (interrupts)
+const spokenRecent = [];
 export function say(text, { who = 0, priority = 1 } = {}) {
   const now = performance.now();
+  if (priority < 2) { if (spokenRecent.includes(text)) return; }
+  spokenRecent.push(text); if (spokenRecent.length > 8) spokenRecent.shift();
   if (priority >= 2) {
     queue = [];
     if (window.speechSynthesis) speechSynthesis.cancel();
@@ -134,6 +146,17 @@ const L = {
   ot: ["We're tied! This one is going to overtime!"],
   win: ['Ball game! That will do it.', "And that's the final. What a game."],
   tipoff: ['The ball is up!', 'And we are underway!', 'Tip-off!'],
+  milestone: ['The {pos} is up to {n} points tonight.', 'That is {n} for the {pos}. He is locked in.', '{n} points now, and he is not finished.'],
+  doubleDouble: ['That is a double-double for the {pos}!', 'Double-double, and he has been everywhere.'],
+  tripleDouble: ['A TRIPLE-DOUBLE! Are you kidding me!', 'Triple-double territory, this is historic!'],
+  trouble3: ['The {pos} picks up his third foul. The coach may have to sit him.', 'Third foul on the {pos}, he has to be careful now.'],
+  trouble4: ['Four fouls on the {pos}. One more and he is in real trouble.', 'Foul trouble for the {pos}, he cannot afford another.'],
+  bonus: ['{team} are in the bonus now, so every foul sends someone to the line.', 'That puts {team} in the bonus.'],
+  minute: ['One minute left in the game.', 'Under a minute, and it is all on the line.'],
+  lastShot: ['This could be the last possession!', 'Twenty-four seconds or less, one shot may decide it.', 'Everything comes down to this possession.'],
+  comeback2: ['{team} have clawed all the way back! The place is shaking!', 'What a comeback by {team}, they were down double digits!'],
+  halfScore: ['{h} {hs}, {a} {as} at the break.', 'Halftime: {a} {as}, {h} {hs}.'],
+  qScore: ['After {q}, it is {h} {hs}, {a} {as}.', 'Quarter over. {h} {hs}, {a} {as}.'],
   intro: ['Welcome to {arena}! Tonight, the {a} take on the {h}.', "It's game night! {a} versus {h}. Let's get it started."],
 };
 
@@ -168,10 +191,27 @@ export function attachAnnouncer(game) {
   const speak = (text, o) => { lastQuiet = performance.now(); say(text, o); };
   const margin = () => Math.abs(game.home.score - game.away.score);
   const clutch = () => game.period >= 4 && game.gameClock < 120 && margin() <= 6;
+  const bonusSaid = new Set();
+  let peak = { h: 0, a: 0 }, comebackSaid = { h: false, a: false }, minuteSaid = false, lastShotSaid = false;
+  const checkDouble = (p) => {
+    const st = p.stats, n = ['pts', 'reb', 'ast', 'stl', 'blk'].filter((k) => st[k] >= 10).length;
+    if (n >= 3 && !p._td) { p._td = true; p._dd = true; setTimeout(() => speak(pick(L.tripleDouble), { who: 0, priority: 2 }), 1200); }
+    else if (n >= 2 && !p._dd) { p._dd = true; setTimeout(() => say(fill(pick(L.doubleDouble), { pos: pos(p) }), { who: 1, priority: 1 }), 1500); }
+  };
+  // Big lead lost: when a team that was down ten or more draws within three, call the comeback
+  const trackLead = () => {
+    const d = game.home.score - game.away.score;
+    peak.h = Math.max(peak.h, d); peak.a = Math.max(peak.a, -d);
+    for (const [k, tm, tr, was] of [['h', game.home, -d, peak.a], ['a', game.away, d, peak.h]]) {   // tr: how far this team trails now
+      if (was >= 10 && tr <= 3 && !comebackSaid[k]) { comebackSaid[k] = true; setTimeout(() => speak(fill(pick(L.comeback2), { team: tm.data.name }), { who: 0, priority: 2 }), 1500); }
+      if (tr >= 8) comebackSaid[k] = false;
+    }
+  };
 
   game.on((type, d) => {
     switch (type) {
       case 'tipoff': speak(pick(L.tipoff), { priority: 2 }); break;
+      case 'fastBreak': speak(pick(L.fast), { who: 0, priority: 1 }); break;
       case 'shot': {
         if (d.user && Math.random() < 0.35) break;               // don't talk over the player's own shot meter
         shotAt = performance.now();
@@ -188,6 +228,13 @@ export function attachAnnouncer(game) {
         const kind = d.kind === 'dunk' ? 'dunk' : d.pts === 3 ? 'three' : d.kind === 'layup' ? 'layup' : 'mid';
         if (d.assist && Math.random() < 0.4 && kind !== 'three') speak(pick(L.assist), { who: 0, priority: 1 });
         else speak(pick(L[kind]), { who: 0, priority: kind === 'dunk' || kind === 'three' ? 2 : 1 });
+        if (d.player) {
+          const st = d.player.stats, before = st.pts - d.pts;
+          const mile = [10, 20, 30, 40, 50].find((m) => before < m && st.pts >= m);
+          if (mile && Math.random() < 0.85) setTimeout(() => say(fill(pick(L.milestone), { pos: pos(d.player), n: mile }), { who: 1, priority: 1 }), 1500);
+          checkDouble(d.player);
+        }
+        trackLead();
         // the analyst follows up on what it means for the game
         setTimeout(() => {
           if (!game || game.state === 'over') return;
@@ -201,12 +248,20 @@ export function attachAnnouncer(game) {
         break;
       }
       case 'miss': if (d.airball) say(pick(L.airball), { priority: 1 }); else if (Math.random() < 0.3) say(pick(L.miss), { priority: 0 }); break;
-      case 'rebound': say(pick(d.off ? L.rebO : L.rebD), { who: 0, priority: d.off ? 1 : 0 }); break;
+      case 'rebound': say(pick(d.off ? L.rebO : L.rebD), { who: 0, priority: d.off ? 1 : 0 }); if (d.player) checkDouble(d.player); break;
       case 'block': speak(pick(L.block), { who: 0, priority: 2 }); break;
       case 'steal': speak(pick(L.steal), { who: 0, priority: 1 }); break;
       case 'intercept': speak(pick(L.intercept), { who: 0, priority: 1 }); break;
       case 'stealAttempt': if (Math.random() < 0.2) say(pick(L.stealTry), { who: 0, priority: 0 }); break;
-      case 'foul': if (d.label === 'INTENTIONAL FOUL') speak(pick(L.vInt), { who: 1, priority: 1 }); else speak(pick(L.foul), { who: 0, priority: 1 }); break;
+      case 'foul': {
+        if (d.label === 'INTENTIONAL FOUL') speak(pick(L.vInt), { who: 1, priority: 1 }); else speak(pick(L.foul), { who: 0, priority: 1 });
+        if (d.def) {
+          const pf = d.def.stats.pf, tm = d.def.team;
+          if (pf === 3 || pf === 4) setTimeout(() => say(fill(pick(pf === 3 ? L.trouble3 : L.trouble4), { pos: pos(d.def) }), { who: 1, priority: 1 }), 1800);
+          if (tm.fouls === 5 && !bonusSaid.has(tm.data.id + game.period)) { bonusSaid.add(tm.data.id + game.period); setTimeout(() => say(fill(pick(L.bonus), { team: tm.data.name }), { who: 1, priority: 1 }), 2600); }
+        }
+        break;
+      }
       case 'foulOut': speak(pick(L.foulOut), { who: 1, priority: 2 }); break;
       case 'ft': say(pick(d.made ? L.ftMake : L.ftMiss), { priority: 0 }); break;
       case 'turnover': {
@@ -227,10 +282,11 @@ export function attachAnnouncer(game) {
       case 'timeout': speak(pick(L.timeout), { who: 1, priority: 1 }); break;
       case 'sub': if (Math.random() < 0.25) say(pick(L.sub), { who: 1, priority: 0 }); break;
       case 'periodEnd':
+        setTimeout(() => say(fill(pick(d.period === 2 ? L.halfScore : L.qScore), { h: game.home.data.name, a: game.away.data.name, hs: game.home.score, as: game.away.score, q: ['the first', 'the half', 'three', 'regulation'][Math.min(3, d.period - 1)] }), { who: 1, priority: 1 }), 3200);
         if (d.period === 2) speak(pick(L.half), { who: 0, priority: 2 });
         else if (d.period >= 4) speak(pick(L.ot), { who: 0, priority: 2 });
         else speak(pick(L.quarter), { who: 0, priority: 1 });
-        clockWarned = false;
+        clockWarned = false; minuteSaid = false; lastShotSaid = false;
         break;
       case 'gameOver': speak(pick(L.win), { who: 0, priority: 2 }); break;
       default: break;
@@ -245,6 +301,8 @@ export function attachAnnouncer(game) {
     const now = performance.now();
     if (game.shotClock < 5 && game.shotClock > 1 && !clockWarned && !game.shotClockFrozen) { clockWarned = true; say(pick(L.clock), { who: 1, priority: 1 }); }
     if (game.shotClock > 20) clockWarned = false;
+    if (game.period >= 4 && game.gameClock < 60 && game.gameClock > 30 && !minuteSaid) { minuteSaid = true; say(pick(L.minute), { who: 0, priority: 1 }); }
+    if (game.period >= 4 && game.gameClock < 24 && game.gameClock > 3 && margin() <= 3 && !lastShotSaid) { lastShotSaid = true; say(pick(L.lastShot), { who: 1, priority: 1 }); }
     if (now - lastQuiet > 14000) { lastQuiet = now; say(clutch() ? pick(L.clutch) : margin() >= 20 && game.period >= 3 ? pick(L.blowout) : analystLine(game), { who: 1, priority: 0 }); }
   }, 400);
   window.__announcerGame = game;

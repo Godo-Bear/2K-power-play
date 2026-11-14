@@ -96,6 +96,16 @@ export const sfx = {
     crowdGain.gain.linearRampToValueAtTime(0.12 + 0.45 * intensity, t + 0.25);
     crowdGain.gain.linearRampToValueAtTime(0.12, t + 2.8);
   },
+  // the crowd's other voices: a rising "ooh" on a near miss, boos for calls against the home team, claps, and the defense chant
+  ooh() { if (!ctx || quiet) return; tone(300, 0.7, 'sine', 0.05, 520); noiseBurst(0.7, 900, 'bandpass', 0.05, 0.8); },
+  boo() { if (!ctx || quiet) return; tone(190, 1.1, 'sawtooth', 0.035, 150); tone(236, 1.1, 'sawtooth', 0.025, 176); noiseBurst(1.1, 500, 'bandpass', 0.06, 0.7); },
+  clap(n = 3) { if (!ctx || quiet) return; for (let i = 0; i < n; i++) setTimeout(() => noiseBurst(0.07, 2400, 'bandpass', 0.22, 1.4), i * 230); },
+  chant() {
+    if (!ctx || quiet) return;
+    tone(165, 0.28, 'sawtooth', 0.05); noiseBurst(0.28, 700, 'bandpass', 0.07, 0.8);          // DE-
+    setTimeout(() => { tone(130, 0.45, 'sawtooth', 0.05); noiseBurst(0.45, 600, 'bandpass', 0.07, 0.8); }, 340);   // -FENSE
+    setTimeout(() => sfx.clap(2), 950);
+  },
   groan() {
     if (!crowdGain || quiet) return;
     const t = ctx.currentTime;

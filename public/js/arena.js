@@ -423,11 +423,14 @@ export function buildArena(scene, home, away, opts = {}) {
     crowd, seats, dummy,
     ribbons,
     jumbo, jumboBox,
-    excitement: 0,
+    excitement: 0, stand: 0, waveT: 0,
+    // 'stand': the stands get to their feet; 'wave': the wave goes round the arena
+    react(kind) { if (kind === 'stand') this.stand = 1; else if (kind === 'wave') this.waveT = 7; },
     update(dt, t) {
       for (const r of ribbons) r.offset.x = (r.offset.x + dt * 0.04) % 1;
       jumboBox.rotation.y += dt * 0.05;
       this.excitement = Math.max(0, this.excitement - dt * 0.4);
+      this.stand = Math.max(0, this.stand - dt * 0.22); this.waveT = Math.max(0, this.waveT - dt);
       // Crowd bob
       const amp = 0.03 + this.excitement * 0.35;
       const step = Math.max(1, Math.floor(seats.length / 1500));
@@ -435,11 +438,15 @@ export function buildArena(scene, home, away, opts = {}) {
       for (let i = off; i < seats.length; i += step) {
         const s = seats[i];
         const bob = Math.max(0, Math.sin(t * (4 + this.excitement * 6) + s.phase)) * amp;
-        dummy.position.set(s.x, s.y + bob, s.z);
+        const wv = this.waveT > 0 ? Math.max(0, Math.sin(Math.atan2(s.z, s.x) * 3 - t * 3.2)) * Math.min(1, this.waveT) : 0;
+        const up = this.stand * (0.1 + 0.16 * ((i * 7) % 5) / 4) + wv * 0.35, sy = 1 + this.stand * 0.18 + wv * 0.3;
+        dummy.position.set(s.x, s.y + bob + up, s.z);
         dummy.rotation.set(0, s.rot, 0);
+        dummy.scale.set(1, sy, 1);
         dummy.updateMatrix();
         crowd.setMatrixAt(i, dummy.matrix);
-        dummy.position.y += 0.38;
+        dummy.scale.set(1, 1, 1);
+        dummy.position.y += 0.38 * sy;
         dummy.updateMatrix();
         heads.setMatrixAt(i, dummy.matrix);
       }

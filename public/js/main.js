@@ -20,6 +20,7 @@ import { Tutorial } from './tutorial.js';
 import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
 import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer } from './announcer.js';
+import { attachCrowd } from './crowd.js';
 import * as Season from './season.js';
 import { initAdmin, openAdmin } from './admin.js';
 import { collectGifts, fetchAnnouncements, seenAnnouncements, markSeen } from './gifts.js';
@@ -1083,7 +1084,7 @@ function launch({ home, away, userSide, diff, q, lock, stage, strictLock = false
   buildWorld(home, away);
   game = new Game(scene, arena, home, away, { difficulty: diff, quarterMinutes: q, userSide, playerLock: lock, strictLock, autoSubs: settings.autoSubs }, hud);
   hookFx(game);
-  attachAnnouncer(game);
+  attachAnnouncer(game); attachCrowd(game, arena);
   setQuiet(false);
   mode = 'game';
   stopMusic();
@@ -1291,7 +1292,7 @@ function startOnlineHost() {
   o.queue = [];
   game = new Game(scene, arena, home, away, { difficulty: 'pro', quarterMinutes: o.q, userSide: 'home', playerLock: -1, versus: true, remoteInput: o.remote, autoSubs: settings.autoSubs }, makeNetHud(o));
   hookFx(game);
-  attachAnnouncer(game);
+  attachAnnouncer(game); attachCrowd(game, arena);
   game.on((type, d) => { const e = packEvent(game, type, d); if (e) o.queue.push(e); });
   patchSfx(o.queue);
   setQuiet(false); stopMusic();
@@ -1315,7 +1316,7 @@ function startOnlineGuest(m) {
   game.guest = true;
   game.state = 'intro';
   hookFx(game);
-  attachAnnouncer(game);
+  attachAnnouncer(game); attachCrowd(game, arena);
   o.sender = makeInputSender(input);
   setQuiet(false); stopMusic();
   o.playing = true; o.menu = false;
@@ -1688,7 +1689,7 @@ function startContest(kind) {
   }, hud);
   hookFx(game);
   game.tutorialPossession = 'user';
-  attachAnnouncer(game);
+  attachAnnouncer(game); attachCrowd(game, arena);
   setQuiet(false); stopMusic();
   mode = 'game';
   camPos.set(0, 8.2, 16); camTarget.set(0, 1.2, 0);

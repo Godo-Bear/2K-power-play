@@ -153,6 +153,8 @@ export class Game {
     this.inbounder = null;
     this.pendingInbound = null;
     this.inboundGrace = 0;   // seconds after an inbound during which the man taking it in may stand on the line
+    this.transitionT = 0;    // fast-break window after a steal or defensive rebound: the new offense pushes the ball up the floor
+    this.fastEmitted = false;
     this.events = [];
     this.listeners = [];
     if (this.wantOfficials) this.officials = new Referees(this, scene);
@@ -491,9 +493,10 @@ export class Game {
     b.state = 'held'; b.holder = p; b.shot = null; b.pass = null;
     b.lastTouch = p.team;
     b.reboundable = false;
-    p.holdT = 0; p.decT = 0.3;
+    p.holdT = 0; p.decT = 0.3; p.fbPassed = false;
     if (!silent) sfx.catch();
     if (p.team !== prevTeam) {
+      this.transitionT = !silent && this.state === 'live' ? 5 : 0; this.fastEmitted = false;
       this.fc = false; this.bcT = 0;
       this.possession = p.team;
       this.shotClock = 24;
@@ -1359,7 +1362,7 @@ export class Game {
     if (this.slowT > 0) { this.slowT -= dt; dt *= 0.32; if (this.slowT <= 0) this.focus = null; }
     this.time += dt;
     if (this.state === 'live' || this.state === 'ft') this.trackClips(dt);
-    if (this.state === 'live') { this.coachTick(dt); this.pnrTick(dt); }
+    if (this.state === 'live') { this.coachTick(dt); this.pnrTick(dt); if (this.transitionT > 0) this.transitionT -= dt; } else this.transitionT = 0;
     if (this.state === 'live') {
       // Fatigue: players tire on the court (faster when sprinting) and recover on the bench
       const k = dt / Math.max(60, this.quarterLen);
@@ -2055,6 +2058,27 @@ export class Game {
     void dt;
   }
 
+  // Best place on the arc for a perimeter player to stand right now
+  openSpot(p, off) {
+    const hoop = this.hoopOf(off), dir = off.dir, R = C.THREE_R + 0.9, h = this.ball.holder;
+    let best = null, bs = -1e9;
+    const consider = (x, z, bonus) => {
+      let dmin = 9;
+      for (const q of this.allPlayers) if (q.team !== off) dmin = Math.min(dmin, Math.hypot(q.pos.x - x, q.pos.z - z));
+      let s = Math.min(dmin, 4) + bonus;
+      for (const q of off.players) if (q !== p) { const d = Math.hypot(q.pos.x - x, q.pos.z - z); if (d < 3.4) s -= (3.4 - d) * 1.6; }
+      s -= Math.hypot(p.pos.x - x, p.pos.z - z) * 0.2;
+      if (h && h.team === off && h !== p) { const d = Math.hypot(h.pos.x - x, h.pos.z - z); if (d < 3.5) s -= 1.2; else if (d > 5 && d < 11) s += 0.5; }
+      if (s > bs) { bs = s; best = new THREE.Vector3(x, 0, z); }
+    };
+    for (let k = -4; k <= 4; k++) {
+      const a = k * 0.36, z = R * Math.sin(a);
+      if (Math.abs(z) <= C.HALF_W - 1) consider(hoop.x - dir * R * Math.cos(a), z, 0);
+    }
+    for (const sg of [-1, 1]) consider(hoop.x - dir * 1.4, sg * (C.CORNER_Z + 0.35), 0.7);   // the corner three: the shortest one
+    return best;
+  }
+
   offenseSpot(team, i, p) {
     const dir = team.dir;
     const spots = [
@@ -2090,6 +2114,22 @@ export class Game {
       if (off.pnr && off.pnr.screener === p && !off.pnr.rolled) {
         const hd = this.nearestDefender(off.pnr.handler).p;
         if (hd) { const th = tmp2.set(this.hoopOf(off).x - hd.pos.x, 0, -hd.pos.z).normalize(); target.set(hd.pos.x + th.x * 0.85, 0, hd.pos.z + th.z * 0.85); }
+      }
+      // Perimeter players do not stand on a painted spot: they drift to open space, away from defenders and teammates,
+      // and give the ball handler an outlet (corners are favoured)
+      if (live && p.index <= 2 && p.cutT <= 0 && !this.passive() && !(off.pnr && off.pnr.screener === p)) {
+        p.spotT = (p.spotT || 0) - dt;
+        if (p.spotT <= 0 || !p.spot) { p.spotT = 0.8 + Math.random() * 0.7; p.spot = this.openSpot(p, off); }
+        if (p.spot) target.copy(p.spot);
+      }
+      // Fast break: wings sprint the lanes ahead of the ball, the big man trails, the rest fill the middle
+      if (live && this.transitionT > 0 && b.holder && b.holder.team === off && b.holder !== p && !this.passive()) {
+        const bx = b.holder.pos.x * off.dir;
+        const lead = Math.min(C.HOOP_X - 4, bx + 8);
+        const z = [0, 5.2, -5.2, 1.8, 0][p.index] ?? 0;
+        target.set(off.dir * (p.index === 4 ? Math.min(C.HOOP_X - 5, bx + 2) : lead), 0, z);
+        this.moveTo(p, target, true);
+        return;
       }
       // Never camp in the lane: step out before the three-second call
       if ((p.paintT || 0) > 1.7) { p.cutT = 0; target.set(target.x - off.dir * 1.2, 0, (p.pos.z >= 0 ? 1 : -1) * 3.3); }
@@ -2170,6 +2210,23 @@ export class Game {
       this.moveTo(p, tmp.set(hoop.x - dir * 0.8, 0, p.pos.z * 0.3), true);
       if (dHoop < 2.3) { p.driveT = 0; this.startShot(p); }
       return;
+    }
+    // Fast break: right after a steal or defensive rebound, if the defense is not back yet, push it up the floor.
+    // Throw ahead to a runner who has a step on his man, or go and finish it yourself.
+    if (this.transitionT > 0 && p.holdT < 4 && dHoop > 6 && this.state === 'live' && !this.passive()) {
+      const ahead = this.allPlayers.filter((q) => q.team !== off && (q.pos.x - p.pos.x) * dir > 1 && Math.abs(q.pos.z) < 7).length;
+      if (ahead <= 3) {
+        if (!this.fastEmitted && ahead <= 2) { this.fastEmitted = true; this.emit('fastBreak', { team: off, player: p }); }
+        if (p.holdT > 0.3 && !p.fbPassed) {
+          const runner = off.players.find((q) => q !== p && (q.pos.x - p.pos.x) * dir > 4 && this.nearestDefender(q).d > 2.2 && !this.passLaneBlocked(p, q));
+          if (runner && Math.random() < 0.5 + tc.passing * 0.3) { p.fbPassed = true; this.startPass(p, runner); return; }
+        }
+        if (ahead <= 2) {
+          this.moveTo(p, tmp.set(hoop.x - dir * 4.5, 0, p.pos.z * 0.4), true);
+          if (dHoop < 8 && Math.random() < 0.9) p.driveT = 1.6;
+          return;
+        }
+      }
     }
     if (!p.aiTarget || p.decT <= 0) {
       p.decT = rand(0.45, 0.8) * (1.25 - tc.pace * 0.5);
