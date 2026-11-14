@@ -254,6 +254,40 @@ export class User extends DurableObject {
   async getUserEntry(name) { return (await this.ctx.storage.get(`u:${name}`)) || null; }
   async removeUser(name) { await this.ctx.storage.delete(`u:${name}`); return true; }
 
+  // ---------- Friends and chat (each account keeps its own lists) ----------
+  async exists() { return !!(await this.ctx.storage.get('acct')); }
+  async social() {
+    const g = (k) => this.ctx.storage.get(k);
+    const friends = (await g('friends')) || [];
+    const unread = {};
+    for (const f of friends) { const seen = (await g(`seen:${f}`)) || 0; unread[f] = ((await g(`chat:${f}`)) || []).filter((m) => m.t > seen && m.from === f).length; }
+    return { friends, reqIn: (await g('reqIn')) || [], reqOut: (await g('reqOut')) || [], unread };
+  }
+  async listPut(key, name, on, cap) {
+    let l = (await this.ctx.storage.get(key)) || [];
+    l = l.filter((x) => x !== name);
+    if (on) { l.push(name); while (l.length > cap) l.shift(); }
+    await this.ctx.storage.put(key, l);
+    return l.length;
+  }
+  async becomeFriends(name) {
+    const n = await this.listPut('friends', name, true, 60);
+    await this.listPut('reqIn', name, false, 30); await this.listPut('reqOut', name, false, 30);
+    return n;
+  }
+  async dropFriend(name) { await this.listPut('friends', name, false, 60); await this.ctx.storage.delete(`chat:${name}`); await this.ctx.storage.delete(`seen:${name}`); return true; }
+  async chatPush(other, msg) {
+    const l = (await this.ctx.storage.get(`chat:${other}`)) || [];
+    l.push(msg); while (l.length > 60) l.shift();
+    await this.ctx.storage.put(`chat:${other}`, l);
+    return true;
+  }
+  async chatRead(other) {
+    const l = (await this.ctx.storage.get(`chat:${other}`)) || [];
+    await this.ctx.storage.put(`seen:${other}`, Date.now());
+    return l;
+  }
+
   // Rate limiting: counts hits per key in a time window. Returns 0 when allowed, otherwise the seconds left to wait.
   async rateHit(key, limit, windowMs) {
     const now = Date.now(), k = 'rl:' + key;
@@ -641,6 +675,67 @@ async function handleInbox(request, env, path) {
   return json({ error: 'method' }, 405);
 }
 
+// ---------- Friends and chat ----------
+async function handleFriends(request, env, path) {
+  const me = await authenticate(env, bearer(request));
+  if (!me) return json({ error: 'not-logged-in' }, 401);
+  const mine = userStub(env, me), now = Date.now();
+  const limit = async (key, n, ms) => { const w = await env.USERS.get(env.USERS.idFromName(RL_ID)).rateHit(key + ':' + me, n, ms); return w ? json({ error: 'slow-down', retry: w }, 429) : null; };
+  const nameOf = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+
+  if (path === '/api/friends' && request.method === 'GET') {
+    const st = await mine.social();
+    const admin = adminStub(env);
+    const friends = await Promise.all(st.friends.map(async (name) => {
+      const e = await admin.getUserEntry(name);
+      const online = !!e && now - (e.lastSeen || 0) < ONLINE_MS;
+      return { name, online, activity: online ? String(e.activity || '').slice(0, 12) : '', lastSeen: e ? e.lastSeen || 0 : 0, unread: st.unread[name] || 0 };
+    }));
+    return json({ me, friends, incoming: st.reqIn, outgoing: st.reqOut });
+  }
+  if (request.method !== 'POST') return json({ error: 'method' }, 405);
+  const body = await readJson(request, 1200);
+  if (!body) return json({ error: 'bad' }, 400);
+  const other = nameOf(body.username ?? body.to ?? body.with);
+
+  if (path === '/api/friends/add') {
+    const lim = await limit('fr', 30, 3600 * 1000); if (lim) return lim;
+    if (!USERNAME_RE.test(other) || other === me) return json({ error: 'bad-username' }, 400);
+    const target = userStub(env, other);
+    if (!(await target.exists())) return json({ error: 'no-user' }, 404);
+    const st = await mine.social();
+    if (st.friends.includes(other)) return json({ ok: true, status: 'friends' });
+    if (st.friends.length >= 60) return json({ error: 'full' }, 400);
+    if (st.reqIn.includes(other)) { await mine.becomeFriends(other); await target.becomeFriends(me); return json({ ok: true, status: 'friends' }); }
+    await target.listPut('reqIn', me, true, 30);
+    await mine.listPut('reqOut', other, true, 30);
+    return json({ ok: true, status: 'sent' });
+  }
+  if (!USERNAME_RE.test(other)) return json({ error: 'bad-username' }, 400);
+  const target = userStub(env, other);
+  if (path === '/api/friends/accept') {
+    const st = await mine.social();
+    if (!st.reqIn.includes(other)) return json({ error: 'no-request' }, 404);
+    await mine.becomeFriends(other); await target.becomeFriends(me);
+    return json({ ok: true });
+  }
+  if (path === '/api/friends/decline') { await mine.listPut('reqIn', other, false, 30); await target.listPut('reqOut', me, false, 30); return json({ ok: true }); }
+  if (path === '/api/friends/remove') { await mine.dropFriend(other); await target.dropFriend(me); return json({ ok: true }); }
+  if (path === '/api/chat') {
+    const st = await mine.social();
+    if (!st.friends.includes(other)) return json({ error: 'not-friends' }, 403);
+    if (body.read === true) return json({ items: await mine.chatRead(other) });
+    const lim = await limit('chat', 40, 60 * 1000); if (lim) return lim;
+    const text = typeof body.text === 'string' ? body.text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200) : '';
+    if (!text) return json({ error: 'empty' }, 400);
+    const msg = { from: me, text, t: now };
+    await mine.chatPush(other, msg); await target.chatPush(me, msg);
+    await mine.chatRead(other);
+    return json({ ok: true });
+  }
+  return json({ error: 'not-found' }, 404);
+}
+
 // ---------- Online rooms ----------
 export class Room extends DurableObject {
   async fetch(request) {
@@ -716,6 +811,7 @@ export default {
     if (path === '/api/me' || path === '/api/register' || path === '/api/login' || path === '/api/logout') return handleAccount(request, env, path, ctx);
     if (path.startsWith('/api/admin/')) return handleAdmin(request, env, path);
     if (path === '/api/inbox' || path === '/api/inbox/claim') return handleInbox(request, env, path);
+    if (path === '/api/friends' || path.startsWith('/api/friends/') || path === '/api/chat') return handleFriends(request, env, path);
     if (path === '/api/announcements' && request.method === 'GET') return json({ items: await adminStub(env).activeAnnouncements() });
     if (path.startsWith('/api/')) return new Response('Not found', { status: 404 });
     return env.ASSETS.fetch(request);

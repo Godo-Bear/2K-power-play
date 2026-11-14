@@ -101,6 +101,12 @@ in `wrangler.jsonc` to match.
 Online play only works on the deployed site or under `npx wrangler dev`. A plain static server
 (`npx serve public`) runs everything else.
 
+### Friends and chat
+
+Open **Friends** from the home footer (needs a signed-in account). Add people by username, accept requests, see who is online and what
+they are playing, and chat (messages are plain text, up to 200 characters, 40 a minute). A dot on the button shows a waiting request or
+unread message. Tip: send your room code in the chat to invite a friend to an online game.
+
 ### The Trophy Room
 
 Open it from the footer of the home screen. 21 trophies (first win, blowouts, comebacks, triple-doubles, streaks...), three daily

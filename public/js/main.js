@@ -21,6 +21,7 @@ import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
 import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer } from './announcer.js';
 import { attachCrowd } from './crowd.js';
+import { initFriends, openFriends, friendsBadge } from './friends.js';
 import { newDay, attachTrophies, renderTrophies, claimDaily, payOut, hasUnclaimed } from './trophies.js';
 import * as Season from './season.js';
 import { initAdmin, openAdmin } from './admin.js';
@@ -899,6 +900,9 @@ $('#movesDone').addEventListener('click', () => { sfx.menu(); show(movesReturn);
 $('#pauseMoves').addEventListener('click', () => openMoves('pause'));
 $('#controlsMoves').addEventListener('click', () => openMoves('controls'));
 $('#hubMoves').addEventListener('click', () => { initAudio(); sfx.menu(); openMoves('menu'); });
+// ---------- Friends ----------
+function refreshFriendsDot() { friendsBadge().then((on) => { $('#frDot').hidden = !on; }); }
+$('#hubFriends').addEventListener('click', () => { initAudio(); sfx.menu(); openFriends(); });
 // ---------- Trophy room ----------
 function refreshTrDot() { $('#trDot').hidden = !hasUnclaimed(); }
 function openTrophies() { newDay(); renderTrophies($('#trBody'), esc); show('trophies'); refreshTrDot(); }
@@ -2193,6 +2197,7 @@ function enterGame() {
   updateAccountUI(); renderHome(); show('menu'); musicMaybe();
   refreshNotice();
   try { newDay(); refreshTrDot(); } catch { /* the trophy room is optional */ }
+  refreshFriendsDot();
   // Cloud save: take the newer copy of your careers, kits and settings, then collect any gifts from the admin
   if (auth.token && !auth.offline) cloudSync().then((r) => { if (r === 'applied') location.reload(); else applyInbox(); });
 }
@@ -2232,12 +2237,13 @@ setInterval(async () => {
   if (!auth.token || auth.offline) return;
   const r = await heartbeat(activityNow());
   if (r === 'none') { quitToMenu(); updateAccountUI(); showLogin(false); $('#loginError').textContent = 'You were signed out. Please log in again.'; return; }
-  if (r === 'ok') { refreshNotice(); if ($('#giftModal').hidden) applyInbox(); }
+  if (r === 'ok') { refreshNotice(); refreshFriendsDot(); if ($('#giftModal').hidden) applyInbox(); }
 }, 90000);
 
 // The basketball next to the logo opens the admin code page
 $('#adminBall').addEventListener('click', () => { initAudio(); sfx.menu(); openAdmin(); });
 initAdmin({ $, $$, show, sfx, esc, exit: () => { renderHome(); show('menu'); } });
+initFriends({ $, show, sfx, esc });
 onCloudStatus((s) => { const el = $('#cloudInfo'); if (el) el.textContent = s; const row = $('#cloudRow'); if (row) row.hidden = !(auth.token && !auth.offline); });
 $('#cloudNow').addEventListener('click', async () => { sfx.menu(); await cloudPush(); });
 async function doLogout() {

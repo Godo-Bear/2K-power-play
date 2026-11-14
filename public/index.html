@@ -125,7 +125,7 @@
       <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
       <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
     </div>
-    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubTrophies" class="foot-btn">Trophy Room<i class="dot-badge" id="trDot" hidden></i></button><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
+    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubFriends" class="foot-btn">Friends<i class="dot-badge" id="frDot" hidden></i></button><button type="button" id="hubTrophies" class="foot-btn">Trophy Room<i class="dot-badge" id="trDot" hidden></i></button><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
   </div>
 
   <!-- Career slots -->
@@ -336,6 +336,24 @@
   </div>
 
   <!-- Move guide -->
+  <!-- Friends -->
+  <div id="friends" class="screen">
+    <h2>Friends</h2>
+    <div class="fr-wrap">
+      <div class="fr-side">
+        <form id="frAdd" class="fr-add" autocomplete="off"><input id="frName" placeholder="Add a friend by username" maxlength="16" aria-label="Friend's username"><button type="submit" class="primary">Add</button></form>
+        <p id="frMsg" class="adm-note"></p>
+        <div id="frBody"></div>
+      </div>
+      <div id="frChat" class="fr-chat" hidden>
+        <h4>Chat with <b id="frWith"></b></h4>
+        <div id="frMsgs" class="fr-msgs"></div>
+        <form id="frSend" class="fr-add" autocomplete="off"><input id="frText" placeholder="Type a message" maxlength="200" aria-label="Message"><button type="submit" class="primary">Send</button></form>
+      </div>
+    </div>
+    <button type="button" data-go="menu">Back</button>
+  </div>
+
   <!-- Trophy room -->
   <div id="trophies" class="screen">
     <h2>Trophy Room</h2>
