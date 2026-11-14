@@ -101,6 +101,12 @@ in `wrangler.jsonc` to match.
 Online play only works on the deployed site or under `npx wrangler dev`. A plain static server
 (`npx serve public`) runs everything else.
 
+### The Trophy Room
+
+Open it from the footer of the home screen. 21 trophies (first win, blowouts, comebacks, triple-doubles, streaks...), three daily
+challenges that change every day, and a login streak. Everything pays Rep Points; press **Pay into my careers** to add them to every
+career you have. Progress is one save key (`pph-trophies`), so it follows your account.
+
 ### The admin panel
 
 Click the basketball next to **2K POWER PLAY** on the home screen. It asks for the admin code, and the code is checked on the

@@ -21,6 +21,7 @@ import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
 import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer } from './announcer.js';
 import { attachCrowd } from './crowd.js';
+import { newDay, attachTrophies, renderTrophies, claimDaily, payOut, hasUnclaimed } from './trophies.js';
 import * as Season from './season.js';
 import { initAdmin, openAdmin } from './admin.js';
 import { collectGifts, fetchAnnouncements, seenAnnouncements, markSeen } from './gifts.js';
@@ -898,6 +899,20 @@ $('#movesDone').addEventListener('click', () => { sfx.menu(); show(movesReturn);
 $('#pauseMoves').addEventListener('click', () => openMoves('pause'));
 $('#controlsMoves').addEventListener('click', () => openMoves('controls'));
 $('#hubMoves').addEventListener('click', () => { initAudio(); sfx.menu(); openMoves('menu'); });
+// ---------- Trophy room ----------
+function refreshTrDot() { $('#trDot').hidden = !hasUnclaimed(); }
+function openTrophies() { newDay(); renderTrophies($('#trBody'), esc); show('trophies'); refreshTrDot(); }
+$('#hubTrophies').addEventListener('click', () => { initAudio(); sfx.menu(); openTrophies(); });
+$('#trBody').addEventListener('click', (ev) => {
+  const claim = ev.target.closest('[data-claim]');
+  if (claim && !claim.disabled) { if (claimDaily(Number(claim.dataset.claim))) { sfx.levelUp(); renderTrophies($('#trBody'), esc); refreshTrDot(); } return; }
+  if (ev.target.id === 'trPay') {
+    const n = payOut();
+    renderTrophies($('#trBody'), esc); refreshTrDot();
+    const note = $('#trPayNote'); if (note) note.textContent = n ? `Paid ${n.toLocaleString()} Rep Points into every career.` : 'Create a career first, then come back to collect.';
+    if (n) sfx.levelUp();
+  }
+});
 
 // ---------- Team tactics ----------
 let tac = null;
@@ -1084,7 +1099,7 @@ function launch({ home, away, userSide, diff, q, lock, stage, strictLock = false
   buildWorld(home, away);
   game = new Game(scene, arena, home, away, { difficulty: diff, quarterMinutes: q, userSide, playerLock: lock, strictLock, autoSubs: settings.autoSubs }, hud);
   hookFx(game);
-  attachAnnouncer(game); attachCrowd(game, arena);
+  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   setQuiet(false);
   mode = 'game';
   stopMusic();
@@ -1292,7 +1307,7 @@ function startOnlineHost() {
   o.queue = [];
   game = new Game(scene, arena, home, away, { difficulty: 'pro', quarterMinutes: o.q, userSide: 'home', playerLock: -1, versus: true, remoteInput: o.remote, autoSubs: settings.autoSubs }, makeNetHud(o));
   hookFx(game);
-  attachAnnouncer(game); attachCrowd(game, arena);
+  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   game.on((type, d) => { const e = packEvent(game, type, d); if (e) o.queue.push(e); });
   patchSfx(o.queue);
   setQuiet(false); stopMusic();
@@ -1316,7 +1331,7 @@ function startOnlineGuest(m) {
   game.guest = true;
   game.state = 'intro';
   hookFx(game);
-  attachAnnouncer(game); attachCrowd(game, arena);
+  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   o.sender = makeInputSender(input);
   setQuiet(false); stopMusic();
   o.playing = true; o.menu = false;
@@ -1689,7 +1704,7 @@ function startContest(kind) {
   }, hud);
   hookFx(game);
   game.tutorialPossession = 'user';
-  attachAnnouncer(game); attachCrowd(game, arena);
+  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   setQuiet(false); stopMusic();
   mode = 'game';
   camPos.set(0, 8.2, 16); camTarget.set(0, 1.2, 0);
@@ -2177,6 +2192,7 @@ function showLogin(unreachable) {
 function enterGame() {
   updateAccountUI(); renderHome(); show('menu'); musicMaybe();
   refreshNotice();
+  try { newDay(); refreshTrDot(); } catch { /* the trophy room is optional */ }
   // Cloud save: take the newer copy of your careers, kits and settings, then collect any gifts from the admin
   if (auth.token && !auth.offline) cloudSync().then((r) => { if (r === 'applied') location.reload(); else applyInbox(); });
 }

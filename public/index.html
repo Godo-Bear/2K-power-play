@@ -125,7 +125,7 @@
       <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
       <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
     </div>
-    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
+    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubTrophies" class="foot-btn">Trophy Room<i class="dot-badge" id="trDot" hidden></i></button><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
   </div>
 
   <!-- Career slots -->
@@ -336,6 +336,13 @@
   </div>
 
   <!-- Move guide -->
+  <!-- Trophy room -->
+  <div id="trophies" class="screen">
+    <h2>Trophy Room</h2>
+    <div id="trBody" class="tr-body"></div>
+    <button type="button" data-go="menu">Back</button>
+  </div>
+
   <div id="moves" class="screen">
     <h2>Move Guide</h2>
     <p class="hint">What every button does. The keys shown are your own bindings.</p>
