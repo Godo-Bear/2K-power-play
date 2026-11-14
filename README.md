@@ -112,6 +112,10 @@ paint, fast-break and bench points, points off steals), the stars of the half, t
 analysts whose lines are built from what decided the half. After the final whistle, **Game highlights** replays the best plays of the
 whole game with the player of the game.
 
+Between quarters (after Q1, Q3 and regulation) the same show plays a shorter **quarter recap**: the line score so far, how the quarter
+went (who won it and by how much, the biggest run, the hot and cold shooters), the stars of the quarter, and a replay of the play of the
+quarter. It can be turned off in Settings ("Quarter recaps"), and "Start next quarter" skips it.
+
 ### Friends and chat
 
 Open **Friends** from the home footer (needs a signed-in account). Add people by username, accept requests, see who is online and what

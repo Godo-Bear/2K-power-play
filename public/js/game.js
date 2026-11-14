@@ -156,6 +156,7 @@ export class Game {
     this.pendingInbound = null;
     this.inboundGrace = 0;   // seconds after an inbound during which the man taking it in may stand on the line
     this.director = new Director(this); this.bestRun = null; this.possStart = null; this.takeaway = null;
+    this.qBase = this.snapshotStats(); this.qRun = null; this.recap = false; this.recapT = 0;   // quarter recaps: stats at the start of the quarter, best run in it
     this.instantQueue = null;   // a big play waiting for its instant replay (shown in the next dead ball)
     this.transitionT = 0;    // fast-break window after a steal or defensive rebound: the new offense pushes the ball up the floor
     this.fastEmitted = false;
@@ -409,6 +410,7 @@ export class Game {
   trackRun(team, pts) {
     if (this.run.team === team) this.run.pts += pts; else this.run = { team, pts };
     if (!this.bestRun || this.run.pts > this.bestRun.pts) this.bestRun = { team: this.run.team, pts: this.run.pts, period: this.period };
+    if (!this.qRun || this.run.pts > this.qRun.pts) this.qRun = { team: this.run.team, pts: this.run.pts };
   }
   ftRating(p) { return Math.max(50, Math.min(95, Math.round(p.r.mid * 0.55 + p.r.three * 0.45 + 4))); }
   hoopOf(team) { return tmp2.set(team.dir * C.HOOP_X, C.RIM_H, 0).clone(); }
@@ -457,6 +459,7 @@ export class Game {
       this.hud.toast(`${off.data.name} ball`, 'Inbound at half court', 1.4);
     }
     for (const t of this.teams) if (t.human && !t.benchedMe) this.setCtl(t, t.lock || t.players[0]);
+    this.emit('periodStart', { period: this.period });
   }
 
   // Manual player switch (button). Works on offense and defense.
@@ -1420,6 +1423,8 @@ export class Game {
       if (this.stateT <= 0) this.endTimeout();
     } else if (this.state === 'break') {
       this.stateT -= dt;
+      // safety net: a recap or halftime screen that never reports back must not freeze the game
+      if ((this.recap || this.halftime) && (this.recapT += dt) > 90) { this.recap = false; this.halftime = false; this.stateT = 0.2; }
       for (const p of this.allPlayers) { p.desired.set(0, 0, 0); p.update(dt); }
       if (this.stateT <= 0) { this.startPeriod(); this.hud.hideToast(); }
     } else if (this.state === 'over') {
@@ -1559,6 +1564,9 @@ export class Game {
     this.hud.toast(label, `${this.away.data.id} ${this.away.score} - ${this.home.score} ${this.home.data.id}`, 3);
     if (this.period === 2) for (const t of this.teams) t.dir *= -1;
     this.emit('periodEnd', { period: this.period });
+    const qBase = this.qBase, qRun = this.qRun;               // what the quarter recap compares against
+    this.qBase = this.snapshotStats(); this.qRun = null;
+    const finished = this.period;
     const rest = this.period === 2 ? 0.5 : 0.2;
     for (const t of this.teams) for (const p of [...t.players, ...t.bench]) p.energy = Math.min(1, p.energy + rest);
     this.period++;
@@ -1573,10 +1581,26 @@ export class Game {
       this.stateT = 9999;
       this.flushClips();
       this.emit('halftime', { reel: this.reel || [] });
+    } else if (this.recapsOn()) {
+      // a short broadcast recap of the quarter that just ended; the screen calls endRecap() when it is done
+      this.recap = true; this.recapT = 0;
+      this.stateT = 9999;
+      this.flushClips();
+      this.emit('quarterRecap', { period: finished, base: qBase, run: qRun });
     }
   }
 
   endHalftime() { if (this.halftime) { this.halftime = false; this.stateT = 0.4; } }
+  endRecap() { if (this.recap) { this.recap = false; this.stateT = 0.4; } }
+  recapsOn() { const o = this.opts; return !o.attract && !o.tutorial && !o.practice && !o.versus && !o.guest && !o.noHalftime && o.recaps !== false; }
+
+  // Every player's stats right now (and each team's extras): the quarter recap is the difference from the start of the quarter
+  snapshotStats() {
+    const m = new Map();
+    for (const t of this.teams) for (const p of [...(t.full || t.players), ...t.bench]) m.set(p, { ...p.stats });
+    m.extra = new Map(this.teams.map((t) => [t, { ...t.extra }]));
+    return m;
+  }
 
   periodName() { return this.period <= 4 ? `Q${this.period}` : this.period === 5 ? 'OT' : `${this.period - 4}OT`; }
 

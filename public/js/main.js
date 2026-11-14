@@ -21,7 +21,7 @@ import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
 import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer, say as announce } from './announcer.js';
 import { attachCrowd } from './crowd.js';
-import { gameStory, pickReel } from './highlights.js';
+import { gameStory, quarterStory, pickReel } from './highlights.js';
 import { initFriends, openFriends, friendsBadge } from './friends.js';
 import { newDay, attachTrophies, renderTrophies, claimDaily, payOut, hasUnclaimed } from './trophies.js';
 import * as Season from './season.js';
@@ -36,7 +36,7 @@ const $$ = (s) => document.querySelectorAll(s);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // ---------- Settings (remembered per browser) ----------
-const settings = { cam: 'broadcast', gfx: 'high', mute: false, home: 0, away: 3, side: 'home', diff: 'pro', q: '2', speed: 0.85, bright: 90, lock: -1, court: 'arena', voice: true, music: true, autoSubs: true };
+const settings = { cam: 'broadcast', gfx: 'high', mute: false, home: 0, away: 3, side: 'home', diff: 'pro', q: '2', speed: 0.85, bright: 90, lock: -1, court: 'arena', voice: true, music: true, autoSubs: true, recaps: true };
 settings.adaptive = true;
 try {
   const savedSettings = JSON.parse(localStorage.getItem('pph-settings') || '{}');
@@ -327,6 +327,7 @@ $('#optCam').value = settings.cam;
 $('#optGfx').value = settings.gfx;
 $('#optMute').checked = settings.mute;
 $('#optVoice').checked = settings.voice;
+$('#optRecaps').checked = settings.recaps !== false;
 $('#optMusic').checked = settings.music;
 $('#optBright').value = settings.bright;
 $('#brightVal').textContent = `${settings.bright}%`;
@@ -352,6 +353,7 @@ $('#optGfx').addEventListener('change', (e) => { settings.gfx = e.target.value; 
 $('#optAdaptive').checked = settings.adaptive !== false;
 $('#optAdaptive').addEventListener('change', (e) => { settings.adaptive = e.target.checked; renderScale = 1; saveSettings(); applyQuality(); });
 $('#optMute').addEventListener('change', (e) => { settings.mute = e.target.checked; setMuted(settings.mute); setVoice(settings.voice && !settings.mute); saveSettings(); musicMaybe(); });
+$('#optRecaps').addEventListener('change', (e) => { settings.recaps = e.target.checked; if (game) game.opts.recaps = settings.recaps; saveSettings(); });
 $('#optVoice').addEventListener('change', (e) => { settings.voice = e.target.checked; setVoice(settings.voice && !settings.mute); saveSettings(); });
 $('#optMusic').addEventListener('change', (e) => { settings.music = e.target.checked; saveSettings(); musicMaybe(); });
 $('#optBright').addEventListener('input', (e) => {
@@ -991,23 +993,25 @@ const ANALYSTS = [
   { name: 'Coach Kingsley', role: 'Forward · all-time great', skin: '#5c3a1e', hair: '#1a1a1a', hairStyle: 1, suit: '#10413a' },
 ];
 let htTimers = [];
+let htQuarter = false;   // the same show, as the recap between two quarters
 let htFinal = false;     // the same show, played after the final whistle as the game highlights
 let htNext = () => {};
 function htClear() { htTimers.forEach((t) => { if (t && t.stop) t.stop(); else { clearInterval(t); clearTimeout(t); } }); htTimers = []; if (game) game.stopReplay(); }
 
 function renderHalftime(g, reel, opts = {}) {
   htClear();
-  const final = !!opts.final;
-  htFinal = final;
-  const story = gameStory(g, { final });
-  $('#halftime h2').textContent = final ? 'Game highlights' : 'Halftime';
-  $('#htSkip').textContent = final ? 'Back to results' : 'Start second half';
+  const final = !!opts.final, quarter = opts.quarter || null;
+  htFinal = final; htQuarter = !!quarter;
+  const story = quarter ? quarterStory(g, quarter.base, quarter.period, quarter.run) : gameStory(g, { final });
+  const ORD = ['', '1st', '2nd', '3rd', '4th'];
+  $('#halftime h2').textContent = final ? 'Game highlights' : quarter ? (quarter.period >= 4 ? 'End of regulation' : `End of ${ORD[quarter.period]} quarter`) : 'Halftime';
+  $('#htSkip').textContent = final ? 'Back to results' : quarter ? (quarter.period >= 4 ? 'Start overtime' : 'Start next quarter') : 'Start second half';
   $('#pauseTactics2').hidden = final;
-  $('#htTabs button[data-t=keys]').hidden = final;
+  $('#htTabs button[data-t=keys]').hidden = final || !!quarter;
   const tm = (t) => `<span class="ht-tn" style="--tc:${t.data.primary}">${esc(t.data.id)}</span>`;
   $('#htScore').innerHTML = `${crest(g.away.data)}<b>${g.away.score}</b><span>-</span><b>${g.home.score}</b>${crest(g.home.data)}`;
   // Line score, like the scorer's table
-  const nq = final ? Math.max(4, g.home.quarterScores.length) : 2, cols = Array.from({ length: nq }, (_, i) => i);
+  const nq = final ? Math.max(4, g.home.quarterScores.length) : quarter ? quarter.period : 2, cols = Array.from({ length: nq }, (_, i) => i);
   const q = (t) => cols.map((i) => (t.quarterScores[i] != null ? t.quarterScores[i] : '-'));
   $('#htQtr').innerHTML = `<table><tr><th></th>${cols.map((i) => `<th>${i < 4 ? i + 1 : i === 4 ? 'OT' : (i - 3) + 'OT'}</th>`).join('')}<th>T</th></tr>${[g.away, g.home].map((t) => `<tr><td>${tm(t)}</td>${q(t).map((v) => `<td>${v}</td>`).join('')}<td><b>${t.score}</b></td></tr>`).join('')}</table>`;
 
@@ -1023,15 +1027,16 @@ function renderHalftime(g, reel, opts = {}) {
     return `<div class="ht-star ${tag ? 'potw' : ''}" style="--tc:${p.team.data.primary}">${img ? `<img src="${img}" alt="">` : ''}<div>${tag ? `<small class="tag">${tag}</small>` : ''}<b>${esc(p.data.first[0])}. ${esc(p.data.last)}</b><span>${p.data.pos} · ${esc(p.team.data.id)}</span><strong>${p.stats.pts} PTS · ${p.stats.reb} REB · ${p.stats.ast} AST</strong><small>${p.stats.fgm}/${p.stats.fga} FG${p.stats.tpa ? ` · ${p.stats.tpm}/${p.stats.tpa} 3PT` : ''}</small></div></div>`;
   };
   const views = {
-    stats: () => `<div class="ht-vh">${tm(g.away)}<b>Team stats</b>${tm(g.home)}</div>${story.rows.map(row).join('')}`,
-    stars: () => `<div class="ht-vh"><b>${final ? 'Stars of the game' : 'Stars of the half'}</b></div>${story.potw ? star(story.potw, final ? 'PLAYER OF THE GAME' : 'PLAYER OF THE HALF') : ''}${story.stars.filter((p) => p !== story.potw).map((p) => star(p)).join('')}`,
+    stats: () => `<div class="ht-vh">${tm(g.away)}<b>${quarter ? 'This quarter' : 'Team stats'}</b>${tm(g.home)}</div>${story.rows.map(row).join('')}`,
+    stars: () => `<div class="ht-vh"><b>${final ? 'Stars of the game' : quarter ? 'Stars of the quarter' : 'Stars of the half'}</b></div>${story.potw ? star(story.potw, final ? 'PLAYER OF THE GAME' : quarter ? 'PLAYER OF THE QUARTER' : 'PLAYER OF THE HALF') : ''}${story.stars.filter((p) => p !== story.potw).map((p) => star(p)).join('')}`,
     keys: () => `<div class="ht-vh"><b>Keys to the second half</b></div>${story.keys.map((k, i) => `<div class="ht-key"><span>${i + 1}</span><p>${esc(k)}</p></div>`).join('')}<p class="adm-note">Change your tactics with <b>Team Tactics</b> before the second half.</p>`,
   };
   let tab = 'stats', picked = false;
   const showTab = (t) => { tab = t; $('#htView').innerHTML = views[t](); $$('#htTabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); };
   $$('#htTabs button').forEach((b) => { b.onclick = () => { picked = true; sfx.menu(); showTab(b.dataset.t); }; });
   showTab('stats');
-  htTimers.push(setInterval(() => { if (!picked) showTab(tab === 'stats' ? 'stars' : tab === 'stars' ? 'keys' : 'stats'); }, 9000));
+  const order = final || quarter ? ['stats', 'stars'] : ['stats', 'stars', 'keys'];     // the keys only make sense at halftime
+  htTimers.push(setInterval(() => { if (!picked) showTab(order[(order.indexOf(tab) + 1) % order.length]); }, 9000));
 
   // The analysts' desk: they talk about what actually decided the half
   $('#htDesk').innerHTML = ANALYSTS.map((a, i) => {
@@ -1050,8 +1055,8 @@ function renderHalftime(g, reel, opts = {}) {
   htTimers.push(lineT);
 
   // The highlight reel: the plays that mattered, played back on the court with a slow-motion payoff
-  const clips = pickReel(reel, 5);
-  const none = [{ kind: 'layup', icon: '🏀', headline: final ? 'A QUIET GAME' : 'A QUIET HALF', detail: final ? 'No big plays to show this time.' : 'No big plays yet. The highlights are coming in the second half!', meta: '', teamObj: g.home, frames: null }];
+  const clips = pickReel(quarter ? reel.filter((e) => e.period === quarter.period) : reel, quarter ? 1 : 5);
+  const none = [{ kind: 'layup', icon: '🏀', headline: final ? 'A QUIET GAME' : quarter ? 'A QUIET QUARTER' : 'A QUIET HALF', detail: final ? 'No big plays to show this time.' : quarter ? 'No big plays in this one. Next quarter!' : 'No big plays yet. The highlights are coming in the second half!', meta: '', teamObj: g.home, frames: null }];
   const list = clips.length ? clips : none;
   $('#htReel').innerHTML = clips.length ? `<span class="ht-rl">TOP PLAYS</span>${clips.map((c, i) => `<button type="button" data-i="${i}" title="${esc(c.headline)}">${c.icon}<small>${i + 1}</small></button>`).join('')}` : '';
   let ci = -1, clipT = 0;
@@ -1063,13 +1068,13 @@ function renderHalftime(g, reel, opts = {}) {
     if (ci >= list.length) {
       mark();
       $('#htClip').innerHTML = '<div class="ht-clip end"><span class="ico">🏀</span><div><small>That is the reel</small><b class="hl">Second half is next</b><span class="dt">Good luck out there!</span></div></div>';
-      if (!final) htTimers.push(setTimeout(() => { if (game === g && g.halftime) endHalftimeShow(); }, 12000));
+      if (!final) htTimers.push(setTimeout(() => { if (game === g && (g.halftime || g.recap)) endHalftimeShow(); }, quarter ? 7000 : 12000));
       return;
     }
     const c = list[ci];
     const t = c.teamObj || g.home;
     mark();
-    $('#htClip').innerHTML = `<div class="ht-clip" style="--tc:${t.data.primary}"><span class="ico">${c.icon}</span><div><small>${c.frames ? '<i class="rec">● REPLAY</i> ' : ''}${esc(c.meta || '')} · ${ci + 1}/${list.length}${c.best ? ` <b class="potw-tag">PLAY OF THE ${final ? 'GAME' : 'HALF'}</b>` : ''}</small><b class="hl">${esc(c.headline)}</b><span class="dt">${esc(c.detail)}</span></div>${crest(t.data)}</div>`;
+    $('#htClip').innerHTML = `<div class="ht-clip" style="--tc:${t.data.primary}"><span class="ico">${c.icon}</span><div><small>${c.frames ? '<i class="rec">● REPLAY</i> ' : ''}${esc(c.meta || '')} · ${ci + 1}/${list.length}${c.best ? ` <b class="potw-tag">PLAY OF THE ${final ? 'GAME' : quarter ? 'QUARTER' : 'HALF'}</b>` : ''}</small><b class="hl">${esc(c.headline)}</b><span class="dt">${esc(c.detail)}</span></div>${crest(t.data)}</div>`;
     if (c.frames) { fx.crowdFlashes(40); if (c.call) announce(c.call, { who: ci % 2 === 0 ? 0 : 1, priority: 2, caption: false }); }
     const started = c.frames && g.startReplay(c.frames, 0.9, () => { clipT = setTimeout(htNext, 900); }, { key: c.key, focus: c.focus });
     if (!started) clipT = setTimeout(htNext, 3600);
@@ -1081,6 +1086,7 @@ function renderHalftime(g, reel, opts = {}) {
 function endHalftimeShow() {
   htClear();
   if (htFinal) { htFinal = false; show('over'); return; }
+  if (htQuarter) { htQuarter = false; if (game) game.endRecap(); if ($('#halftime').classList.contains('show')) show(null); return; }
   if (game) game.endHalftime();
   if ($('#halftime').classList.contains('show')) show(null);
 }
@@ -1099,6 +1105,7 @@ function hookFx(g) {
       fx.crowdFlashes(30); announce(d.entry.call, { who: 1, priority: 2, caption: false });
     }
     if (type === 'instantReplayEnd') $('#irBanner').hidden = true;
+    if (type === 'quarterRecap' && g === game) { renderHalftime(g, g.reel || [], { quarter: d }); show('halftime'); $('#hud').classList.remove('show'); $('#touch').classList.remove('active'); }
     if (type === 'stealAttempt' && d.player && d.target) {
       // A glowing streak from the hand to the ball at the moment of the strike
       const who = d.player, tgt = d.target;
@@ -1123,7 +1130,7 @@ function hookFx(g) {
 function launch({ home, away, userSide, diff, q, lock, stage, strictLock = false }) {
   endGameObjects();
   buildWorld(home, away);
-  game = new Game(scene, arena, home, away, { difficulty: diff, quarterMinutes: q, userSide, playerLock: lock, strictLock, autoSubs: settings.autoSubs }, hud);
+  game = new Game(scene, arena, home, away, { difficulty: diff, quarterMinutes: q, userSide, playerLock: lock, strictLock, autoSubs: settings.autoSubs, recaps: settings.recaps !== false }, hud);
   hookFx(game);
   attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   setQuiet(false);

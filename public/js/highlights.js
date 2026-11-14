@@ -292,7 +292,9 @@ const statLine = (p) => { const s = p.stats; return `${s.pts} PTS · ${s.reb} RE
 const shootLine = (p) => { const s = p.stats; return `${s.fgm}/${s.fga} FG${s.tpa ? ` · ${s.tpm}/${s.tpa} 3PT` : ''}`; };
 
 export function gameStory(g, opts = {}) {
-  const final = !!opts.final;
+  const final = !!opts.final, quarter = !!opts.quarter, qNum = opts.period || 1;
+  // a quarter is a small sample, so the things worth talking about are smaller too
+  const T = quarter ? { fga: 5, tpa: 3, blk: 3, reb: 3, to: 2, paint: 5, fb: 4, bench: 6, fta: 4, run: 7 } : { fga: 8, tpa: 6, blk: 4, reb: 5, to: 3, paint: 8, fb: 6, bench: 10, fta: 6, run: 10 };
   const A = g.away, H = g.home, me = g.user || H, op = g.other(me);
   const nA = numbers(A), nH = numbers(H), N = new Map([[A, nA], [H, nH]]);
   const nm = (t) => t.data.name;
@@ -314,6 +316,8 @@ export function gameStory(g, opts = {}) {
     { label: 'Bench points', a: nA.bench, h: nH.bench },
   ];
 
+  if (quarter) rows.unshift({ label: 'Points', a: A.quarterScores[qNum - 1] || 0, h: H.quarterScores[qNum - 1] || 0 });
+
   // Stars of the half
   const everyone = [...A.players, ...A.bench, ...H.players, ...H.bench].filter((p) => p.stats.sec > 0 || p.stats.pts > 0);
   const best = (t) => [...t.players, ...t.bench].filter((p) => p.stats.sec > 0 || p.stats.pts > 0).sort((a, b) => rating(b) - rating(a)).slice(0, 2);
@@ -326,20 +330,21 @@ export function gameStory(g, opts = {}) {
   const cmp = (key, label, hi, mk) => { const d = N.get(H)[key] - N.get(A)[key]; if (Math.abs(d) >= hi) { const w = d > 0 ? H : A, l = d > 0 ? A : H; items.push(mk(w, l, N.get(w), N.get(l), Math.abs(d))); } };
   for (const t of [A, H]) {
     const n = N.get(t), fg = pct(n.fgm, n.fga), tp = pct(n.tpm, n.tpa);
-    if (n.fga >= 8 && fg >= 55) items.push({ w: fg - 45, who: 1, type: 'fg', text: `${nm(t)} are shooting ${fg}% from the field, ${n.fgm} of ${n.fga}. They cannot miss.` });
-    if (n.fga >= 8 && fg <= 33) items.push({ w: 42 - fg, who: 1, type: 'fg', text: `${nm(t)} are ${n.fgm}-for-${n.fga} from the floor. Nothing is falling.` });
-    if (n.tpa >= 6 && tp >= 50) items.push({ w: tp - 33, who: 1, type: 'three', text: `${nm(t)} are ${n.tpm}-for-${n.tpa} from deep. That is a ${tp} percent night from three.` });
-    if (n.tpa >= 6 && tp <= 20) items.push({ w: 32 - tp, who: 1, type: 'three', text: `${nm(t)} are just ${n.tpm}-for-${n.tpa} from three. The rim is not friendly.` });
-    if (n.blk >= 4) items.push({ w: n.blk * 3, who: 0, type: 'blk', text: `${nm(t)} have ${n.blk} blocks. Nothing is easy at the rim against them.` });
+    if (n.fga >= T.fga && fg >= 55) items.push({ w: fg - 45, who: 1, type: 'fg', text: `${nm(t)} are shooting ${fg}% from the field, ${n.fgm} of ${n.fga}. They cannot miss.` });
+    if (n.fga >= T.fga && fg <= 33) items.push({ w: 42 - fg, who: 1, type: 'fg', text: `${nm(t)} are ${n.fgm}-for-${n.fga} from the floor. Nothing is falling.` });
+    if (n.tpa >= T.tpa && tp >= 50) items.push({ w: tp - 33, who: 1, type: 'three', text: `${nm(t)} are ${n.tpm}-for-${n.tpa} from deep. That is a ${tp} percent night from three.` });
+    if (n.tpa >= T.tpa && tp <= 20) items.push({ w: 32 - tp, who: 1, type: 'three', text: `${nm(t)} are just ${n.tpm}-for-${n.tpa} from three. The rim is not friendly.` });
+    if (n.blk >= T.blk) items.push({ w: n.blk * 3, who: 0, type: 'blk', text: `${nm(t)} have ${n.blk} blocks. Nothing is easy at the rim against them.` });
   }
-  cmp('reb', 'reb', 5, (w, l, a, b, d) => ({ w: d * 2.2, who: 0, type: 'reb', text: `${nm(w)} own the glass, ${a.reb} boards to ${b.reb}. Second chances are killing ${nm(l)}.` }));
+  cmp('reb', 'reb', T.reb, (w, l, a, b, d) => ({ w: d * 2.2, who: 0, type: 'reb', text: `${nm(w)} own the glass, ${a.reb} boards to ${b.reb}. Second chances are killing ${nm(l)}.` }));
   // for turnovers the team with MORE is the story, so w is the careless team here
-  cmp('to', 'to', 3, (w, l, a, b, d) => ({ w: d * 3.2, who: 2, type: 'to', text: `${nm(w)} have turned it over ${a.to} times to ${b.to} for ${nm(l)}${b.pot > 0 ? `, and ${b.pot} points came the other way off them` : ''}. Take care of the ball.` }));
-  cmp('paint', 'paint', 8, (w, l, a, b, d) => ({ w: d * 1.4, who: 0, type: 'paint', text: `${nm(w)} have ${a.paint} points in the paint to ${b.paint}. They are living at the rim.` }));
-  cmp('fb', 'fb', 6, (w, l, a, b) => ({ w: (a.fb - b.fb) * 1.8, who: 1, type: 'fb', text: `${nm(w)} are running: ${a.fb} fast-break points to ${b.fb}. Get back on defense!` }));
-  cmp('bench', 'bench', 10, (w, l, a, b, d) => ({ w: d * 1.1, who: 2, type: 'bench', text: `The ${nm(w)} bench is winning its minutes, ${a.bench} points to ${b.bench}.` }));
-  cmp('fta', 'fta', 6, (w, l, a, b) => ({ w: (a.fta - b.fta) * 1.3, who: 2, type: 'ft', text: `${nm(w)} have shot ${a.fta} free throws to ${b.fta}. They keep attacking and getting the call.` }));
-  if (g.bestRun && g.bestRun.pts >= 10) items.push({ w: g.bestRun.pts * 1.3, who: 1, type: 'run', text: `${nm(g.bestRun.team)} ripped off a ${g.bestRun.pts}-0 run in ${periodName(g.bestRun.period || 1)}. That was the swing.` });
+  cmp('to', 'to', T.to, (w, l, a, b, d) => ({ w: d * 3.2, who: 2, type: 'to', text: `${nm(w)} have turned it over ${a.to} times to ${b.to} for ${nm(l)}${b.pot > 0 ? `, and ${b.pot} points came the other way off them` : ''}. Take care of the ball.` }));
+  cmp('paint', 'paint', T.paint, (w, l, a, b, d) => ({ w: d * 1.4, who: 0, type: 'paint', text: `${nm(w)} have ${a.paint} points in the paint to ${b.paint}. They are living at the rim.` }));
+  cmp('fb', 'fb', T.fb, (w, l, a, b) => ({ w: (a.fb - b.fb) * 1.8, who: 1, type: 'fb', text: `${nm(w)} are running: ${a.fb} fast-break points to ${b.fb}. Get back on defense!` }));
+  cmp('bench', 'bench', T.bench, (w, l, a, b, d) => ({ w: d * 1.1, who: 2, type: 'bench', text: `The ${nm(w)} bench is winning its minutes, ${a.bench} points to ${b.bench}.` }));
+  cmp('fta', 'fta', T.fta, (w, l, a, b) => ({ w: (a.fta - b.fta) * 1.3, who: 2, type: 'ft', text: `${nm(w)} have shot ${a.fta} free throws to ${b.fta}. They keep attacking and getting the call.` }));
+  const bestRun = quarter ? opts.run : g.bestRun;
+  if (bestRun && bestRun.pts >= T.run) items.push({ w: bestRun.pts * 1.3, who: 1, type: 'run', text: quarter ? `${nm(bestRun.team)} ripped off a ${bestRun.pts}-0 run in the quarter. That was the swing.` : `${nm(bestRun.team)} ripped off a ${bestRun.pts}-0 run in ${periodName(bestRun.period || 1)}. That was the swing.` });
   for (const p of everyone) {
     if (p.stats.pf >= 3) items.push({ w: p.stats.pf * 4, who: 2, type: 'pf', text: `${p.data.last} has ${p.stats.pf} fouls already. The coach has to think about sitting him.` });
   }
@@ -373,16 +378,22 @@ export function gameStory(g, opts = {}) {
   // The analysts' lines, in the order they are spoken
   const lines = [];
   const absLead = Math.abs(lead);
-  if (final) {
+  if (quarter) {
+    const qa = A.quarterScores[qNum - 1] || 0, qh = H.quarterScores[qNum - 1] || 0, qw = qh >= qa ? H : A, qm = Math.abs(qh - qa), hi = Math.max(qa, qh), lo = Math.min(qa, qh);
+    const first = qm === 0 ? `A dead-even quarter, ${qa} apiece.` : qm >= 10 ? `${nm(qw)} dominate the quarter, ${hi} to ${lo}.` : `${nm(qw)} win the quarter, ${hi} to ${lo}.`;
+    lines.push([1, `${first} ${lead === 0 ? 'The game is tied.' : `${nm(leader)} lead ${leader.score} to ${trailer.score}.`}`]);
+  } else if (final) {
     lines.push([1, absLead >= 20 ? `${nm(leader)} win it going away, ${leader.score} to ${trailer.score}. That was a rout.` : absLead <= 3 ? `${nm(leader)} survive a thriller, ${leader.score} to ${trailer.score}!` : `${nm(leader)} take this one, ${leader.score} to ${trailer.score}.`]);
   } else {
     lines.push([1, absLead <= 2 ? `All square at the break, ${A.score} to ${H.score}. This one is a street fight.` : absLead >= 12 ? `${nm(leader)} are running away with it, up ${absLead}. ${nm(trailer)} need answers fast.` : `${nm(leader)} lead by ${absLead} at the half, ${leader.score} to ${trailer.score}. Nothing is decided yet.`]);
   }
-  if (potw) lines.push([potw.stats.pts >= 14 ? 0 : 1, `${potw.data.first} ${potw.data.last} ${final ? 'is the player of the game' : 'has been the best player on the floor'}: ${statLine(potw)}, ${shootLine(potw)}. ${potw.stats.pts >= 14 ? 'He is cooking!' : 'Quietly dominant.'}`]);
+  if (potw) lines.push([potw.stats.pts >= 14 ? 0 : 1, `${potw.data.first} ${potw.data.last} ${final ? 'is the player of the game' : quarter ? 'led the way in the quarter' : 'has been the best player on the floor'}: ${statLine(potw)}, ${shootLine(potw)}. ${potw.stats.pts >= 14 ? 'He is cooking!' : 'Quietly dominant.'}`]);
   const used = new Set();
   for (const it of items) { if (lines.length >= 5) break; if (used.has(it.type)) continue; used.add(it.type); lines.push([it.who, it.text]); }
   if (lines.length < 3) lines.push([0, 'Cleaner than it looks on paper. Both teams were still finding their rhythm.']);
-  if (final) {
+  if (quarter) {
+    lines.push([2, qNum === 1 ? 'Second quarter next, and the benches take over.' : qNum === 3 ? 'Fourth quarter, and everything is on the line.' : 'Overtime! Here we go.']);
+  } else if (final) {
     lines.push([2, 'That is the ballgame. Check the box score for the full story.']);
   } else {
     lines.push([2, `For ${nm(me)}: ${keyText[0]}`]);
@@ -391,6 +402,25 @@ export function gameStory(g, opts = {}) {
   }
 
   return { rows, stars, potw, keys: keyText, lines, lead, numbers: { A: nA, H: nH } };
+}
+
+// The same story, for one quarter: every player's numbers are the difference from the start of the quarter
+export function quarterStory(g, base, period, run) {
+  const K = ['pts', 'reb', 'ast', 'stl', 'blk', 'to', 'fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta', 'sec'];
+  const delta = (p) => { const s0 = (base && base.get(p)) || {}; const o = { ...p.stats }; for (const k of K) o[k] = Math.max(0, p.stats[k] - (s0[k] || 0)); return o; };   // fouls stay the running total
+  const view = new Map();
+  const mk = (t) => {
+    const b = (base && base.extra && base.extra.get(t)) || { paint: 0, fb: 0, pot: 0 };
+    const x = t.extra || { paint: 0, fb: 0, pot: 0 };
+    const vt = { ...t, players: [], bench: [], extra: { paint: x.paint - b.paint, fb: x.fb - b.fb, pot: x.pot - b.pot } };
+    const wrap = (p) => ({ data: p.data, team: vt, starter: p.starter, energy: p.energy, stats: delta(p), orig: p });
+    vt.players = t.players.map(wrap); vt.bench = t.bench.map(wrap);
+    view.set(t, vt);
+    return vt;
+  };
+  const vA = mk(g.away), vH = mk(g.home);
+  const vg = { away: vA, home: vH, user: view.get(g.user) || vH, other: (t) => (t === vH ? vA : vH), bestRun: null };
+  return gameStory(vg, { quarter: true, period, run: run ? { ...run, team: view.get(run.team) || run.team } : null });
 }
 
 export { periodName };
