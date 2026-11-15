@@ -2345,6 +2345,7 @@ $('#cloudNow').addEventListener('click', async () => { sfx.menu(); await cloudPu
 async function doLogout() {
   sfx.menu();
   quitToMenu();          // leaves any game and online room first
+  try { await cloudPush(); } catch { /* the cloud will be told next time */ }   // send what is still waiting while the login is valid
   await authLogout();
   updateAccountUI();
   showLogin(false);
