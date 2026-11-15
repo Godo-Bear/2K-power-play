@@ -2,8 +2,9 @@
 import { auth } from './auth.js';
 
 const SYNC_AT = 'pph-sync-at';
-const SKIP = new Set(['pph-auth', SYNC_AT]);
-let pushTimer = 0, pushing = false, enabled = false, lastStatus = '';
+const DIRTY = 'pph-dirty';   // who has changes here that the cloud has not received yet
+const SKIP = new Set(['pph-auth', SYNC_AT, DIRTY]);
+let pushTimer = 0, enabled = false, lastStatus = '';
 const rawSet = Storage.prototype.setItem;   // the unpatched setItem
 const listeners = new Set();
 export const onCloudStatus = (fn) => listeners.add(fn);
@@ -16,6 +17,8 @@ const localAt = () => { try { return Number(localStorage.getItem(SYNC_AT)) || 0;
 const setAt = (t) => { try { localStorage.setItem(SYNC_AT, String(t)); } catch { /* ignore */ } };
 const headers = () => ({ Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' });
 const active = () => enabled && auth.token && !auth.offline;
+const getDirty = () => { try { return localStorage.getItem(DIRTY); } catch { return null; } };
+const setDirty = (u) => { try { if (u) rawSet.call(localStorage, DIRTY, u); else localStorage.removeItem(DIRTY); } catch { /* ignore */ } };
 
 async function api(method, body) {
   const r = await fetch('/api/save', { method, headers: headers(), body: body ? JSON.stringify(body) : undefined, keepalive: !!body && JSON.stringify(body).length < 60000 });
@@ -32,7 +35,9 @@ export async function cloudSync() {
     const s = await api('GET');
     const hasServer = Object.keys(s.data || {}).length > 0;
     const mine = localAt(), hasLocal = syncedKeys().length > 0;
-    if (hasServer && (s.updated > mine || !hasLocal)) {
+    // Changes made here that never reached the cloud (logged out or closed too soon) win over an older cloud copy
+    const unsent = hasLocal && getDirty() === auth.user;
+    if (hasServer && !unsent && (s.updated > mine || !hasLocal)) {
       // Write straight to storage and stop syncing: the page reloads next, and a push racing that reload would loop
       enabled = false; clearTimeout(pushTimer);
       for (const [k, v] of Object.entries(s.data)) { try { rawSet.call(localStorage, k, v); } catch { /* ignore */ } }
@@ -46,20 +51,31 @@ export async function cloudSync() {
   } catch { status('Cloud save unavailable'); return 'error'; }
 }
 
-export async function push() {
-  if (!active() || pushing) return;
-  pushing = true;
-  try {
-    const updated = Date.now();
-    await api('PUT', { data: collect(), updated });
-    setAt(updated);
-    status(`Saved to your account at ${new Date(updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
-  } catch { status('Cloud save failed. Will retry.'); }
-  pushing = false;
+let ver = 0, sentVer = 0, inflight = null;   // ver counts changes, so a change made during an upload is never forgotten
+export function push() {
+  if (!active()) return Promise.resolve();
+  if (inflight) return inflight.then(() => (ver !== sentVer ? push() : undefined));
+  inflight = (async () => {
+    const v = ver;
+    try {
+      const updated = Date.now();
+      await api('PUT', { data: collect(), updated });
+      setAt(updated); sentVer = v;
+      if (ver === v) setDirty(null);
+      status(`Saved to your account at ${new Date(updated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`);
+    } catch {
+      status('Cloud save failed. Will retry.');
+      clearTimeout(pushTimer); pushTimer = setTimeout(push, 15000);
+    }
+    inflight = null;
+    if (ver !== sentVer && active()) { clearTimeout(pushTimer); pushTimer = setTimeout(push, 1000); }
+  })();
+  return inflight;
 }
 
 export function schedulePush() {
   if (!active()) return;
+  ver++; setDirty(auth.user);
   clearTimeout(pushTimer);
   pushTimer = setTimeout(push, 4000);
 }
