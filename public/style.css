@@ -261,6 +261,24 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 #caption { position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); max-width: min(680px, 92vw); background: rgba(5,7,12,0.78); border-radius: 8px; padding: 6px 14px; font-size: 14px; text-align: center; opacity: 0; transition: opacity .25s; }
 #caption.show { opacity: 1; }
 #caption::before { content: "🎙 "; }
+/* TV lower-thirds: a name-and-numbers bar over the bottom-left of the screen (top-left on phones, under the scorebug) */
+#lt { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: 138px; max-width: min(540px, 88vw); pointer-events: none; z-index: 3; }
+.lt-card { display: flex; align-items: stretch; border-radius: 10px; overflow: hidden; background: rgba(7,10,18,0.92); box-shadow: 0 12px 34px rgba(0,0,0,0.55); opacity: 0; transform: translateX(-26px); clip-path: inset(0 100% 0 0 round 10px); transition: clip-path 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s; }
+.lt-card.in { opacity: 1; transform: none; clip-path: inset(0 0 0 0 round 10px); }
+.lt-card.out { opacity: 0; transform: translateX(-16px); clip-path: inset(0 0 0 0 round 10px); transition: opacity 0.3s, transform 0.3s; }
+.lt-badge { flex: none; min-width: 58px; padding: 0 8px; display: grid; place-items: center; background: var(--tc, #35f0ff); color: var(--ink, #fff); font-family: var(--display); font-style: italic; font-size: 24px; }
+.lt-body { display: grid; gap: 1px; min-width: 0; padding: 7px 18px 8px 13px; border-top: 3px solid var(--tc, #35f0ff); }
+.lt-tag { font-size: 10px; letter-spacing: 0.18em; font-weight: 800; text-transform: uppercase; color: #9fdcf0; }
+.lt-title { font-family: var(--display); font-style: italic; text-transform: uppercase; font-size: clamp(19px, 2.5vw, 27px); line-height: 1.05; }
+.lt-sub { font-size: 12px; letter-spacing: 0.04em; color: #c9d2e6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+@media (max-width: 640px), (max-height: 480px) {
+  #lt { bottom: auto; top: calc(max(10px, env(safe-area-inset-top)) + 46px); left: max(10px, env(safe-area-inset-left)); max-width: 64vw; }
+  .lt-badge { min-width: 44px; font-size: 18px; padding: 0 6px; }
+  .lt-body { padding: 5px 12px 6px 10px; }
+  .lt-title { font-size: 17px; }
+  .lt-sub { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .lt-card { transform: none; clip-path: none; transition: opacity 0.2s; } .lt-card.out { transform: none; } }
 #vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.75) 100%); opacity: 0; transition: opacity .2s; }
 #vignette.on { opacity: 1; }
 #ptag .stam.energy i { background: linear-gradient(90deg, #ff8c1a, #ffd60a); }
@@ -722,6 +740,27 @@ html[data-cb="1"] #meter .zone { background: rgba(53,182,255,0.9); }
 .mv-txt b { font-family: var(--display); font-style: italic; text-transform: uppercase; font-size: 15px; }
 .mv-txt p { margin: 3px 0 0; font-size: 13px; line-height: 1.45; color: #c6cfe2; }
 @media (max-width: 640px) { .mv { grid-template-columns: 1fr; gap: 6px; } }
+/* Move Guide: the live court */
+.lab { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px 16px; width: 100%; max-width: 1000px; align-items: start; }
+.lab-stage { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #0b0f1e; aspect-ratio: 560 / 340; }
+.lab-stage canvas { display: block; width: 100%; height: 100%; }
+.lab-bar { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; gap: 6px; justify-content: space-between; flex-wrap: wrap; }
+.lab-bar button { padding: 6px 11px; border-radius: 8px; border: 1px solid var(--line); background: rgba(8,12,22,0.82); font-weight: 800; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.lab-bar button:hover { border-color: var(--accent); }
+.lab-bar button[aria-pressed=true] { background: linear-gradient(90deg, var(--accent), #3c8bff); color: #031018; border-color: transparent; }
+.lab-info { display: grid; gap: 8px; padding: 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); align-content: start; min-width: 0; }
+.lab-info h3 { margin: 0; font-family: var(--display); font-style: italic; text-transform: uppercase; font-size: clamp(20px, 3vw, 28px); line-height: 1.05; }
+.lab-info p { margin: 0; font-size: 14px; line-height: 1.5; color: #d3dbed; }
+.lab-info .lab-need { font-size: 12px; color: var(--muted); }
+.lab-list { grid-column: 1 / -1; display: grid; gap: 10px; }
+.lab-group { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 10px; align-items: start; }
+.lab-group h5 { margin: 6px 0 0; font-family: var(--display); font-style: italic; text-transform: uppercase; font-size: 13px; color: var(--muted); }
+.lab-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lab-chips button { padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,0.06); font-weight: 700; font-size: 12px; }
+.lab-chips button:hover { border-color: var(--accent); }
+.lab-chips button.on { background: linear-gradient(90deg, var(--accent), #3c8bff); color: #031018; border-color: transparent; }
+.lab-off { margin: 0; padding: 18px; color: var(--muted); font-size: 13px; text-align: center; }
+@media (max-width: 760px) { .lab { grid-template-columns: minmax(0, 1fr); } .lab-group { grid-template-columns: minmax(0, 1fr); gap: 4px; } .lab-group h5 { margin: 0; } }
 
 .foot-btn { padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(53,240,255,0.5); background: rgba(53,240,255,0.12); color: #fff; font-weight: 800; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .foot-btn:hover { background: rgba(53,240,255,0.25); }

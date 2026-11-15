@@ -1489,7 +1489,7 @@ export class Game {
       });
       const sp = Math.hypot(p.vel.x, p.vel.z);
       let animState;
-      if (p.state !== 'idle' && p.state !== 'steal') animState = p.state;
+      if (p.state !== 'idle') animState = p.state;
       else if (p.airborne) animState = 'jump';
       else if (sp > 2.6) animState = 'run';
       else if (sp > 0.5) animState = 'walk';

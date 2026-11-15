@@ -21,6 +21,8 @@ import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
 import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer, say as announce } from './announcer.js';
 import { attachCrowd } from './crowd.js';
+import { attachLowerThirds, stopLowerThirds } from './lowerthirds.js';
+import { MoveLab, MOVES as LAB_MOVES, GROUPS as LAB_GROUPS } from './movelab.js';
 import { gameStory, quarterStory, pickReel } from './highlights.js';
 import { initFriends, openFriends, friendsBadge } from './friends.js';
 import { newDay, attachTrophies, renderTrophies, claimDaily, payOut, hasUnclaimed } from './trophies.js';
@@ -68,6 +70,7 @@ let game = null;
 let tutorial = null;
 let attract = false;        // a CPU-vs-CPU game playing behind the menus
 let session = { kind: 'quick', save: null };
+let lab = null, labMove = 'windmill', labSlow = false, labKeysOn = null;      // the Move Guide's live court
 let intro = null;           // pre-game cinematic state
 let mode = 'menu';          // menu | game | paused | over
 let lastScreen = 'menu';
@@ -167,6 +170,7 @@ window.addEventListener('resize', resize);
 
 // ---------- Screens ----------
 function show(id) {
+  if (id !== 'moves') closeLab();
   $$('.screen').forEach((s) => s.classList.remove('show'));
   if (id) {
     const el = $(`#${id}`);
@@ -328,6 +332,7 @@ $('#optGfx').value = settings.gfx;
 $('#optMute').checked = settings.mute;
 $('#optVoice').checked = settings.voice;
 $('#optRecaps').checked = settings.recaps !== false;
+$('#optLT').checked = settings.lowerThirds !== false;
 $('#optMusic').checked = settings.music;
 $('#optBright').value = settings.bright;
 $('#brightVal').textContent = `${settings.bright}%`;
@@ -354,6 +359,7 @@ $('#optAdaptive').checked = settings.adaptive !== false;
 $('#optAdaptive').addEventListener('change', (e) => { settings.adaptive = e.target.checked; renderScale = 1; saveSettings(); applyQuality(); });
 $('#optMute').addEventListener('change', (e) => { settings.mute = e.target.checked; setMuted(settings.mute); setVoice(settings.voice && !settings.mute); saveSettings(); musicMaybe(); });
 $('#optRecaps').addEventListener('change', (e) => { settings.recaps = e.target.checked; if (game) game.opts.recaps = settings.recaps; saveSettings(); });
+$('#optLT').addEventListener('change', (e) => { settings.lowerThirds = e.target.checked; if (!e.target.checked) stopLowerThirds(); saveSettings(); });
 $('#optVoice').addEventListener('change', (e) => { settings.voice = e.target.checked; setVoice(settings.voice && !settings.mute); saveSettings(); });
 $('#optMusic').addEventListener('change', (e) => { settings.music = e.target.checked; saveSettings(); musicMaybe(); });
 $('#optBright').addEventListener('input', (e) => {
@@ -528,7 +534,7 @@ function endGameObjects() {
   contest = null;
   $('#contestPanel').classList.remove('show');
   $('#pracPanel').classList.remove('show');
-  stopAnnouncer();
+  stopAnnouncer(); stopLowerThirds();
   $('#tutPanel').classList.remove('show');
   $('#intro').classList.remove('show');
   $('#vignette').classList.remove('on');
@@ -860,6 +866,7 @@ const bindLabel = (id) => {
   return [k ? keyName(k) : null, pad != null && pad >= 0 ? padName(pad) : null].filter(Boolean).join(' / ') || '—';
 };
 const MOVE_TABS = [
+  { id: 'see', label: 'Dunks & moves', lab: true },
   { id: 'ball', label: 'With the ball', items: [
     { b: ['shoot'], how: 'Hold, then release', t: 'Jump shot', d: 'A meter fills while you hold. Let go in the green zone and it almost always goes in. The game picks the shot: pull-up on the move, step-back after a step-back, fadeaway when guarded close, floater in the lane.' },
     { b: ['shoot'], how: 'Tap near the rim', t: 'Layup and dunk', d: 'Close to the basket the same button goes up for a layup. Sprint in with speed and it becomes a dunk: a windmill or tomahawk when you are open, a two-hand slam when crowded, plus euro-steps and reverse layups.' },
@@ -892,12 +899,65 @@ const MOVE_TABS = [
     { b: [], how: 'Fouls', t: 'Fouls and the bonus', d: 'Contact on a shooter is a shooting foul. After five team fouls in a quarter, every foul is two free throws. Six personal fouls and a player is out.' },
   ] },
 ];
-let movesTab = 'ball';
+let movesTab = 'see';
 function renderMoves() {
   $('#movesTabs').innerHTML = MOVE_TABS.map((t) => `<button class="${t.id === movesTab ? 'on' : ''}" data-t="${t.id}">${t.label}</button>`).join('');
   $$('#movesTabs button').forEach((b) => b.addEventListener('click', () => { movesTab = b.dataset.t; sfx.menu(); renderMoves(); }));
   const tab = MOVE_TABS.find((t) => t.id === movesTab) || MOVE_TABS[0];
+  if (tab.lab) { renderLab(); return; }
+  closeLab();
   $('#movesBody').innerHTML = tab.items.map((m) => `<div class="mv"><div class="mv-keys">${m.b.map((id) => `<kbd>${bindLabel(id)}</kbd>`).join('<i>+</i>')}<small>${m.how}</small></div><div class="mv-txt"><b>${m.t}</b><p>${m.d}</p></div></div>`).join('');
+}
+// ---- Dunks & moves: a live court where the move you pick is played out ----
+function closeLab() {
+  if (labKeysOn) { document.removeEventListener('keydown', labKeysOn); labKeysOn = null; }
+  if (lab) { lab.dispose(); lab = null; }
+}
+function pickLab(id) {
+  const m = LAB_MOVES.find((x) => x.id === id) || LAB_MOVES[0];
+  labMove = m.id;
+  $('#labName').textContent = m.name;
+  $('#labKeys').innerHTML = `${m.keys.map((k) => `<kbd>${esc(bindLabel(k))}</kbd>`).join('<i>+</i>')}<small>${esc(m.how)}</small>`;
+  $('#labText').textContent = m.d;
+  $('#labNeed').textContent = m.need || '';
+  $$('#movesBody .lab-chips button').forEach((b) => { const on = b.dataset.m === m.id; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); });
+  const cv = $('#labCanvas');
+  if (cv) cv.setAttribute('aria-label', `${m.name}. ${m.d}`);
+  if (lab) lab.play(m.id);
+}
+function stepLab(dir) {
+  const i = LAB_MOVES.findIndex((x) => x.id === labMove);
+  pickLab(LAB_MOVES[(i + dir + LAB_MOVES.length) % LAB_MOVES.length].id);
+  sfx.menu();
+}
+function renderLab() {
+  closeLab();
+  $('#movesBody').innerHTML = `<div class="lab">
+    <div class="lab-stage"><canvas id="labCanvas" role="img" aria-label=""></canvas>
+      <div class="lab-bar"><button type="button" id="labPrev" aria-label="Previous move">◀</button><button type="button" id="labReplay">Replay</button><button type="button" id="labSlow" aria-pressed="${labSlow}">Slow-mo</button><button type="button" id="labNext" aria-label="Next move">▶</button></div></div>
+    <div class="lab-info"><h3 id="labName"></h3><div class="mv-keys" id="labKeys"></div><p id="labText"></p><p class="lab-need" id="labNeed"></p></div>
+    <div class="lab-list">${LAB_GROUPS.map((g) => `<div class="lab-group"><h5>${esc(g.label)}</h5><div class="lab-chips">${LAB_MOVES.filter((m) => m.group === g.id).map((m) => `<button type="button" data-m="${m.id}" aria-pressed="false">${esc(m.name)}</button>`).join('')}</div></div>`).join('')}</div>
+  </div>`;
+  try {
+    const mine = TEAMS[settings[settings.side]], other = TEAMS[settings[settings.side === 'home' ? 'away' : 'home']];
+    lab = new MoveLab($('#labCanvas'), { team: mine, rival: other === mine ? TEAMS[(settings[settings.side] + 3) % TEAMS.length] : other, sfx: { dunk: () => sfx.dunk(), swish: () => sfx.swish(), pass: () => sfx.pass(), squeak: () => sfx.squeak(), swipe: () => sfx.swipe() } });
+    lab.setSpeed(labSlow ? 0.4 : 1);
+    lab.start();
+  } catch {
+    lab = null;
+    $('#labCanvas').replaceWith(Object.assign(document.createElement('p'), { className: 'lab-off', textContent: 'The live court needs 3D graphics, which this device is not giving the page. The moves are all listed below.' }));
+  }
+  $$('#movesBody .lab-chips button').forEach((b) => b.addEventListener('click', () => { sfx.menu(); pickLab(b.dataset.m); }));
+  $('#labReplay').addEventListener('click', () => { sfx.menu(); if (lab) lab.play(labMove); });
+  $('#labSlow').addEventListener('click', (ev) => { labSlow = !labSlow; ev.currentTarget.setAttribute('aria-pressed', String(labSlow)); if (lab) lab.setSpeed(labSlow ? 0.4 : 1); sfx.menu(); });
+  $('#labPrev').addEventListener('click', () => stepLab(-1));
+  $('#labNext').addEventListener('click', () => stepLab(1));
+  labKeysOn = (ev) => {
+    if (!$('#moves').classList.contains('show') || /^(INPUT|SELECT|TEXTAREA)$/.test((ev.target && ev.target.tagName) || '')) return;
+    if (ev.key === 'ArrowRight') { ev.preventDefault(); stepLab(1); } else if (ev.key === 'ArrowLeft') { ev.preventDefault(); stepLab(-1); }
+  };
+  document.addEventListener('keydown', labKeysOn);
+  pickLab(labMove);
 }
 let movesReturn = 'menu';
 function openMoves(back) { movesReturn = back; renderMoves(); show('moves'); }
@@ -1132,7 +1192,7 @@ function launch({ home, away, userSide, diff, q, lock, stage, strictLock = false
   buildWorld(home, away);
   game = new Game(scene, arena, home, away, { difficulty: diff, quarterMinutes: q, userSide, playerLock: lock, strictLock, autoSubs: settings.autoSubs, recaps: settings.recaps !== false }, hud);
   hookFx(game);
-  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
+  attachAnnouncer(game); attachCrowd(game, arena); attachLowerThirds(game, { on: () => settings.lowerThirds !== false }); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   setQuiet(false);
   mode = 'game';
   stopMusic();
@@ -1340,7 +1400,7 @@ function startOnlineHost() {
   o.queue = [];
   game = new Game(scene, arena, home, away, { difficulty: 'pro', quarterMinutes: o.q, userSide: 'home', playerLock: -1, versus: true, remoteInput: o.remote, autoSubs: settings.autoSubs }, makeNetHud(o));
   hookFx(game);
-  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
+  attachAnnouncer(game); attachCrowd(game, arena); attachLowerThirds(game, { on: () => settings.lowerThirds !== false }); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   game.on((type, d) => { const e = packEvent(game, type, d); if (e) o.queue.push(e); });
   patchSfx(o.queue);
   setQuiet(false); stopMusic();
@@ -1364,7 +1424,7 @@ function startOnlineGuest(m) {
   game.guest = true;
   game.state = 'intro';
   hookFx(game);
-  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
+  attachAnnouncer(game); attachCrowd(game, arena); attachLowerThirds(game, { on: () => settings.lowerThirds !== false }); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   o.sender = makeInputSender(input);
   setQuiet(false); stopMusic();
   o.playing = true; o.menu = false;
@@ -1737,7 +1797,7 @@ function startContest(kind) {
   }, hud);
   hookFx(game);
   game.tutorialPossession = 'user';
-  attachAnnouncer(game); attachCrowd(game, arena); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
+  attachAnnouncer(game); attachCrowd(game, arena); attachLowerThirds(game, { on: () => settings.lowerThirds !== false }); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   setQuiet(false); stopMusic();
   mode = 'game';
   camPos.set(0, 8.2, 16); camTarget.set(0, 1.2, 0);
