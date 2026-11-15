@@ -614,7 +614,8 @@ function choosePose(p, state, ctx) {
   // Legs swing from the hips with the knee folding on the way forward; arms swing against the legs.
   if ((state === 'walk' || state === 'run') && !ctx.airborne) {
     const run = Math.min(1, Math.max(0, ((ctx.speed || 0) - 1.2) / 4.5));        // 0 = easy walk, 1 = full sprint
-    const A = 0.38 + 0.42 * run, K = 0.45 + 0.85 * run;                         // thigh swing and knee fold
+    const fast = Math.min(1, Math.max(0, ((ctx.speed || 0) - 5) / 3.5));         // 0 = a jog, 1 = a full sprint: longer strides, high knees, hard arm pumping
+    const A = 0.38 + 0.42 * run + 0.3 * fast, K = 0.45 + 0.85 * run + 0.55 * fast;   // thigh swing and knee fold
     const leg = (a, side) => {
       const th = Math.sin(a) * A, kn = Math.max(0, Math.cos(a)) * K + 0.08;
       return [[side * 0.06, -Math.cos(th), Math.sin(th)], [0, -Math.cos(th - kn), Math.sin(th - kn)]];
@@ -622,7 +623,7 @@ function choosePose(p, state, ctx) {
     const ph = ctx.phase || 0;
     if (!out.lL && !out.lR) { out.lL = leg(ph, 1); out.lR = leg(ph + Math.PI, -1); }
     if (!out.aL && !out.aR) {
-      const AA = 0.3 + 0.5 * run, el = 0.35 + 0.8 * run;
+      const AA = 0.3 + 0.5 * run + 0.45 * fast, el = 0.35 + 0.8 * run + 0.45 * fast;
       const arm = (a, side) => { const th = Math.sin(a) * AA; return [[side * 0.22, -Math.cos(th), Math.sin(th)], [side * 0.1, -Math.cos(th + el), Math.sin(th + el)]]; };
       out.aL = arm(ph + Math.PI, 1); out.aR = arm(ph, -1);
     }
@@ -661,7 +662,8 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   const roll = state === 'layup' && ctx.style === 'euro' ? 0.22 : ctx.move === 'crossover' || ctx.move === 'behind' ? (ctx.ballSide || 1) * 0.12 : (state === 'idle' && speed < 0.5 ? Math.sin((player.life || 0) * 0.9) * 0.014 : 0);
   h.rotation.z += (roll - h.rotation.z) * Math.min(1, dt * 10);
   // Lean into sprints, sit into a defensive stance
-  const lean = Math.min(0.16, speed * 0.022) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
+  const sprintK = Math.min(1, Math.max(0, (speed - 5) / 3.5));
+  const lean = Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
     + (state === 'steal' ? 0.3 : 0)
     + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
   h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
@@ -669,7 +671,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   player.life = (player.life || 0) + dt;
   const stride = (state === 'walk' || state === 'run') ? Math.min(1, Math.max(0, (speed - 1.2) / 4.5)) : -1;
   const ph = player.walkPhase || 0;
-  const bob = stride >= 0 ? Math.abs(Math.sin(ph)) * (0.018 + 0.04 * stride) - 0.012 * stride : Math.sin(player.life * 2.1) * 0.006;
+  const bob = stride >= 0 ? Math.abs(Math.sin(ph)) * (0.018 + 0.04 * stride + 0.03 * sprintK) - 0.012 * stride : Math.sin(player.life * 2.1) * 0.006;
   player.bobY = (player.bobY || 0) + (bob - (player.bobY || 0)) * Math.min(1, dt * 18);
   if (player.wasAir && !ctx.airborne) player.landT = 0.2;
   player.wasAir = !!ctx.airborne;
