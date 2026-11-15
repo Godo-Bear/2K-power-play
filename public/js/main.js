@@ -872,7 +872,7 @@ const MOVE_TABS = [
     { b: ['shoot'], how: 'Tap near the rim', t: 'Layup and dunk', d: 'Close to the basket the same button goes up for a layup. Sprint in with speed and it becomes a dunk: a windmill or tomahawk when you are open, a two-hand slam when crowded, plus euro-steps and reverse layups.' },
     { b: ['pass'], how: 'Tap, point the stick', t: 'Pass', d: 'Aim the stick at a teammate. The game chooses a chest pass, a bounce pass through traffic, or a lob for an alley-oop near the rim.' },
     { b: ['move'], how: 'Tap', t: 'Crossover moves', d: 'The situation picks the move: crossover, behind-the-back, hesitation, step-back, or a spin when a defender is on you and you are driving. Good handles make defenders stumble.' },
-    { b: ['move'], how: 'Stand still near the rim', t: 'Post-up', d: 'A big player near the basket with a defender on his back can back him down. He turns and finishes on his own when the move ends.' },
+    { b: ['move'], how: 'Stand still near the rim', t: 'Post-up', d: 'A big player near the basket with a defender on their back can back the defender down. They turn and finish on their own when the move ends.' },
     { b: ['shoot', 'pass'], how: 'Hold Shoot, tap Pass', t: 'Pump fake', d: 'Cancel the shot and fake it. A defender who bites jumps and is out of the play, so drive past him.' },
     { b: ['sprint'], how: 'Hold', t: 'Sprint', d: 'Faster, and needed for dunks and fast breaks. It tires players, so rotate your bench.' },
     { b: ['shoot'], how: 'Hold, then release', t: 'Free throws', d: 'Same meter as a jump shot. Wait for the green zone.' },
@@ -894,7 +894,7 @@ const MOVE_TABS = [
   { id: 'rules', label: 'The rules', items: [
     { b: [], how: '24 seconds', t: 'Shot clock', d: 'Get a shot up before it hits zero. After an offensive rebound it resets to 14.' },
     { b: [], how: '8 seconds', t: 'Half court', d: 'Bring the ball over the half-court line within eight seconds, and never carry it back over once you are across.' },
-    { b: [], how: '3 seconds', t: 'The lane', d: 'No offensive player can stay in the paint more than three seconds while his team has the ball.' },
+    { b: [], how: '3 seconds', t: 'The lane', d: 'No offensive player can stay in the paint more than three seconds while their team has the ball.' },
     { b: [], how: 'Q2 and Q3', t: 'Possession', d: 'The team that loses the opening tip gets the ball to start the second and third quarters, and the tip winner gets the fourth.' },
     { b: [], how: 'Fouls', t: 'Fouls and the bonus', d: 'Contact on a shooter is a shooting foul. After five team fouls in a quarter, every foul is two free throws. Six personal fouls and a player is out.' },
   ] },
@@ -933,7 +933,7 @@ function stepLab(dir) {
 function renderLab() {
   closeLab();
   $('#movesBody').innerHTML = `<div class="lab">
-    <div class="lab-stage"><canvas id="labCanvas" role="img" aria-label=""></canvas>
+    <div class="lab-stage"><div class="lab-view"><canvas id="labCanvas" role="img" aria-label=""></canvas></div>
       <div class="lab-bar"><button type="button" id="labPrev" aria-label="Previous move">◀</button><button type="button" id="labReplay">Replay</button><button type="button" id="labSlow" aria-pressed="${labSlow}">Slow-mo</button><button type="button" id="labNext" aria-label="Next move">▶</button></div></div>
     <div class="lab-info"><h3 id="labName"></h3><div class="mv-keys" id="labKeys"></div><p id="labText"></p><p class="lab-need" id="labNeed"></p></div>
     <div class="lab-list">${LAB_GROUPS.map((g) => `<div class="lab-group"><h5>${esc(g.label)}</h5><div class="lab-chips">${LAB_MOVES.filter((m) => m.group === g.id).map((m) => `<button type="button" data-m="${m.id}" aria-pressed="false">${esc(m.name)}</button>`).join('')}</div></div>`).join('')}</div>

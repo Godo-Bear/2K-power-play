@@ -18,7 +18,7 @@ const CAMS = {
   rim: [[-0.9, 2.7, 6.9], [-1.4, 2.3, 0]],
   mid: [[-3.9, 2.0, 6.9], [-3.9, 1.35, 0]],
   shot: [[-3.0, 2.4, 8.4], [-3.0, 1.7, 0]],
-  close: [[-4.4, 1.6, 4.7], [-4.4, 1.1, 0]],
+  close: [[-4.4, 1.6, 5.4], [-4.4, 1.1, 0]],
 };
 
 // ---------- What there is to see ----------
@@ -187,8 +187,8 @@ const SCRIPTS = {
   },
   *stepback(S) {
     const p = S.hero, q = S.foe;
-    S.place(q, -5.3, 0, -Math.PI / 2); q.defending = true;
-    S.place(p, -7.2, 0); S.dribble(p); S.face(p, q.pos); S.face(q, p.pos);
+    S.place(q, -3.9, 0, -Math.PI / 2); q.defending = true;
+    S.place(p, -5.0, 0); S.dribble(p); S.face(p, q.pos); S.face(q, p.pos);
     yield S.wait(0.9);
     S.dribbleMove(p, 'stepback');
     yield S.until(() => !p.airborne);
@@ -221,15 +221,15 @@ const SCRIPTS = {
     for (let i = 0; i < 2; i++) {
       const side = i ? -1 : 1;
       S.place(q, -3.2, 0, -Math.PI / 2); q.defending = true; S.face(q, p.pos);
-      S.place(p, -6.4, -0.3 * side); S.dribble(p); p.desired.set(0.45, 0, 0.06 * side);
-      yield S.until(() => p.pos.x > -4.9);
+      S.place(p, -6.4, -0.5 * side); S.dribble(p); p.desired.set(0.45, 0, 0.1 * side);
+      yield S.until(() => p.pos.x > -5.0);
       S.dribbleMove(p, name);
-      p.desired.set(name === 'hesi' ? 1 : 0.9, 0, 0.7 * side);
+      p.desired.set(name === 'hesi' ? 0.7 : 0.55, 0, 1.0 * side);
       yield S.wait(0.35);
       q.stumbleT = 1.0;
-      yield S.wait(0.9);
-      p.desired.set(0.3, 0, 0);
-      yield S.wait(0.5);
+      yield S.wait(0.7);
+      p.desired.set(0.1, 0, 0);
+      yield S.wait(0.6);
     }
   },
   *crossover(S) { yield* SCRIPTS.handle(S, 'crossover'); },
@@ -267,8 +267,8 @@ const SCRIPTS = {
   },
   *slide(S) {
     const p = S.hero, q = S.foe;
-    S.place(q, -4.3, -2.2); S.dribble(q); S.face(q, RIM_POINT);
-    S.place(p, -3.2, -2.2, -Math.PI / 2); p.defending = true; S.face(p, q.pos);
+    S.place(q, -4.8, -2.2); S.dribble(q); S.face(q, RIM_POINT);
+    S.place(p, -3.1, -2.2, -Math.PI / 2); p.defending = true; S.face(p, q.pos);
     S.hook(() => { p.desired.set(0, 0, clamp((q.pos.z - p.pos.z) * 2.5, -0.58, 0.58)); });
     for (let k = 0; k < 3; k++) {
       const goal = k % 2 ? -2.2 : 2.2;
@@ -329,7 +329,7 @@ const SCRIPTS = {
     p.burstT = 0.9;
     yield S.wait(0.35);
     p.desired.set(1, 0, 0.55);
-    yield S.wait(0.8);
+    yield S.wait(0.55);
     p.desired.set(0, 0, 0);
     yield S.wait(0.9);
   },
@@ -555,7 +555,7 @@ export class MoveLab {
       if (p.released && (st === 'ft' ? p.actionT > 0.9 : !p.airborne)) { p.state = 'idle'; p.faceTarget = null; p.releaseAt = 0; }
     } else if (st === 'steal') {
       const h = p.stealTarget;
-      if (h && p.actionT > 0.05 && p.actionT < 0.34) { p.desired.set(h.pos.x - p.pos.x, 0, h.pos.z - p.pos.z).normalize(); p.faceTarget = h.pos; }
+      if (h && p.actionT > 0.05 && p.actionT < 0.34) { p.desired.set(h.pos.x - p.pos.x, 0, h.pos.z - p.pos.z).normalize().multiplyScalar(0.2); p.faceTarget = h.pos; }
       if (!p.stealResolved && p.actionT >= 0.22) this.resolveSteal(p);
       if (p.actionT > 0.62) { p.state = 'idle'; p.stealTarget = null; p.faceTarget = null; p.desired.set(0, 0, 0); }
     }
@@ -694,7 +694,7 @@ export class MoveLab {
   }
   dribbleMove(p, name) {
     p.moveName = name; p.moveT = 0.5; this.fx('squeak');
-    if (name === 'stepback') { p.vel.set(-5.6, 0, 0); p.jump(0.32, 0.16); p.rhythmT = 1.5; return; }
+    if (name === 'stepback') { p.vel.set(-4.0, 0, 0); p.jump(0.32, 0.16); p.rhythmT = 1.5; return; }
     if (name === 'hesi') { p.hesiT = 0.28; p.burstT = 0.9; return; }
     p.burstT = name === 'spin' ? 0.58 : 0.5;
     p.crossSide = -(p.crossSide || 1);
@@ -739,7 +739,7 @@ export class MoveLab {
   swat(shooter) {
     const b = this.ball;
     b.mode = 'free'; b.holder = null; b.pos.y = Math.max(b.pos.y, 2.4);
-    b.vel.set(-5.2, 3.2, 2.4);
+    b.vel.set(-3.6, 2.0, 2.2);
     shooter.state = 'idle'; shooter.actionT = 0; shooter.faceTarget = null; shooter.released = true;
     shooter.stumbleT = 0.3; this.shake = 0.4; this.fx('swipe');
   }

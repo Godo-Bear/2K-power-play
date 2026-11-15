@@ -742,10 +742,11 @@ html[data-cb="1"] #meter .zone { background: rgba(53,182,255,0.9); }
 @media (max-width: 640px) { .mv { grid-template-columns: 1fr; gap: 6px; } }
 /* Move Guide: the live court */
 .lab { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px 16px; width: 100%; max-width: 1000px; align-items: start; }
-.lab-stage { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #0b0f1e; aspect-ratio: 560 / 340; }
-.lab-stage canvas { display: block; width: 100%; height: 100%; }
-.lab-bar { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; gap: 6px; justify-content: space-between; flex-wrap: wrap; }
-.lab-bar button { padding: 6px 11px; border-radius: 8px; border: 1px solid var(--line); background: rgba(8,12,22,0.82); font-weight: 800; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.lab-stage { display: grid; gap: 8px; min-width: 0; }
+.lab-view { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: #0b0f1e; aspect-ratio: 560 / 340; }
+.lab-view canvas { display: block; width: 100%; height: 100%; }
+.lab-bar { display: flex; gap: 6px; justify-content: space-between; flex-wrap: wrap; }
+.lab-bar button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: rgba(255,255,255,0.07); font-weight: 800; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 .lab-bar button:hover { border-color: var(--accent); }
 .lab-bar button[aria-pressed=true] { background: linear-gradient(90deg, var(--accent), #3c8bff); color: #031018; border-color: transparent; }
 .lab-info { display: grid; gap: 8px; padding: 14px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); align-content: start; min-width: 0; }

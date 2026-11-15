@@ -627,6 +627,8 @@ function choosePose(p, state, ctx) {
       out.aL = arm(ph + Math.PI, 1); out.aR = arm(ph, -1);
     }
   }
+  // Standing with nothing to do: arms hang relaxed. Without this the arms stay wherever the last pose (a follow-through, a pass) left them.
+  if (!out.aL && !out.aR && state === 'idle') { out.aL = [[0.2, -0.97, 0.08], [0.12, -0.85, 0.42]]; out.aR = [[-0.2, -0.97, 0.08], [-0.12, -0.85, 0.42]]; }
   return out;
 }
 
