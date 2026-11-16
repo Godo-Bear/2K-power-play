@@ -15,7 +15,7 @@ const readList = (key) => { try { const v = JSON.parse(localStorage.getItem(key)
 const writeList = (key, list) => { try { localStorage.setItem(key, JSON.stringify(list.slice(-200))); } catch { /* ignore */ } };
 
 // Changes one career and returns a short line saying what it got
-function applyGift(c, g) {
+function applyGift(c, g, s) {
   switch (g.type) {
     case 'rp': c.rp = (c.rp || 0) + g.amount; return `+${g.amount.toLocaleString()} Rep Points`;
     case 'attr': {
@@ -25,6 +25,7 @@ function applyGift(c, g) {
     }
     case 'maxRatings': for (const k of Object.keys(c.ratings || {})) c.ratings[k] = 99; return 'All ratings set to 99';
     case 'unlockStyles': c.adminUnlock = true; return 'Every play style unlocked';
+    case 'heal': if (s) s.health = {}; return 'Injuries healed and everyone rested';
     case 'titles': c.titles = (c.titles || 0) + g.amount; return `+${g.amount} championship${g.amount === 1 ? '' : 's'}`;
     // Taking things away: never below the floor (0 Rep Points, 0 championships; ratings are kept at 40 or more above)
     case 'takeRp': c.rp = Math.max(0, (c.rp || 0) - g.amount); return `−${g.amount.toLocaleString()} Rep Points`;
@@ -74,7 +75,8 @@ export async function collectGifts() {
       continue;                                                      // a gift with no career to go to yet keeps waiting
     }
     let what = null;
-    for (const s of targets) { what = applyGift(s.career, g); touched.add(s); }
+    for (const s of targets) { what = applyGift(s.career, g, s); touched.add(s); }
+    if (g.type === 'heal' && !g.slot) { const ss = Season.load('season'); if (ss) { ss.health = {}; Season.save(ss); } }   // the season team too
     if (what) {
       lines.push({ icon: taking ? '🔻' : '🎁', title: what, who: targets.map((s) => `${s.career.first} ${s.career.last}`.trim()).join(', '), text: g.note || '' });
       done.push(g.id); claim.push(g.id);

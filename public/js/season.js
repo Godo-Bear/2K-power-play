@@ -99,36 +99,58 @@ export function standings(s) {
 
 export function regularSeasonDone(s) { return s.round >= s.schedule.length; }
 
+// ---------- Playoffs: best-of series ----------
+// Semifinals are best of 5, the final best of 7. The higher seed (sr.h) has home court: games 1, 2, 5 and 7 at home, 3, 4 and 6 away.
+export const SERIES = { semi: 5, final: 7 };
+const mkSeries = (h, a, best) => ({ h, a, best, games: [], hw: 0, aw: 0, winner: null });
+export const seriesHomeIsSeed = (n) => [true, true, false, false, true, false, true][n] !== false;   // n = game index from 0
+const seriesGame = (sr) => { const n = sr.games.length, seedHome = seriesHomeIsSeed(n); return { h: seedHome ? sr.h : sr.a, a: seedHome ? sr.a : sr.h, n, seedHome }; };
+function seriesRecord(sr, hs, as) {
+  const g = seriesGame(sr);
+  sr.games.push({ h: g.h, a: g.a, hs, as });
+  const seedWon = g.seedHome ? hs > as : as > hs;
+  if (seedWon) sr.hw++; else sr.aw++;
+  const need = Math.ceil(sr.best / 2);
+  if (sr.hw >= need) sr.winner = sr.h; else if (sr.aw >= need) sr.winner = sr.a;
+}
+const userSeries = (s) => { const p = s.playoffs; return [...(p.final ? [p.final] : []), ...p.semis].find((sr) => !sr.winner && (sr.h === s.team || sr.a === s.team)) || null; };
+export const seriesScore = (sr) => `${sr.hw}-${sr.aw}`;
+
 // The next game the user has to play (or null if their season is over)
 export function nextGame(s) {
   if (!regularSeasonDone(s)) return { ...s.schedule[s.round].find((g) => g.h === s.team || g.a === s.team), stage: `Game ${s.round + 1} of ${s.schedule.length}` };
   const p = s.playoffs;
   if (!p || p.champion != null) return null;
-  const pool = p.final ? [p.final] : p.semis;
-  const g = pool.find((x) => x.hs == null && (x.h === s.team || x.a === s.team));
-  return g ? { ...g, stage: p.final ? 'Championship Final' : 'Playoff Semifinal' } : null;
+  const sr = userSeries(s);
+  if (!sr) return null;
+  const g = seriesGame(sr);
+  const isFinal = sr === p.final;
+  const mineWins = sr.h === s.team ? sr.hw : sr.aw, theirWins = sr.h === s.team ? sr.aw : sr.hw;
+  const lead = mineWins === theirWins ? `series tied ${mineWins}-${theirWins}` : mineWins > theirWins ? `you lead ${mineWins}-${theirWins}` : `you trail ${mineWins}-${theirWins}`;
+  return { h: g.h, a: g.a, hs: null, as: null, stage: `${isFinal ? 'Final' : 'Semifinal'} · Game ${g.n + 1} of ${sr.best} · ${lead}` };
 }
 
 function startPlayoffs(s) {
   const top = standings(s).slice(0, 4).map((x) => x.team);
-  s.playoffs = { seeds: top, semis: [{ h: top[0], a: top[3], hs: null, as: null }, { h: top[1], a: top[2], hs: null, as: null }], final: null, champion: null };
+  s.playoffs = { seeds: top, semis: [mkSeries(top[0], top[3], SERIES.semi), mkSeries(top[1], top[2], SERIES.semi)], final: null, champion: null };
   advancePlayoffs(s);
 }
 
+// Plays out every series the user is not in, opens the final once both semis are decided, and crowns the champion
 function advancePlayoffs(s) {
   const p = s.playoffs;
-  const userIn = (g) => g.h === s.team || g.a === s.team;
-  const winner = (g) => (g.hs > g.as ? g.h : g.a);
+  const userIn = (sr) => sr.h === s.team || sr.a === s.team;
+  const simSeries = (sr) => { while (!sr.winner) { const g = seriesGame(sr), tmp = { h: g.h, a: g.a }; simScore(s, tmp); seriesRecord(sr, tmp.hs, tmp.as); } };
   if (!p.final) {
-    for (const g of p.semis) if (g.hs == null && !userIn(g)) simScore(s, g);
-    if (p.semis.every((g) => g.hs != null)) {
-      const w = p.semis.map(winner).sort((a, b) => p.seeds.indexOf(a) - p.seeds.indexOf(b));
-      p.final = { h: w[0], a: w[1], hs: null, as: null };
+    for (const sr of p.semis) if (!userIn(sr)) simSeries(sr);
+    if (p.semis.every((sr) => sr.winner)) {
+      const w = p.semis.map((sr) => sr.winner).sort((a, b) => p.seeds.indexOf(a) - p.seeds.indexOf(b));
+      p.final = mkSeries(w[0], w[1], SERIES.final);
     }
   }
   if (p.final) {
-    if (p.final.hs == null && !userIn(p.final)) simScore(s, p.final);
-    if (p.final.hs != null) p.champion = winner(p.final);
+    if (!userIn(p.final)) simSeries(p.final);
+    if (p.final.winner != null) p.champion = p.final.winner;
   }
 }
 
@@ -142,9 +164,8 @@ export function recordGame(s, hs, as, boxScore = null) {
     s.round++;
     if (regularSeasonDone(s)) startPlayoffs(s);
   } else if (s.playoffs && s.playoffs.champion == null) {
-    const p = s.playoffs;
-    const g = (p.final ? [p.final] : p.semis).find((x) => x.hs == null && (x.h === s.team || x.a === s.team));
-    if (g) { g.hs = hs; g.as = as; }
+    const sr = userSeries(s);
+    if (sr) seriesRecord(sr, hs, as);
     advancePlayoffs(s);
   }
   if (boxScore) {
@@ -158,12 +179,18 @@ export function recordGame(s, hs, as, boxScore = null) {
 }
 
 // Simulate the user's own next game
-export function simUserGame(s) {
+export function simUserGame(s, { rest = false } = {}) {
   const g = nextGame(s);
   if (!g) return null;
   const tmp = { h: g.h, a: g.a };
   simScore(s, tmp);
-  if (!s.career) { recordGame(s, tmp.hs, tmp.as); return tmp; }
+  const rows = rosterRows(s).map((r) => ({ ...r, rested: rest && r.isMe }));
+  if (!s.career || rest || healthReport(s).meOut) {
+    recordGame(s, tmp.hs, tmp.as);
+    afterGame(s, rows, true);
+    tmp.rested = !!s.career;
+    return tmp;
+  }
   // Career: the player gets a full stat line, as if he had played the game
   const c = s.career;
   const mineHome = tmp.h === s.team;
@@ -174,6 +201,7 @@ export function simUserGame(s) {
   tmp.won = mineHome ? tmp.hs > tmp.as : tmp.as > tmp.hs;
   tmp.line = line;
   tmp.reward = careerReward(s, line, tmp.won);
+  afterGame(s, rows, true);
   return tmp;
 }
 
@@ -210,6 +238,67 @@ export function simCareerLine(c, q, fraction = 1, teamPts = 999) {
     pf: Math.min(5, sn(jitter(0.5 * per8, 0.8))),
     sec: Math.round(per8 * 8 * 60 * 0.8),
   };
+}
+
+// ---------- Health: fatigue that carries over and short injuries ----------
+// Mild on purpose: most tiredness is gone by the next tip-off, injuries last 1-3 games, your own player misses at most 2,
+// and an admin can clear everything with the "Heal" gift. Keyed like the stats rows: "First Last#number".
+export const playerKey = (p) => `${p.first} ${p.last}#${p.number}`;
+export const health = (s) => s.health || (s.health = {});
+const INJURIES = ['sprained ankle', 'tight hamstring', 'bruised knee', 'sore back', 'jammed finger', 'hip bruise'];
+// Team data for a game: injured starters swap with their backups, and everyone carries in their energy
+export function applyHealth(s, teamData) {
+  const H = health(s);
+  const roster = teamData.roster.map((p) => ({ ...p }));
+  const hurt = (p) => { const h = H[playerKey(p)]; return !!(h && h.out > 0); };
+  for (let i = 0; i < 5; i++) {
+    if (!hurt(roster[i])) continue;
+    // the backup in the same slot first, otherwise any healthy substitute
+    const j = [i + 5, 5, 6, 7, 8, 9].find((k) => !hurt(roster[k]));
+    if (j == null) continue;                                           // everyone on the bench is out too: he plays through it
+    const st = roster[i]; roster[i] = { ...roster[j], bench: false }; roster[j] = { ...st, bench: true };
+  }
+  for (const p of roster) {
+    const h = H[playerKey(p)];
+    p.injured = !!(h && h.out > 0);
+    p.energy = p.injured ? 0.05 : Math.max(0.4, 1 - (h ? h.fatigue : 0));
+  }
+  return { ...teamData, roster };
+}
+// Rows for the user's whole team ({ key, bench, isMe }), used when a game is simulated
+export function rosterRows(s) {
+  const t = s.career ? careerTeamData(s) : TEAMS[s.team];
+  return t.roster.map((p) => ({ key: playerKey(p), bench: !!p.bench, isMe: !!p.isMe }));
+}
+// After a game: what is left of the tiredness, injury counters tick down, and a small chance of a new knock
+export function afterGame(s, rows, simulated) {
+  const H = health(s), gameSec = s.q * 4 * 60;
+  for (const row of rows) {
+    const h = H[row.key] || (H[row.key] = { fatigue: 0, out: 0, label: '' });
+    if (h.out > 0) { h.out--; if (!h.out) h.label = ''; h.fatigue = Math.max(0, h.fatigue - 0.5); continue; }
+    const played = row.rested ? 0 : simulated ? (row.bench ? 0.35 : 0.7) : Math.min(1, (row.sec || 0) / gameSec);
+    const tiredNow = row.rested ? 0 : simulated ? played * 0.45 : Math.max(0, 1 - (row.energy ?? 1));
+    h.fatigue = Math.max(0, Math.min(0.5, tiredNow - 0.3));            // only a long, hard night carries over, and never below 50% energy
+    if (played > 0 && Math.random() < (0.01 + tiredNow * 0.03) * played * (row.isMe ? 0.6 : 1)) {
+      h.out = 1 + Math.floor(Math.random() * (row.isMe ? 2 : 3));
+      h.label = INJURIES[Math.floor(Math.random() * INJURIES.length)];
+    }
+  }
+  for (const k of Object.keys(H)) if (!H[k].out && H[k].fatigue <= 0) delete H[k];
+  save(s);
+}
+export function healAll(s) { s.health = {}; save(s); }
+// The injuries and tired players on the user's team right now
+export function healthReport(s) {
+  const H = health(s), out = [], tired = [];
+  for (const p of (s.career ? careerTeamData(s) : TEAMS[s.team]).roster) {
+    const h = H[playerKey(p)];
+    if (!h) continue;
+    const name = `${p.first} ${p.last}`;
+    if (h.out > 0) out.push({ name, isMe: !!p.isMe, games: h.out, label: h.label });
+    else if (h.fatigue > 0.1) tired.push({ name, isMe: !!p.isMe, energy: Math.round((1 - h.fatigue) * 100) });
+  }
+  return { out, tired, meOut: out.find((x) => x.isMe) || null };
 }
 
 export function record(s, team) {

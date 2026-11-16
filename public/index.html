@@ -125,7 +125,7 @@
       <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
       <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
     </div>
-    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubFriends" class="foot-btn">Friends<i class="dot-badge" id="frDot" hidden></i></button><button type="button" id="hubTrophies" class="foot-btn">Trophy Room<i class="dot-badge" id="trDot" hidden></i></button><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
+    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubInstall" class="foot-btn" hidden>Install app</button><button type="button" id="hubFriends" class="foot-btn">Friends<i class="dot-badge" id="frDot" hidden></i></button><button type="button" id="hubTrophies" class="foot-btn">Trophy Room<i class="dot-badge" id="trDot" hidden></i></button><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
   </div>
 
   <!-- Career slots -->
@@ -230,7 +230,7 @@
       <label>Graphics quality
         <select id="optGfx"><option value="ultra">Ultra (4K, supersampled)</option><option value="high">High (glow + smooth edges)</option><option value="medium">Medium</option><option value="low">Low (fast)</option></select>
       </label>
-      <label class="check"><input type="checkbox" id="optAdaptive"> Adaptive resolution (keeps the frame rate smooth)</label>
+      <label class="check"><input type="checkbox" id="optAdaptive"> Auto-tune performance (lowers resolution, then effects, when the frame rate drops; restores them when it is smooth)</label>
       <p class="hint" id="gfxInfo" style="margin:0"></p>
       <label id="courtStyleWrap" hidden>Court
         <select id="optCourt"><option value="arena">Pro Arena (team court)</option><option value="classic">Street Court (3D model)</option></select>

@@ -62,7 +62,7 @@ export class Player {
     this.stealCooldown = 0;
     this.phase = Math.random() * 6;
     this.stamina = 1;
-    this.energy = 1;     // long-term fatigue: drains on court, recovers on the bench
+    this.energy = Number.isFinite(data.energy) ? data.energy : 1;     // long-term fatigue: drains on court, recovers on the bench (a season carries some in)
     this.streak = 0;     // consecutive made field goals
     this.onFire = false;
     this.fouledOut = false;

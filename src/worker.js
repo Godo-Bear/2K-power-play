@@ -562,6 +562,7 @@ function cleanGift(g) {
     case 'titles': { const n = int(g.amount, 1, 50); return n === null ? null : { ...base, type: 'titles', amount: n }; }
     case 'maxRatings': return { ...base, type: 'maxRatings' };
     case 'unlockStyles': return { ...base, type: 'unlockStyles' };
+    case 'heal': return { ...base, type: 'heal' };
     // Taking things away. They are applied on the player's side exactly like gifts (once, with the admin's note shown),
     // and never push a number past its floor: Rep Points stop at 0, ratings at 40, championships at 0.
     case 'takeRp': { const n = int(g.amount, 1, 100000); return n === null ? null : { ...base, type: 'takeRp', amount: n }; }
@@ -579,7 +580,7 @@ function cleanGift(g) {
 }
 const DESTRUCTIVE = ['deleteCareer', 'resetTrophies', 'takeTrophy'];   // never sent to everyone in one go
 const isTake = (g) => DESTRUCTIVE.includes(g.type) || ['takeRp', 'takeTitles', 'lockStyles'].includes(g.type) || (g.type === 'attr' && g.amount < 0);
-const describeGift = (g) => ({ rp: `+${g.amount} Rep Points`, attr: `${g.attr === 'all' ? 'every rating' : g.attr} ${g.amount > 0 ? '+' : ''}${g.amount}`, titles: `+${g.amount} championship(s)`, message: 'message', maxRatings: 'all ratings to 99', unlockStyles: 'unlock all play styles', takeRp: `-${g.amount} Rep Points`, takeTitles: `-${g.amount} championship(s)`, lockStyles: 'lock the play styles again', deleteCareer: 'delete the career', resetTrophies: 'reset the Trophy Room', takeTrophy: `remove trophy ${g.trophy}` })[g.type] || g.type;
+const describeGift = (g) => ({ rp: `+${g.amount} Rep Points`, attr: `${g.attr === 'all' ? 'every rating' : g.attr} ${g.amount > 0 ? '+' : ''}${g.amount}`, titles: `+${g.amount} championship(s)`, message: 'message', maxRatings: 'all ratings to 99', unlockStyles: 'unlock all play styles', heal: 'heal injuries and fatigue', takeRp: `-${g.amount} Rep Points`, takeTitles: `-${g.amount} championship(s)`, lockStyles: 'lock the play styles again', deleteCareer: 'delete the career', resetTrophies: 'reset the Trophy Room', takeTrophy: `remove trophy ${g.trophy}` })[g.type] || g.type;
 
 async function handleAdmin(request, env, path) {
   const admin = adminStub(env);

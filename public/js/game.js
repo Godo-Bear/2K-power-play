@@ -927,14 +927,14 @@ export class Game {
       for (let i = 0; i < 5; i++) {
         const cur = team.players[i];
         // Best available bench player (prefer the same position slot)
-        const options = team.bench.map((p, j) => ({ p, j })).filter((o) => !o.p.fouledOut);
+        const options = team.bench.map((p, j) => ({ p, j })).filter((o) => !o.p.fouledOut && !o.p.data.injured);
         if (!options.length) continue;
         const same = options.find((o) => o.j === i) || options.sort((a, c) => c.p.energy - a.p.energy)[0];
         if (cur.fouledOut) { this.substitute(team, i, same.j); continue; }
         if (!auto) continue;
         if (cur.data.isMe && cur.energy > 0.3) continue; // career: your own player stays in unless exhausted
         const alt = team.bench[i];
-        if (!alt || alt.fouledOut) continue;
+        if (!alt || alt.fouledOut || alt.data.injured) continue;
         const tired = cur.energy < 0.6 && alt.energy > cur.energy + 0.25;
         const starterBack = !cur.starter && alt.starter && alt.energy > 0.9 && !(alt.stats.pf >= 5 && this.period < 4);
         if (tired || starterBack) this.substitute(team, i, i);

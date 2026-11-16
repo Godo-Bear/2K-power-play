@@ -86,21 +86,30 @@ const TIERS = {
   ultra: { dpr: 3, shadow: true, post: true, msaa: 4, shadowRes: 4096, aniso: 16, fourK: true },
 };
 let renderScale = 1;           // adaptive resolution: 1 = full quality, lower when the frame rate drops
+// Auto-tuner: when fewer pixels are not enough, effects come off one step at a time (bloom, then shadows, then a lower pixel floor), and come back when there is headroom
+let tuneLevel = 0, tuneStableT = 0, tuneSlowT = 0;
+const TUNE_STEPS = ['', 'bloom off', 'shadows off', 'lower resolution'];
+function tier() {
+  const T = { ...(TIERS[settings.gfx] || TIERS.high) };
+  if (tuneLevel >= 1) T.post = false;
+  if (tuneLevel >= 2) { T.shadow = false; T.msaa = 0; }
+  return T;
+}
 const gfxStats = { fps: 60, ms: 16.7, w: 0, h: 0 };
 function targetRatio() {
-  const T = TIERS[settings.gfx] || TIERS.high;
+  const T = tier();
   const w = window.innerWidth, h = window.innerHeight;
   let r = Math.min(window.devicePixelRatio || 1, T.dpr);
   if (T.fourK) r = Math.min(T.dpr, Math.max(r, 3840 / Math.max(w, h * 16 / 9))); // reach 4K even on a 1080p screen
   const maxPixels = T.fourK ? 3840 * 2160 * 1.02 : 2560 * 1440 * 1.1;
   r = Math.min(r, Math.sqrt(maxPixels / (w * h)));
-  const floor = T.fourK ? 1 : 0.75;
+  const floor = tuneLevel >= 3 ? 0.6 : T.fourK ? 1 : 0.75;
   return Math.max(floor, r * (settings.adaptive ? renderScale : 1));
 }
 function applyQuality() {
   const q = TIERS[settings.gfx] ? settings.gfx : 'high';
   Game.lite = q === 'low' || q === 'medium';
-  const T = TIERS[q];
+  const T = tier();
   renderer.setPixelRatio(targetRatio());
   renderer.shadowMap.enabled = T.shadow;
   const aniso = Math.min(T.aniso, renderer.capabilities.getMaxAnisotropy());
@@ -354,9 +363,9 @@ $('#optSpeed').value = String(settings.speed);
 if (!$('#optSpeed').value) { settings.speed = 0.85; $('#optSpeed').value = '0.85'; }
 $('#optSpeed').addEventListener('change', (e) => { settings.speed = Number(e.target.value); saveSettings(); });
 $('#optCam').addEventListener('change', (e) => { settings.cam = e.target.value; saveSettings(); });
-$('#optGfx').addEventListener('change', (e) => { settings.gfx = e.target.value; renderScale = 1; saveSettings(); applyQuality(); });
+$('#optGfx').addEventListener('change', (e) => { settings.gfx = e.target.value; renderScale = 1; tuneLevel = 0; saveSettings(); applyQuality(); });
 $('#optAdaptive').checked = settings.adaptive !== false;
-$('#optAdaptive').addEventListener('change', (e) => { settings.adaptive = e.target.checked; renderScale = 1; saveSettings(); applyQuality(); });
+$('#optAdaptive').addEventListener('change', (e) => { settings.adaptive = e.target.checked; renderScale = 1; tuneLevel = 0; saveSettings(); applyQuality(); });
 $('#optMute').addEventListener('change', (e) => { settings.mute = e.target.checked; setMuted(settings.mute); setVoice(settings.voice && !settings.mute); saveSettings(); musicMaybe(); });
 $('#optRecaps').addEventListener('change', (e) => { settings.recaps = e.target.checked; if (game) game.opts.recaps = settings.recaps; saveSettings(); });
 $('#optLT').addEventListener('change', (e) => { settings.lowerThirds = e.target.checked; if (!e.target.checked) stopLowerThirds(); saveSettings(); });
@@ -757,7 +766,7 @@ function subRow(p, i, where, g) {
   const pend = g.user.pendingSubs.some((q) => (where === 'court' ? q.courtIdx : q.benchIdx) === i);
   const sel = subSel[where] === i;
   return `<button class="sub-row${sel ? ' sel' : ''}${p.fouledOut ? ' out' : ''}" data-w="${where}" data-i="${i}" ${p.fouledOut && where === 'bench' ? 'disabled' : ''}>
-    <span class="p">${p.data.pos}</span><span>#${p.data.number} ${esc(p.data.first[0])}. ${esc(p.data.last)}${p.onFire ? ' 🔥' : ''} ${pend ? '<span class="pend">SWAPPING</span>' : ''}</span>
+    <span class="p">${p.data.pos}</span><span>#${p.data.number} ${esc(p.data.first[0])}. ${esc(p.data.last)}${p.onFire ? ' 🔥' : ''}${p.data.injured ? ' 🩹' : ''} ${pend ? '<span class="pend">SWAPPING</span>' : ''}</span>
     <span class="o">${p.data.ovr}</span><span class="e" title="Energy"><i style="width:${Math.round(p.energy * 100)}%"></i></span>
     <span class="f">${p.fouledOut ? 'OUT' : `${p.stats.pts}p ${p.stats.pf}f`}</span></button>`;
 }
@@ -1605,6 +1614,14 @@ function openCareerCreate() {
   show('careerNew');
 }
 
+// Injuries and tired legs on your team, shown above the next game
+function healthHTML(s) {
+  const r = Season.healthReport(s);
+  if (!r.out.length && !r.tired.length) return '';
+  const out = r.out.map((x) => `<li>🩹 <b>${esc(x.name)}</b> · ${esc(x.label)} · out ${x.games} more game${x.games === 1 ? '' : 's'}</li>`);
+  const tired = r.tired.map((x) => `<li>🔋 <b>${esc(x.name)}</b> · starts at ${x.energy}% energy</li>`);
+  return `<ul class="health">${out.join('')}${tired.join('')}</ul>${r.meOut ? '<p class="hint" style="margin:4px 0 0">Your player is injured: this game is simulated without you (no Rep Points), and the injury heals a game at a time.</p>' : ''}`;
+}
 function renderHub() {
   const s = session.save, kind = session.kind;
   const team = TEAMS[s.team];
@@ -1629,6 +1646,7 @@ function renderHub() {
   // Next game panel
   const ng = Season.nextGame(s);
   const nx = $('#hubNext');
+  const hr = Season.healthReport(s);
   if (ng) {
     const h = TEAMS[ng.h], a = TEAMS[ng.a];
     nx.innerHTML = `<h4>${ng.stage}</h4><div class="mu"><span>${a.id}<small>${Season.record(s, ng.a)}</small></span><span style="color:var(--muted)">at</span><span>${h.id}<small>${Season.record(s, ng.h)}</small></span></div>
@@ -1636,9 +1654,11 @@ function renderHub() {
         <button data-v="player" class="${s.control !== 'team' ? 'on' : ''}">Just my player</button>
         <button data-v="team" class="${s.control === 'team' ? 'on' : ''}">Whole team</button></div>
         <p>${s.control === 'team' ? 'You switch between all five players, like a normal game.' : `You stay on ${esc(s.career.first)} the whole game. Teammates play on their own. Press Pass to call for the ball.`}</p></div>` : ''}
-      <button class="primary" id="hubPlay">Play Game</button><button id="hubSim">Simulate</button>`;
+      ${healthHTML(s)}
+      ${hr.meOut ? `<button class="primary" id="hubSim">Simulate (you are out)</button>` : `<button class="primary" id="hubPlay">Play Game</button><button id="hubSim">Simulate</button>${kind === 'career' && hr.tired.some((x) => x.isMe) ? '<button id="hubRest">Rest my player</button>' : ''}`}`;
+    if ($('#hubRest')) $('#hubRest').onclick = () => { Season.simUserGame(s, { rest: true }); sfx.menu(); session.lastSim = null; maybeChampion(s) || renderHub(); };
     $$('#hubControl button').forEach((b) => b.addEventListener('click', () => { s.control = b.dataset.v; Season.save(s); sfx.menu(); renderHub(); }));
-    $('#hubPlay').onclick = () => playHubGame();
+    if ($('#hubPlay')) $('#hubPlay').onclick = () => playHubGame();
     $('#hubSim').onclick = () => {
       const r = Season.simUserGame(s);
       sfx.menu();
@@ -1677,10 +1697,10 @@ function renderHub() {
       : '<p class="hint">Play a game to see your team\'s stats. Simulated games don\'t record player stats.</p>';
   } else if (hubTab === 'playoffs') {
     const p = s.playoffs;
-    if (!p) body.innerHTML = `<p class="hint">The playoffs start after game ${s.schedule.length}. The top 4 teams qualify: 1 vs 4 and 2 vs 3, then the final.</p>`;
+    if (!p) body.innerHTML = `<p class="hint">The playoffs start after game ${s.schedule.length}. The top 4 teams qualify: 1 vs 4 and 2 vs 3 in best-of-${Season.SERIES.semi} semifinals, then a best-of-${Season.SERIES.final} final. The higher seed has home court (games 1, 2, 5 and 7).</p>`;
     else {
-      const gm = (g) => (g ? `<div class="g"><div class="${g.hs != null && g.hs > g.as ? 'w' : ''}"><span>${tname(g.h)}</span><span>${g.hs ?? ''}</span></div><div class="${g.hs != null && g.as > g.hs ? 'w' : ''}"><span>${tname(g.a)}</span><span>${g.as ?? ''}</span></div></div>` : '<div class="g"><div><span>TBD</span></div><div><span>TBD</span></div></div>');
-      body.innerHTML = `<div class="bracket"><div class="col"><h5>Semifinals</h5>${p.semis.map(gm).join('')}</div><div class="col"><h5>Final</h5>${gm(p.final)}</div><div class="col"><h5>Champion</h5><div class="g">${p.champion != null ? `🏆 ${tname(p.champion)}` : 'TBD'}</div></div></div>`;
+      const sr = (x) => (x ? `<div class="g"><div class="${x.winner === x.h ? 'w' : ''}"><span>${tname(x.h)}<small class="seed">${p.seeds.indexOf(x.h) + 1}</small></span><span>${x.hw}</span></div><div class="${x.winner === x.a ? 'w' : ''}"><span>${tname(x.a)}<small class="seed">${p.seeds.indexOf(x.a) + 1}</small></span><span>${x.aw}</span></div><div class="games">${x.games.map((g, i) => `<i title="Game ${i + 1}: ${TEAMS[g.a].id} ${g.as} at ${TEAMS[g.h].id} ${g.hs}" class="${(g.hs > g.as ? g.h : g.a) === x.h ? 'top' : 'bot'}">${i + 1}</i>`).join('')}${x.winner ? '' : `<small>best of ${x.best}</small>`}</div></div>` : '<div class="g"><div><span>TBD</span></div><div><span>TBD</span></div></div>');
+      body.innerHTML = `<div class="bracket"><div class="col"><h5>Semifinals · best of ${Season.SERIES.semi}</h5>${p.semis.map(sr).join('')}</div><div class="col"><h5>Final · best of ${Season.SERIES.final}</h5>${sr(p.final)}</div><div class="col"><h5>Champion</h5><div class="g">${p.champion != null ? `🏆 ${tname(p.champion)}` : 'TBD'}</div></div></div>`;
     }
   } else if (hubTab === 'upgrades') {
     const c = s.career;
@@ -2042,7 +2062,7 @@ function playHubGame() {
   const ng = Season.nextGame(s);
   if (!ng) return;
   session.lastSim = null;
-  const mine = s.career ? Season.careerTeamData(s) : TEAMS[s.team];
+  const mine = Season.applyHealth(s, s.career ? Season.careerTeamData(s) : TEAMS[s.team]);
   const other = (i) => (s.career ? Season.scaledTeam(i, s.year) : TEAMS[i]);
   const home = ng.h === s.team ? mine : other(ng.h);
   const away = ng.a === s.team ? mine : other(ng.a);
@@ -2057,8 +2077,9 @@ function recordSessionGame(g, winner) {
   const s = session.save;
   if (!s || g.recorded) return '';
   g.recorded = true;
-  const rows = everyone(g.user).map((p) => ({ key: `${p.data.first} ${p.data.last}#${p.data.number}`, name: `${p.data.first} ${p.data.last}`, pos: p.data.pos, ...p.stats }));
+  const rows = everyone(g.user).map((p) => ({ key: `${p.data.first} ${p.data.last}#${p.data.number}`, name: `${p.data.first} ${p.data.last}`, pos: p.data.pos, ...p.stats, energy: p.energy, bench: !p.starter, isMe: !!p.data.isMe }));
   Season.recordGame(s, g.home.score, g.away.score, rows);
+  Season.afterGame(s, rows, false);
   if (!s.career) return '';
   const me = everyone(g.user).find((p) => p.data.isMe);
   if (!me) return '';
@@ -2188,11 +2209,16 @@ function adaptResolution(dt) {
   if (!settings.adaptive || mode === 'menu' && !attract) return;
   const before = renderScale;
   // Only trade sharpness for speed when the frame rate is really struggling, and never go below 80% (stays crisp)
-  if (avg > 1 / 40) renderScale = Math.max(0.8, renderScale - (avg > 1 / 28 ? 0.1 : 0.05));
+  const floorNow = tuneLevel >= 3 ? 0.6 : 0.8;
+  if (avg > 1 / 40) renderScale = Math.max(floorNow, renderScale - (avg > 1 / 28 ? 0.1 : 0.05));
   else if (avg < 1 / 56 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.05);
   if (renderScale !== before) { renderer.setPixelRatio(targetRatio()); resize(); }
+  // Still slow with the resolution already at its floor: take an effect off. Smooth for a good while: put one back.
+  if (avg > 1 / 36 && renderScale <= floorNow + 1e-6) { tuneSlowT += 1.2; tuneStableT = 0; } else if (avg < 1 / 58) { tuneStableT += 1.2; tuneSlowT = 0; } else { tuneSlowT = 0; }
+  if (tuneSlowT >= 3.6 && tuneLevel < 3) { tuneLevel++; tuneSlowT = 0; tuneStableT = 0; applyQuality(); hud.toast('SMOOTHER', `Graphics auto-tuned: ${TUNE_STEPS[tuneLevel]}`, 2.5); }
+  else if (tuneStableT >= 30 && tuneLevel > 0) { tuneLevel--; tuneStableT = 0; applyQuality(); }
   const st = $('#gfxInfo');
-  if (st && st.offsetParent) st.textContent = `Rendering ${gfxStats.w}x${gfxStats.h} at ${Math.round(gfxStats.fps)} fps`;
+  if (st && st.offsetParent) st.textContent = `Rendering ${gfxStats.w}x${gfxStats.h} at ${Math.round(gfxStats.fps)} fps${tuneLevel ? ` (auto-tuned: ${TUNE_STEPS.slice(1, tuneLevel + 1).join(', ')})` : ''}`;
 }
 function frame() {
   requestAnimationFrame(frame);
@@ -2352,6 +2378,13 @@ async function doLogout() {
 }
 $('#acctLogout').addEventListener('click', doLogout);
 $('#settingsLogout').addEventListener('click', doLogout);
+
+// ---------- Installable app (PWA) ----------
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; $('#hubInstall').hidden = false; });
+window.addEventListener('appinstalled', () => { installPrompt = null; $('#hubInstall').hidden = true; });
+$('#hubInstall').addEventListener('click', async () => { sfx.menu(); if (!installPrompt) return; installPrompt.prompt(); await installPrompt.userChoice.catch(() => null); installPrompt = null; $('#hubInstall').hidden = true; });
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => { /* no app shell cache: the game still works */ });
 
 // ---------- Boot ----------
 (async () => {

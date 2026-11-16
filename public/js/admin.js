@@ -296,7 +296,7 @@ function inboxLine(i) {
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const names = {
     rp: `+${i.amount} Rep Points`, attr: `${i.attr === 'all' ? 'Every rating' : ATTR_LABELS[i.attr] || i.attr} ${i.amount > 0 ? '+' : ''}${i.amount}`, titles: `+${plural(i.amount, 'championship')}`,
-    maxRatings: 'All ratings to 99', unlockStyles: 'Unlock all play styles', message: `Message: ${i.text}`,
+    maxRatings: 'All ratings to 99', unlockStyles: 'Unlock all play styles', heal: 'Heal injuries and fatigue', message: `Message: ${i.text}`,
     takeRp: `Take ${Number(i.amount).toLocaleString()} Rep Points`, takeTitles: `Take ${plural(i.amount, 'championship')}`, lockStyles: 'Lock the play styles again',
     deleteCareer: 'Delete the career', resetTrophies: 'Reset the Trophy Room', takeTrophy: `Remove trophy: ${TROPHY_NAME[i.trophy] || i.trophy}`,
   };
@@ -334,7 +334,7 @@ async function openDetail(name) {
       <div class="adm-chips">
         <button type="button" data-gift="rp:100">+100 Rep Points</button><button type="button" data-gift="rp:500">+500</button><button type="button" data-gift="rp:1000">+1,000</button><button type="button" data-gift="rp:5000">+5,000</button>
         <button type="button" data-gift="attr:all:5">+5 to every rating</button><button type="button" data-gift="maxRatings">All ratings to 99</button>
-        <button type="button" data-gift="unlockStyles">Unlock all play styles</button><button type="button" data-gift="titles:1">+1 championship</button>
+        <button type="button" data-gift="unlockStyles">Unlock all play styles</button><button type="button" data-gift="heal">Heal injuries</button><button type="button" data-gift="titles:1">+1 championship</button>
       </div>
       <div class="adm-row"><label>Rep Points <input id="gRp" type="number" min="1" max="100000" placeholder="e.g. 250"></label><button type="button" id="gRpGo">Give</button>
         <label>Rating <select id="gAttr">${attrOptions}</select></label><label>Amount <input id="gAmt" type="number" min="-50" max="50" value="5"></label><button type="button" id="gAttrGo">Give</button></div>
@@ -461,7 +461,7 @@ function renderGifts(body) {
   const total = state.data.stats.total;
   body.innerHTML = `<div class="adm-sec"><h4>Gift everyone</h4>
     <p class="adm-note">Sends to all ${total} account${total === 1 ? '' : 's'} on the list. Each player receives it the next time they open the game, and career gifts wait until they have a career.</p>
-    <div class="adm-row"><label>What <select id="bType"><option value="rp">Rep Points</option><option value="attr">Rating boost</option><option value="titles">Championships</option><option value="maxRatings">All ratings to 99</option><option value="unlockStyles">Unlock all play styles</option><option value="message">Message only</option></select></label>
+    <div class="adm-row"><label>What <select id="bType"><option value="rp">Rep Points</option><option value="attr">Rating boost</option><option value="titles">Championships</option><option value="maxRatings">All ratings to 99</option><option value="unlockStyles">Unlock all play styles</option><option value="heal">Heal injuries and fatigue</option><option value="message">Message only</option></select></label>
       <label id="bAttrWrap">Rating <select id="bAttr">${['<option value="all">All ratings</option>'].concat(Season.ATTRS.map(([k, l]) => `<option value="${k}">${e(l)}</option>`)).join('')}</select></label>
       <label id="bAmtWrap">Amount <input id="bAmt" type="number" value="100" min="-50" max="100000"></label>
       <label>Career slot <select id="bSlot"><option value="0">All careers</option><option value="1">Slot 1</option><option value="2">Slot 2</option><option value="3">Slot 3</option></select></label></div>
