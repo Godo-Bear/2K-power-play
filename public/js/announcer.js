@@ -102,6 +102,9 @@ const L = {
   miss: ['Off the rim.', 'No good.', 'Rattles out.', 'Just short.', "Won't go."],
   airball: ['Air ball!', 'That one missed everything.'],
   rebD: ['Defensive rebound, and they are going the other way.', 'Cleans the glass.', 'Rebound secured.'],
+  boxout: ['Great box-out, he sealed his man and took the board.', 'Textbook box-out. Position wins that rebound.'],
+  rebFight: ['Two bodies on it, and he comes down with it!', 'A fight for the rebound, and he wants it more.'],
+  dive: ['He lays out for it! Hustle play!', 'On the floor for the loose ball! The crowd loves that.', 'Dives for it and comes up with the ball!'],
   rebO: ['Offensive rebound! Second chance!', 'Gets his own miss, another shot coming!', 'Crashes the boards and keeps it alive.'],
   // defense
   block: ['Rejected!', 'Get that out of here!', 'Not in this house!', 'Swatted away!', 'Denied at the rim!'],
@@ -266,6 +269,8 @@ export function attachAnnouncer(game) {
       case 'miss': if (d.airball) say(pick(L.airball), { priority: 1 }); else if (Math.random() < 0.3) say(pick(L.miss), { priority: 0 }); break;
       case 'rebound': say(pick(d.off ? L.rebO : L.rebD), { who: 0, priority: d.off ? 1 : 0 }); if (d.player) checkDouble(d.player); break;
       case 'block': speak(pick(L.block), { who: 0, priority: 2 }); break;
+      case 'reboundFight': if (Math.random() < 0.6) say(pick(d.boxed ? L.boxout : L.rebFight), { who: 0, priority: 1 }); break;
+      case 'dive': if (d.got) speak(pick(L.dive), { who: 0, priority: 2 }); break;
       case 'steal': speak(pick(L.steal), { who: 0, priority: 1 }); break;
       case 'intercept': speak(pick(L.intercept), { who: 0, priority: 1 }); break;
       case 'stealAttempt': if (Math.random() < 0.2) say(pick(L.stealTry), { who: 0, priority: 0 }); break;

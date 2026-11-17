@@ -15,7 +15,7 @@ export function makeCode() {
 
 const ERRORS = {
   'not-found': "No room with that code. Check the code, and make sure your friend's room is still open.",
-  full: 'That room already has two players.',
+  full: 'That room is full.',
   'code-taken': 'That code is in use. Try again.',
   'bad-role': 'Could not join the room.',
 };
@@ -38,6 +38,7 @@ export class Room {
         else if (m.ev === 'error') { this.error = ERRORS[m.code] || 'Could not join the room.'; }
         else if (m.ev === 'peer-joined') on.peerJoined && on.peerJoined();
         else if (m.ev === 'peer-left') on.peerLeft && on.peerLeft();
+        else if (m.ev === 'watcher-joined') on.watcherJoined && on.watcherJoined();
         return;
       }
       on.message && on.message(m);

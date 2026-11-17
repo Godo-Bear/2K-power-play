@@ -73,9 +73,10 @@ export function scaledTeam(idx, year, factor = 1) {
 const gauss = () => (Math.random() + Math.random() + Math.random() + Math.random() - 2) / 2;
 function teamOvr(s, idx) {
   // In career mode your own rating nudges your team's strength in simulated games
-  if (s.career && idx === s.team) return scaledTeam(idx, s.year, 0.5).ovr + (careerOvr(s.career) - 80) / 6;
-  if (s.career) return scaledTeam(idx, s.year).ovr;
-  return TEAMS[idx].ovr;
+  const chem = idx === s.team ? (chemFactor(s) - 0.5) * 2 : 0;       // a team that clicks plays a little above its rating
+  if (s.career && idx === s.team) return scaledTeam(idx, s.year, 0.5).ovr + (careerOvr(s.career) - 80) / 6 + chem;
+  if (s.career) return scaledTeam(idx, s.year).ovr + chem;
+  return TEAMS[idx].ovr + chem;
 }
 function simScore(s, g) {
   const base = s.q * 4 * 5.4;
@@ -162,6 +163,7 @@ export function recordGame(s, hs, as, boxScore = null) {
       if (g.h === s.team || g.a === s.team) { g.hs = hs; g.as = as; } else simScore(s, g);
     }
     s.round++;
+    s.offers = [];                                   // free agency closes once the season is under way
     if (regularSeasonDone(s)) startPlayoffs(s);
   } else if (s.playoffs && s.playoffs.champion == null) {
     const sr = userSeries(s);
@@ -185,6 +187,8 @@ export function simUserGame(s, { rest = false } = {}) {
   const tmp = { h: g.h, a: g.a };
   simScore(s, tmp);
   const rows = rosterRows(s).map((r) => ({ ...r, rested: rest && r.isMe }));
+  const mineHomeNow = tmp.h === s.team;
+  updateChemistry(s, { won: mineHomeNow ? tmp.hs > tmp.as : tmp.as > tmp.hs, simulated: true, lineupChanged: healthReport(s).out.length > 0 });
   if (!s.career || rest || healthReport(s).meOut) {
     recordGame(s, tmp.hs, tmp.as);
     afterGame(s, rows, true);
@@ -263,11 +267,11 @@ export function applyHealth(s, teamData) {
     p.injured = !!(h && h.out > 0);
     p.energy = p.injured ? 0.05 : Math.max(0.4, 1 - (h ? h.fatigue : 0));
   }
-  return { ...teamData, roster };
+  return { ...teamData, roster, chemistry: chemFactor(s) };
 }
 // Rows for the user's whole team ({ key, bench, isMe }), used when a game is simulated
 export function rosterRows(s) {
-  const t = s.career ? careerTeamData(s) : TEAMS[s.team];
+  const t = withSignings(s, s.career ? careerTeamData(s) : TEAMS[s.team]);
   return t.roster.map((p) => ({ key: playerKey(p), bench: !!p.bench, isMe: !!p.isMe }));
 }
 // After a game: what is left of the tiredness, injury counters tick down, and a small chance of a new knock
@@ -288,10 +292,93 @@ export function afterGame(s, rows, simulated) {
   save(s);
 }
 export function healAll(s) { s.health = {}; save(s); }
+// Rep Points into every career (draft runs, contests): returns how many careers were paid
+export function payCareers(rp) {
+  const saves = [1, 2, 3].map((slot) => load('career', slot)).filter((x) => x && x.career);
+  for (const x of saves) { x.career.rp = (x.career.rp || 0) + rp; x.career.earned = (x.career.earned || 0) + rp; save(x); }
+  return saves.length;
+}
+
+// ---------- Free agency (the summer between seasons) ----------
+// A few players from other teams offer to join; signing one puts them in your starting five at their position,
+// and the old starter becomes the backup. Offers only last until the first game of the new season.
+export function makeOffers(s, n = 4) {
+  const taken = new Set((s.signings || []).map((x) => x.pid));
+  const all = TEAMS.flatMap((t, ti) => (ti === s.team ? [] : t.roster.filter((p) => !p.bench).map((p, i) => ({ ...p, from: ti, pid: `${ti}:${i}` }))));
+  const mine = TEAMS[s.team].roster.slice(0, 5);
+  const offers = [];
+  const posOrder = [...new Set([...mine.map((p) => p.pos).sort((a, b) => mine.find((x) => x.pos === a).ovr - mine.find((x) => x.pos === b).ovr), ...POS])];
+  for (const pos of posOrder) {
+    if (offers.length >= n) break;
+    const c = all.filter((p) => p.pos === pos && !taken.has(p.pid) && (!s.career || POS[s.career.pos] !== pos) && p.ovr >= mine.find((x) => x.pos === pos).ovr - 2).sort(() => Math.random() - 0.5)[0];
+    if (c) offers.push(c);
+  }
+  s.offers = offers;
+  save(s);
+  return offers;
+}
+export function signOffer(s, pid) {
+  const p = (s.offers || []).find((x) => x.pid === pid);
+  if (!p) return false;
+  s.signings = [...(s.signings || []).filter((x) => x.pos !== p.pos), p];
+  s.offers = [];
+  save(s);
+  return true;
+}
+// Team data with the signings in place: the new man starts, the old starter backs him up
+export function withSignings(s, teamData) {
+  if (!s.signings || !s.signings.length) return teamData;
+  const roster = teamData.roster.map((p) => ({ ...p }));
+  for (const sg of s.signings) {
+    const i = POS.indexOf(sg.pos);
+    if (i < 0 || (roster[i] && roster[i].isMe)) continue;
+    roster[i + 5] = { ...roster[i], bench: true };
+    roster[i] = { ...sg, bench: false, from: undefined, pid: undefined };
+  }
+  const ovr = Math.round(roster.slice(0, 5).reduce((a, p) => a + p.ovr, 0) / 5) - 4;
+  return { ...teamData, roster, ovr: Math.max(teamData.ovr, Math.min(96, ovr)) };
+}
+
+// ---------- Team chemistry ----------
+// Grows with games played together and wins, drops a little when injuries break the lineup up. 50 is a normal team.
+// In a game it means fewer picked-off passes and a better look off a pass; in simulated games a slightly stronger team.
+export const chemistry = (s) => (s.chem && Number.isFinite(s.chem.pts) ? s.chem.pts : 50);
+export function chemLabel(v) { return v >= 85 ? 'Locked in' : v >= 68 ? 'Clicking' : v >= 45 ? 'Settling in' : 'Strangers'; }
+export function updateChemistry(s, { won, simulated = false, lineupChanged = false }) {
+  let v = chemistry(s);
+  v += simulated ? 1.5 : 2.5;
+  v += won ? 1.5 : -0.5;
+  if (lineupChanged) v -= 3;
+  s.chem = { pts: Math.max(0, Math.min(100, Math.round(v * 10) / 10)) };
+  save(s);
+}
+export const chemFactor = (s) => chemistry(s) / 100;
+
+// ---------- Sponsorships (career) ----------
+// Offers unlock with milestones; one deal at a time. A deal pays Rep Points every game and puts its shoes on your player.
+export const SPONSORS = [
+  { id: 'corner', name: 'Corner Store Kicks', tag: 'Local', pay: 5, bonus: 50, shoes: ['#f4f4f4', '#ff6a13'], need: 'Play 3 games', ok: (c) => c.games >= 3 },
+  { id: 'volt', name: 'Volt Athletics', tag: 'Rising star', pay: 12, bonus: 150, shoes: ['#ffd60a', '#111111'], need: 'Play 12 games and score 20 in one', ok: (c) => c.games >= 12 && c.best.pts >= 20 },
+  { id: 'apex', name: 'Apex Air', tag: 'Pro', pay: 18, bonus: 300, shoes: ['#35f0ff', '#ffffff'], need: 'Reach 82 OVR', ok: (c) => careerOvr(c) >= 82 },
+  { id: 'crown', name: 'Crown Series', tag: 'Champion', pay: 30, bonus: 600, shoes: ['#d4af37', '#1a1a1a'], need: 'Win a championship', ok: (c) => (c.titles || 0) >= 1 },
+];
+export const sponsorOf = (c) => SPONSORS.find((x) => x.id === (c.sponsor || null)) || null;
+export function sponsorOffers(c) { return SPONSORS.map((sp) => ({ ...sp, open: sp.ok(c), active: c.sponsor === sp.id })); }
+export function signSponsor(s, id) {
+  const c = s.career, sp = SPONSORS.find((x) => x.id === id);
+  if (!sp || !sp.ok(c) || c.sponsor === id) return false;
+  const first = !(c.signed || []).includes(id);
+  c.sponsor = id;
+  c.signed = [...(c.signed || []), id].filter((v, i, a) => a.indexOf(v) === i);
+  if (first) { c.rp += sp.bonus; c.earned += sp.bonus; }
+  save(s);
+  return first ? sp.bonus : 0;
+}
+
 // The injuries and tired players on the user's team right now
 export function healthReport(s) {
   const H = health(s), out = [], tired = [];
-  for (const p of (s.career ? careerTeamData(s) : TEAMS[s.team]).roster) {
+  for (const p of withSignings(s, s.career ? careerTeamData(s) : TEAMS[s.team]).roster) {
     const h = H[playerKey(p)];
     if (!h) continue;
     const name = `${p.first} ${p.last}`;
@@ -390,6 +477,8 @@ export function careerTeamData(s) {
     first: c.first, last: c.last, pos: POS[c.pos], number: c.number, height: c.height, skin: c.skin, hair: c.hair, hairStyle: c.hairStyle,
     headband: false, sleeve: true, ratings: effectiveRatings(c), styles: [c.archetype, ...extraStyles(c)], ovr: careerOvr(c), isMe: true,
   };
+  const sp = sponsorOf(c);
+  if (sp) { me.shoeUpper = sp.shoes[0]; me.shoeSole = sp.shoes[1]; }
   const roster = base.roster.slice();
   // The old starter moves to the bench in place of the previous backup
   roster[c.pos + 5] = { ...roster[c.pos], bench: true };
@@ -414,18 +503,23 @@ export function careerReward(s, line, won) {
   const per = score / Math.max(1, s.q * 4 / 8); // normalize to an 8-minute game
   const grade = per >= 26 ? 'A+' : per >= 20 ? 'A' : per >= 15 ? 'B+' : per >= 11 ? 'B' : per >= 7 ? 'C+' : per >= 4 ? 'C' : 'D';
   const gradeBonus = { 'A+': 30, A: 22, 'B+': 16, B: 11, 'C+': 7, C: 4, D: 1 }[grade];
-  const rp = Math.round(8 + gradeBonus + (won ? 10 : 0) + Math.min(20, score * 0.5));
+  const sp = sponsorOf(c), pay = sp ? sp.pay : 0;
+  const rp = Math.round(8 + gradeBonus + (won ? 10 : 0) + Math.min(20, score * 0.5)) + pay;
   c.rp += rp; c.earned += rp; c.games++;
   for (const k of ['pts', 'reb', 'ast', 'stl', 'blk']) c.totals[k] += line[k];
   c.best.pts = Math.max(c.best.pts, line.pts);
   c.log.unshift({ pts: line.pts, reb: line.reb, ast: line.ast, grade, rp, won });
   c.log = c.log.slice(0, 8);
   save(s);
-  return { grade, rp };
+  return { grade, rp, pay };
 }
 
 // Roll into a new season with the same player
 export function nextYear(s) {
   const c = s.career;
-  return newSeason({ kind: s.kind, team: s.team, diff: s.diff, q: s.q, career: c, year: (s.year || 1) + 1, slot: s.slot || 1 });
+  const n = newSeason({ kind: s.kind, team: s.team, diff: s.diff, q: s.q, career: c, year: (s.year || 1) + 1, slot: s.slot || 1 });
+  n.chem = { pts: Math.round(chemistry(s) * 0.7) };     // a summer apart: most of the chemistry carries over
+  n.signings = s.signings || [];
+  makeOffers(n);
+  return n;
 }

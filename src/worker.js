@@ -262,10 +262,60 @@ export class User extends DurableObject {
     const now = Date.now();
     cur.lastSeen = now;
     if (activity) cur.activity = String(activity).replace(/[^a-z]/g, '').slice(0, 12);
+    cur.room = typeof opts.room === 'string' && /^[A-Z0-9]{4,8}$/.test(opts.room) && cur.activity === 'online' ? opts.room : '';
     if (opts.login) { cur.logins = (cur.logins || 0) + 1; cur.lastLogin = now; }
     if (opts.created) cur.created = opts.created;
     await this.ctx.storage.put(key, cur);
     return true;
+  }
+  // ----- Ranked ladder: a queue that pairs players, and Elo-style ratings -----
+  async rankedQueue(name) {
+    const now = Date.now();
+    let q = ((await this.ctx.storage.get('rq')) || []).filter((e) => now - e.at < 45000);
+    const mine = q.find((e) => e.name === name);
+    if (mine && mine.code) { q = q.filter((e) => e.name !== name); await this.ctx.storage.put('rq', q); return { status: 'matched', code: mine.code, role: 'host' }; }
+    const other = q.find((e) => e.name !== name && !e.code);
+    if (other) {
+      // pair up: the one who was waiting hosts, the newcomer joins
+      const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = ''; for (let i = 0; i < 5; i++) code += abc[Math.floor(Math.random() * abc.length)];
+      other.code = code;
+      q = q.filter((e) => e.name !== name);
+      await this.ctx.storage.put('rq', q);
+      await this.ctx.storage.put(`rm:${code}`, { host: other.name, guest: name, at: now, done: false });
+      return { status: 'matched', code, role: 'guest' };
+    }
+    if (!mine) q.push({ name, at: now }); else mine.at = now;
+    await this.ctx.storage.put('rq', q);
+    return { status: 'waiting', ahead: q.filter((e) => !e.code && e.name !== name).length };
+  }
+  async rankedLeave(name) {
+    const q = ((await this.ctx.storage.get('rq')) || []).filter((e) => e.name !== name);
+    await this.ctx.storage.put('rq', q);
+    return true;
+  }
+  async rankedEntry(name) { return (await this.ctx.storage.get(`lad:${name}`)) || { rating: 1000, w: 0, l: 0, streak: 0, games: 0 }; }
+  async rankedResult(code, reporter, hostWon, score) {
+    const m = await this.ctx.storage.get(`rm:${code}`);
+    if (!m || m.done) return { error: m ? 'already-recorded' : 'no-match' };
+    if (reporter !== m.host && reporter !== m.guest) return { error: 'not-in-match' };
+    m.done = true; m.hostWon = !!hostWon; m.score = String(score || '').slice(0, 12); m.endAt = Date.now();
+    await this.ctx.storage.put(`rm:${code}`, m);
+    const winner = hostWon ? m.host : m.guest, loser = hostWon ? m.guest : m.host;
+    const W = await this.rankedEntry(winner), L = await this.rankedEntry(loser);
+    const exp = 1 / (1 + Math.pow(10, (L.rating - W.rating) / 400));
+    const delta = Math.round(32 * (1 - exp));
+    W.rating += delta; W.w++; W.games++; W.streak = Math.max(1, W.streak + 1); W.last = Date.now();
+    L.rating = Math.max(100, L.rating - delta); L.l++; L.games++; L.streak = Math.min(-1, L.streak - 1); L.last = Date.now();
+    await this.ctx.storage.put({ [`lad:${winner}`]: W, [`lad:${loser}`]: L });
+    return { ok: true, delta, winner, loser };
+  }
+  async rankedLadder(name) {
+    const all = await this.ctx.storage.list({ prefix: 'lad:' });
+    const rows = [...all].map(([k, v]) => ({ name: k.slice(4), ...v })).sort((a, b) => b.rating - a.rating || b.w - a.w);
+    const top = rows.slice(0, 50).map((r, i) => ({ rank: i + 1, ...r }));
+    const idx = rows.findIndex((r) => r.name === name);
+    return { top, me: idx >= 0 ? { rank: idx + 1, ...rows[idx] } : { rank: null, ...(await this.rankedEntry(name)), name }, players: rows.length };
   }
   async patchUser(name, patch) {
     const key = `u:${name}`;
@@ -447,7 +497,8 @@ async function handleAccount(request, env, path, ctx) {
     const user = await authenticate(env, bearer(request));
     if (!user) return json({ error: 'not-logged-in' }, 401);
     // Players check in every minute or two: that is how the admin sees who is online and what they are doing
-    ctx.waitUntil(adminStub(env).touch(user, new URL(request.url).searchParams.get('a')).catch(() => {}));
+    const q = new URL(request.url).searchParams;
+    ctx.waitUntil(adminStub(env).touch(user, q.get('a'), { room: q.get('r') }).catch(() => {}));
     return json({ username: user });
   }
   if (request.method !== 'POST') return json({ error: 'method' }, 405);
@@ -737,6 +788,27 @@ async function handleInbox(request, env, path) {
 }
 
 // ---------- Friends and chat ----------
+// Ranked play: a queue that pairs any two players, ratings that move with each result, and a ladder
+async function handleRanked(request, env, path) {
+  const me = await authenticate(env, bearer(request));
+  if (!me) return json({ error: 'not-logged-in' }, 401);
+  const admin = adminStub(env);
+  if (path === '/api/ranked/ladder') return json(await admin.rankedLadder(me));
+  if (request.method !== 'POST') return json({ error: 'method' }, 405);
+  const lim = await env.USERS.get(env.USERS.idFromName(RL_ID)).rateHit('rk:' + me, 90, 60 * 1000);
+  if (lim) return json({ error: 'slow-down', retry: lim }, 429);
+  if (path === '/api/ranked/queue') return json(await admin.rankedQueue(me));
+  if (path === '/api/ranked/leave') { await admin.rankedLeave(me); return json({ ok: true }); }
+  if (path === '/api/ranked/result') {
+    const body = (await readJson(request, 400)) || {};
+    const code = typeof body.code === 'string' && /^[A-Z0-9]{4,8}$/.test(body.code) ? body.code : null;
+    if (!code) return json({ error: 'bad' }, 400);
+    const r = await admin.rankedResult(code, me, !!body.hostWon, body.score);
+    return r.error ? json(r, 400) : json(r);
+  }
+  return json({ error: 'not-found' }, 404);
+}
+
 async function handleFriends(request, env, path) {
   const me = await authenticate(env, bearer(request));
   if (!me) return json({ error: 'not-logged-in' }, 401);
@@ -750,7 +822,7 @@ async function handleFriends(request, env, path) {
     const friends = await Promise.all(st.friends.map(async (name) => {
       const e = await admin.getUserEntry(name);
       const online = !!e && now - (e.lastSeen || 0) < ONLINE_MS;
-      return { name, online, activity: online ? String(e.activity || '').slice(0, 12) : '', lastSeen: e ? e.lastSeen || 0 : 0, unread: st.unread[name] || 0 };
+      return { name, online, activity: online ? String(e.activity || '').slice(0, 12) : '', room: online && e.activity === 'online' && e.room ? e.room : '', lastSeen: e ? e.lastSeen || 0 : 0, unread: st.unread[name] || 0 };
     }));
     return json({ me, friends, incoming: st.reqIn, outgoing: st.reqOut });
   }
@@ -806,10 +878,11 @@ export class Room extends DurableObject {
     const guests = this.ctx.getWebSockets('guest');
 
     let error = null;
-    if (role !== 'host' && role !== 'guest') error = 'bad-role';
+    if (role !== 'host' && role !== 'guest' && role !== 'watch') error = 'bad-role';
     else if (role === 'host' && hosts.length) error = 'code-taken';
-    else if (role === 'guest' && !hosts.length) error = 'not-found';
+    else if ((role === 'guest' || role === 'watch') && !hosts.length) error = 'not-found';
     else if (role === 'guest' && guests.length) error = 'full';
+    else if (role === 'watch' && this.ctx.getWebSockets('watch').length >= 8) error = 'full';
 
     const pair = new WebSocketPair();
     const client = pair[0], server = pair[1];
@@ -820,14 +893,17 @@ export class Room extends DurableObject {
     } else {
       server.send(sys('joined', { role, peer: role === 'host' ? guests.length > 0 : true }));
       if (role === 'guest') for (const h of hosts) h.send(sys('peer-joined'));
+      if (role === 'watch') for (const h of hosts) h.send(sys('watcher-joined'));   // the host re-sends the game setup so the watcher can catch up
     }
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  // Who hears a message: the host talks to the guest and every watcher; the guest talks to the host; watchers only listen
   others(ws) {
     const [role] = this.ctx.getTags(ws);
-    if (role !== 'host' && role !== 'guest') return [];
-    return this.ctx.getWebSockets(role === 'host' ? 'guest' : 'host');
+    if (role === 'host') return [...this.ctx.getWebSockets('guest'), ...this.ctx.getWebSockets('watch')];
+    if (role === 'guest') return this.ctx.getWebSockets('host');
+    return [];
   }
 
   webSocketMessage(ws, message) {
@@ -840,6 +916,7 @@ export class Room extends DurableObject {
 
   leave(ws) {
     const [role] = this.ctx.getTags(ws);
+    if (role === 'watch') return;                               // a watcher leaving changes nothing for the players
     for (const peer of this.others(ws)) {
       try {
         peer.send(sys('peer-left'));
@@ -872,6 +949,7 @@ export default {
     if (path === '/api/me' || path === '/api/register' || path === '/api/login' || path === '/api/logout') return handleAccount(request, env, path, ctx);
     if (path.startsWith('/api/admin/')) return handleAdmin(request, env, path);
     if (path === '/api/inbox' || path === '/api/inbox/claim') return handleInbox(request, env, path);
+    if (path.startsWith('/api/ranked/')) return handleRanked(request, env, path);
     if (path === '/api/friends' || path.startsWith('/api/friends/') || path === '/api/chat') return handleFriends(request, env, path);
     if (path === '/api/announcements' && request.method === 'GET') return json({ items: await adminStub(env).activeAnnouncements() });
     if (path.startsWith('/api/')) return new Response('Not found', { status: 404 });

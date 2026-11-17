@@ -541,6 +541,9 @@ function choosePose(p, state, ctx) {
     }
     out.lL = [[0.1, -0.72, 0.68], [0, -0.75, -0.66]];
     out.lR = [[-0.1, -0.6, 0.8], [0, -0.8, -0.6]];
+  } else if (state === 'dive') {
+    both([0.3, 0.1, 0.95], [0.1, 0.15, 1]);                                     // arms stretched out at the ball
+    out.lL = [[0.12, -0.5, -0.86], [0.05, -0.3, -0.95]]; out.lR = [[-0.12, -0.5, -0.86], [-0.05, -0.3, -0.95]];   // legs trailing behind
   } else if (state === 'steal') {
     const t = ctx.actionT || 0;
     // Direction from the shoulder to the ball, in the player's own space, so the arm really reaches for it
@@ -579,6 +582,8 @@ function choosePose(p, state, ctx) {
     if (ctx.move === 'spin') off = [[-s * 0.3, -0.7, 0.3], [-s * 0.3, 0.3, 0.5]]; // tucked in while spinning
     if (ctx.move === 'hesi') off = [[-s * 0.6, -0.2, 0.5], [-s * 0.3, 0.6, 0.6]];  // "hold up" hand
     if (s > 0) { out.aL = arm; out.aR = off; } else { out.aR = arm; out.aL = off; }
+  } else if (ctx.boxT > 0 && !ctx.hasBall) {
+    both([0.9, -0.35, -0.25], [0.7, 0.1, -0.5]);                               // boxing out: arms back and wide, holding position
   } else if (ctx.defending && ctx.speed < 5) {
     both([0.82, -0.3, 0.35], [0.55, 0.42, 0.6]);                               // wide defensive stance
   }
@@ -664,7 +669,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   // Lean into sprints, sit into a defensive stance
   const sprintK = Math.min(1, Math.max(0, (speed - 5) / 3.5));
   const lean = Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
-    + (state === 'steal' ? 0.3 : 0)
+    + (state === 'steal' ? 0.3 : 0) + (state === 'dive' ? (ctx.actionT < 0.3 ? 0.6 + ctx.actionT * 2.5 : 1.3) : 0)
     + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
   h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
   // Life in the body: a bounce on every stride, a shoulder sway, and slow breathing when standing still
@@ -707,7 +712,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   applyLimb(player, 'lR', b.ulR, b.llR, pose.lR, dt, ctx);
   player.facing = realFacing;
   // Keep the feet on the floor: when the legs bend, lower the whole body by how far the ankles were lifted
-  const fixTarget = ctx.airborne || state === 'dunk' || state === 'layup' ? 0 : groundFix(player);
+  const fixTarget = ctx.airborne || state === 'dunk' || state === 'layup' || state === 'dive' ? 0 : groundFix(player);
   player.fixY = (player.fixY || 0) + (fixTarget - (player.fixY || 0)) * Math.min(1, dt * 16);
   h.position.y = (player.bobY || 0) - player.fixY;
   if (player.shoes && player.shoes.length) orientShoes(player, true);
@@ -765,7 +770,15 @@ export function placeCustomArena(scene) {
 // Returns true when the custom court model was placed (the built-in floor/hoops get hidden)
 export function placeCustomCourt(scene) {
   if (!custom.courtModel) return false;
-  placeModel(scene, custom.courtModel.scene, custom.courtModel.cfg);
+  const { scene: model, cfg } = custom.courtModel;
+  // Parts of a model that do not belong on a basketball court can be switched off by material or mesh name ("hide" in assets.json)
+  const hide = Array.isArray(cfg.hide) ? cfg.hide : [];
+  if (hide.length) model.traverse((o) => {
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    if (hide.includes(o.name) || mats.some((m) => m && hide.includes(m.name))) o.visible = false;
+  });
+  placeModel(scene, model, cfg);
   return true;
 }
 

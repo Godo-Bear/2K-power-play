@@ -23,6 +23,7 @@ import { initAnnouncer, attachAnnouncer, sayIntro, setVoice, stopAnnouncer, say 
 import { attachCrowd } from './crowd.js';
 import { attachLowerThirds, stopLowerThirds } from './lowerthirds.js';
 import { MoveLab, MOVES as LAB_MOVES, GROUPS as LAB_GROUPS } from './movelab.js';
+import * as Draft from './draft.js';
 import { gameStory, quarterStory, pickReel } from './highlights.js';
 import { initFriends, openFriends, friendsBadge } from './friends.js';
 import { newDay, attachTrophies, renderTrophies, claimDaily, payOut, hasUnclaimed } from './trophies.js';
@@ -342,6 +343,25 @@ $('#optMute').checked = settings.mute;
 $('#optVoice').checked = settings.voice;
 $('#optRecaps').checked = settings.recaps !== false;
 $('#optLT').checked = settings.lowerThirds !== false;
+$('#optCtlHelp').checked = !!settings.ctlHelp;
+$('#optCtlHelp').addEventListener('change', (e) => { settings.ctlHelp = e.target.checked; saveSettings(); renderCtlHelp(); });
+$('#pauseCtlHelp').addEventListener('click', () => { settings.ctlHelp = !settings.ctlHelp; $('#optCtlHelp').checked = settings.ctlHelp; saveSettings(); renderCtlHelp(); sfx.menu(); });
+// A small key guide in the corner while you play: your own bindings, and what each one does in the situation you are in
+function renderCtlHelp() {
+  const el = $('#ctlHelp');
+  const on = !!settings.ctlHelp && !!game && !attract;
+  $('#pauseCtlHelp').textContent = settings.ctlHelp ? 'Hide controls on screen' : 'Show controls on screen';
+  el.hidden = !on;
+  if (!on) return;
+  const g = game, p = g.userPlayer, mine = p && g.ball.holder === p, off = p && p.team === g.possession, loose = g.ball.state === 'loose';
+  const rows = mine ? [['shoot', 'Shoot (hold, release in green)'], ['pass', 'Pass'], ['move', 'Dribble move'], ['sprint', 'Sprint'], ['shoot', 'Hold Shoot + Pass: pump fake']]
+    : off && !loose ? [['pass', 'Call for the ball'], ['switch', 'Switch player'], ['shoot', 'Jump for a rebound'], ['sprint', 'Sprint']]
+      : [['shoot', 'Jump to block / rebound'], ['pass', loose ? 'Dive for the ball' : 'Steal'], ['move', 'Quick switch to the nearest defender'], ['sprint', 'Sprint back']];
+  const key = rows.map(([id, what]) => `${id}:${what}`).join('|');
+  if (el.dataset.k === key) return;
+  el.dataset.k = key;
+  el.innerHTML = rows.map(([id, what]) => `<div><kbd>${esc(bindLabel(id))}</kbd><span>${esc(what)}</span></div>`).join('') + `<div class="dim"><kbd>${esc(bindLabel('pause'))}</kbd><span>Pause</span></div>`;
+}
 $('#optMusic').checked = settings.music;
 $('#optBright').value = settings.bright;
 $('#brightVal').textContent = `${settings.bright}%`;
@@ -515,7 +535,7 @@ $('#pauseTimeout').addEventListener('click', () => { resume(); setTimeout(() => 
 $('#toContinue').addEventListener('click', () => { if (!game) return; if (game.guest) hud.hideTimeout(); else game.endTimeout(); });
 $('#quitBtn').addEventListener('click', () => leaveGame());
 $('#menuBtn').addEventListener('click', () => quitToMenu());
-$('#rematchBtn').addEventListener('click', () => $('#startBtn').click());
+$('#rematchBtn').addEventListener('click', () => { if (session.kind === 'street') { initAudio(); sfx.select(); startStreet(session.street); } else $('#startBtn').click(); });
 $('#tileOnline').addEventListener('click', () => { initAudio(); sfx.select(); musicMaybe(); openOnline(); });
 $('#overContinue').addEventListener('click', () => afterSessionGame());
 $('#tutExit').addEventListener('click', () => quitToMenu());
@@ -544,6 +564,7 @@ function endGameObjects() {
   $('#contestPanel').classList.remove('show');
   $('#pracPanel').classList.remove('show');
   stopAnnouncer(); stopLowerThirds();
+  $('#ctlHelp').hidden = true;
   $('#tutPanel').classList.remove('show');
   $('#intro').classList.remove('show');
   $('#vignette').classList.remove('on');
@@ -628,13 +649,14 @@ const hud = {
       let extras = `<div class="pog"><span class="big">★</span><div><small>Player of the game</small><b>${esc(pog.data.first)} ${esc(pog.data.last)}</b><br><span>${pog.stats.pts} PTS · ${pog.stats.reb} REB · ${pog.stats.ast} AST</span></div></div>`;
       if (g.simmed) extras += `<div class="pog"><span class="big">⏩</span><div><small>Simulated</small><b>Rest of the game</b><br><span>You were on the bench, so the rest was simmed</span></div></div>`;
       extras += recordSessionGame(g, winner);
+      extras += recordDraftGame(g, winner);
       $('#overExtras').innerHTML = extras;
       $('#boxscore').innerHTML = [g.away, g.home].map((t) => `
         <div class="box"><h4 style="color:${t.data.primary}">${t.data.city} ${t.data.name}</h4>
         <table><tr><th>Player</th><th>MIN</th><th>PTS</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>FG</th><th>3PT</th><th>FT</th><th>TO</th><th>PF</th></tr>
         ${everyone(t).map(statRow).join('')}
         </table></div>`).join('');
-      const inSession = !!session.save;
+      const inSession = !!session.save || session.kind === 'draft';
       $('#overReel').hidden = !pickReel(g.reel || [], 5).length;
       $('#overContinue').hidden = !inSession;
       $('#rematchBtn').hidden = inSession || !!online;
@@ -680,6 +702,7 @@ function updateHUD(dt) {
     const tel = el.querySelector('.tos');
     if (tel.dataset.k !== key) { tel.innerHTML = tos + (t.fouls >= 5 ? '<b>BONUS</b>' : ''); tel.dataset.k = key; }
   }
+  renderCtlHelp();
   $('.sb-mid .period').textContent = g.periodName();
   $('.sb-mid .clock').textContent = g.opts.tutorial ? 'PRACTICE' : g.clockText();
   const sc = $('.sb-mid .shot');
@@ -1287,13 +1310,56 @@ function closeOnline() {
 }
 
 function onlineError(msg) { $('#onError').textContent = msg || ''; }
+// ---------- Ranked: queue, ladder, results ----------
+let rkTimer = 0;
+const rkApi = async (path, body) => { try { const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: await r.json().catch(() => null) }; } catch { return { status: 0, data: null }; } };
+function stopQueue() { if (rkTimer) { clearInterval(rkTimer); rkTimer = 0; rkApi('/api/ranked/leave', {}); } $('#rkFind').textContent = 'Find Ranked Match'; }
+async function refreshRankedMe() {
+  if (!auth.token || auth.offline) { $('#rkMe').textContent = 'Log in to play ranked.'; return; }
+  const r = await rkApi('/api/ranked/ladder');
+  if (r.status === 200 && r.data) { const m = r.data.me; $('#rkMe').textContent = `Your rating ${m.rating} · ${m.w}-${m.l}${m.rank ? ` · #${m.rank} of ${r.data.players}` : ''}`; }
+}
+$('#rkFind').addEventListener('click', async () => {
+  sfx.select();
+  if (!auth.token || auth.offline) { onlineError('Log in to play ranked.'); return; }
+  if (rkTimer) { stopQueue(); onlineError(''); return; }
+  $('#rkFind').textContent = 'Searching… (tap to cancel)';
+  const poll = async () => {
+    const r = await rkApi('/api/ranked/queue', {});
+    if (!rkTimer) return;
+    if (r.status === 200 && r.data && r.data.status === 'matched') {
+      clearInterval(rkTimer); rkTimer = 0; $('#rkFind').textContent = 'Find Ranked Match';
+      hud.toast && onlineError('Match found! Joining…');
+      connectOnline(r.data.code, r.data.role, 0, { ranked: true });
+    } else if (r.status === 200 && r.data) onlineError(`Searching for an opponent${r.data.ahead ? ` · ${r.data.ahead} waiting` : ''}…`);
+    else if (r.status === 401) { stopQueue(); onlineError('Your login has expired. Please log in again.'); }
+  };
+  rkTimer = setInterval(poll, 2000); poll();
+});
+$('#rkLadder').addEventListener('click', async () => {
+  sfx.menu();
+  const box = $('#rkBody');
+  if (!box.hidden) { box.hidden = true; return; }
+  const r = await rkApi('/api/ranked/ladder');
+  if (r.status !== 200 || !r.data) { onlineError('The ladder needs the game server and a login.'); return; }
+  const row = (x) => `<tr class="${x.name === r.data.me.name ? 'me' : ''}"><td>${x.rank ?? '—'}</td><td>${esc(x.name)}</td><td>${x.rating}</td><td>${x.w}-${x.l}</td><td>${x.streak > 1 ? `🔥 ${x.streak}` : x.streak < -1 ? `${-x.streak} L` : ''}</td></tr>`;
+  box.innerHTML = `<h4>Ranked ladder <small>${r.data.players} player${r.data.players === 1 ? '' : 's'}</small></h4><table class="lg"><tr><th>#</th><th>Player</th><th>Rating</th><th>W-L</th><th></th></tr>${r.data.top.map(row).join('') || '<tr><td colspan="5">Nobody has played ranked yet.</td></tr>'}${r.data.me.rank && r.data.me.rank > 50 ? row(r.data.me) : ''}</table>`;
+  box.hidden = false;
+});
+async function reportRanked(o, hostWon, score) {
+  const r = await rkApi('/api/ranked/result', { code: o.room.code, hostWon, score });
+  if (r.status === 200 && r.data) hud.toast('RANKED', `${hostWon ? 'Win' : 'Loss'} · rating ${hostWon ? '+' : '−'}${r.data.delta}`, 4);
+}
+// Friends: watch a friend's online game
+function watchGame(code) { sfx.select(); closeOnline(); connectOnline(code, 'watch'); }
+
 function openOnline() {
-  closeOnline();
+  closeOnline(); stopQueue(); $('#rkBody').hidden = true; refreshRankedMe();
   $('#onStart').hidden = false; $('#onLobby').hidden = true;
   onlineError('');
   show('online');
 }
-async function connectOnline(code, role, tries = 0) {
+async function connectOnline(code, role, tries = 0, opts = {}) {
   onlineError('');
   if (tries === 0) {
     // Rooms need a valid login: check it first so an expired login gets a clear message
@@ -1307,10 +1373,11 @@ async function connectOnline(code, role, tries = 0) {
     }
   }
   $('#onCreate').disabled = $('#onJoin').disabled = true;
-  const o = { role, peer: false, home: settings.home, away: settings.away, q: Number(settings.q) > 5 ? 2 : Number(settings.q), playing: false, queue: [], acc: 0, statsT: 0, menu: false };
+  const o = { role, peer: false, home: settings.home, away: settings.away, q: Number(settings.q) > 5 ? 2 : Number(settings.q), playing: false, queue: [], acc: 0, statsT: 0, menu: false, ranked: !!opts.ranked };
   o.room = new Room(code, role, {
     joined: (m) => {
       if (online !== o) return;
+      if (role === 'watch') { $('#onCreate').disabled = $('#onJoin').disabled = false; show(null); hud.toast('WATCHING', `Room ${code} · waiting for the game…`, 30); return; }
       o.peer = !!m.peer;
       $('#onCreate').disabled = $('#onJoin').disabled = false;
       $('#onStart').hidden = true; $('#onLobby').hidden = false;
@@ -1319,12 +1386,17 @@ async function connectOnline(code, role, tries = 0) {
     },
     peerJoined: () => { if (online !== o) return; o.peer = true; sfx.select(); o.room.send({ k: 'lobby', home: o.home, away: o.away, q: o.q }); if (!o.playing) renderLobby(); },
     peerLeft: () => { if (online === o) peerGone(o); },
+    // someone started watching: send them the game setup so they can build the court and follow the snapshots
+    watcherJoined: () => { if (online === o && o.role === 'host' && o.playing) o.room.send({ k: 'watchstart', home: o.home, away: o.away, q: o.q }); },
     message: (m) => { if (online === o) netMessage(o, m); },
     closed: (why) => {
       $('#onCreate').disabled = $('#onJoin').disabled = false;
       if (online !== o) return;
       // A fresh host code can clash with an existing room: just pick another
-      if (role === 'host' && !o.room.joined && /in use/.test(why) && tries < 4) { connectOnline(makeCode(), 'host', tries + 1); return; }
+      if (role === 'host' && !o.room.joined && /in use/.test(why) && tries < 4) { connectOnline(makeCode(), 'host', tries + 1, opts); return; }
+      // ranked: the matched host may still be opening the room
+      if (role === 'guest' && o.ranked && !o.room.joined && /No room/.test(why) && tries < 10) { online = null; setTimeout(() => connectOnline(code, 'guest', tries + 1, opts), 1200); return; }
+      if (role === 'watch') { online = null; quitToMenu(); renderHome(); show('friends'); return; }
       if (o.playing) { peerGone(o, true); return; }
       online = null;
       $('#onStart').hidden = false; $('#onLobby').hidden = true;
@@ -1411,6 +1483,7 @@ function startOnlineHost() {
   hookFx(game);
   attachAnnouncer(game); attachCrowd(game, arena); attachLowerThirds(game, { on: () => settings.lowerThirds !== false }); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
   game.on((type, d) => { const e = packEvent(game, type, d); if (e) o.queue.push(e); });
+  if (o.ranked) game.on((type, d) => { if (type === 'gameOver') reportRanked(o, d.winner === game.home, `${game.home.score}-${game.away.score}`); });
   patchSfx(o.queue);
   setQuiet(false); stopMusic();
   game.state = 'intro'; // frozen until the guest has loaded
@@ -1420,6 +1493,27 @@ function startOnlineHost() {
   show(null);
   hud.toast('GET READY', 'Waiting for your friend to load…', 30);
   o.room.send({ k: 'start', home: o.home, away: o.away, q: o.q });
+}
+
+// Watching a friend's game: the same picture the guest gets, but with no controller
+function startOnlineWatcher(m) {
+  const o = online;
+  endGameObjects();
+  session = { kind: 'online', save: null };
+  o.home = m.home; o.away = m.away; o.q = m.q;
+  const home = TEAMS[o.home], away = TEAMS[o.away];
+  buildWorld(home, away);
+  game = new Game(scene, arena, home, away, { difficulty: 'pro', quarterMinutes: o.q, userSide: 'away', playerLock: -1, versus: true, guest: true }, hud);
+  game.guest = true; game.spectator = true;
+  game.state = 'intro';
+  hookFx(game);
+  attachAnnouncer(game); attachCrowd(game, arena); attachLowerThirds(game, { on: () => settings.lowerThirds !== false });
+  setQuiet(false); stopMusic();
+  o.playing = true; o.menu = false;
+  mode = 'game';
+  camPos.set(0, 8.2, 16); camTarget.set(0, 1.2, 0);
+  show(null);
+  hud.toast('WATCHING', `${away.city} ${away.name} at ${home.city} ${home.name} · press Pause to leave`, 4);
 }
 
 function startOnlineGuest(m) {
@@ -1448,13 +1542,14 @@ function netMessage(o, m) {
   if (m.k === 'lobby' && o.role === 'guest' && !o.playing) { o.home = m.home; o.q = m.q; renderLobby(); }
   else if (m.k === 'pick' && o.role === 'host' && !o.playing) { o.away = m.team; renderLobby(); o.room.send({ k: 'lobby', home: o.home, away: o.away, q: o.q }); }
   else if (m.k === 'start' && o.role === 'guest') startOnlineGuest(m);
+  else if ((m.k === 'start' || m.k === 'watchstart') && o.role === 'watch' && !o.playing) startOnlineWatcher(m);
   else if (m.k === 'ready' && o.role === 'host' && o.playing && game && !o.ready) {
     o.ready = true;
     hud.hideToast();
     game.begin();
     sfx.cheer(0.8);
   } else if (m.k === 'i' && o.role === 'host' && o.remote) o.remote.receive(m);
-  else if (m.k === 's' && o.role === 'guest' && game && game.guest) {
+  else if (m.k === 's' && (o.role === 'guest' || o.role === 'watch') && game && game.guest) {
     applySnapshot(game, m);
     for (const ev of m.ev || []) guestEvent(ev);
   }
@@ -1622,6 +1717,13 @@ function healthHTML(s) {
   const tired = r.tired.map((x) => `<li>🔋 <b>${esc(x.name)}</b> · starts at ${x.energy}% energy</li>`);
   return `<ul class="health">${out.join('')}${tired.join('')}</ul>${r.meOut ? '<p class="hint" style="margin:4px 0 0">Your player is injured: this game is simulated without you (no Rep Points), and the injury heals a game at a time.</p>' : ''}`;
 }
+// Free agency: a few players want to join during the summer (until the first game of the season)
+function offersHTML(s) {
+  const offers = s.offers || [];
+  if (!offers.length) return '';
+  const mine = Season.withSignings(s, s.career ? Season.careerTeamData(s) : TEAMS[s.team]).roster;
+  return `<div class="offers"><h5>Free agency · ${offers.length} player${offers.length === 1 ? '' : 's'} want to join</h5><p class="hint" style="margin:0 0 6px">Sign one and they start at their position; your current starter becomes the backup. Offers close at the first game.</p>${offers.map((p) => { const cur = mine.find((x) => x.pos === p.pos && !x.bench); return `<div class="offer"><span class="dot" style="background:${TEAMS[p.from].primary}"></span><div><b>${esc(p.first)} ${esc(p.last)}</b> <small>${p.pos} · ${p.ovr} OVR · from ${esc(TEAMS[p.from].name)}</small><br><small>In place of ${cur ? `${esc(cur.first)} ${esc(cur.last)} (${cur.ovr})` : 'nobody'}</small></div><button data-sign="${esc(p.pid)}">Sign</button></div>`; }).join('')}</div>`;
+}
 function renderHub() {
   const s = session.save, kind = session.kind;
   const team = TEAMS[s.team];
@@ -1629,8 +1731,10 @@ function renderHub() {
   const rank = table.findIndex((x) => x.team === s.team) + 1;
   $('#hubTitle').textContent = kind === 'career' ? `My Career · Year ${s.year}` : `Season · Year ${s.year}`;
   $('#hubSub').textContent = `${team.city} ${team.name} · ${Season.record(s, s.team)} · ${rank}${['st', 'nd', 'rd'][rank - 1] || 'th'} place · ${DIFFICULTY[s.diff].label} · ${s.q}-min quarters`;
+  const chemV = Season.chemistry(s);
+  const chemHTML = `<div class="chem" title="Grows with games and wins together; injuries set it back. Better chemistry means cleaner passes and better looks."><span>Team chemistry</span><div class="bar"><i style="width:${chemV}%"></i></div><b>${Math.round(chemV)} · ${Season.chemLabel(chemV)}</b></div>`;
   $('#hubCard').innerHTML = kind === 'career'
-    ? `${cardHTML(s.career, s.team)}<div style="text-align:center;margin-top:10px"><span class="rp">${s.career.rp} Rep Points</span></div>`
+    ? `${cardHTML(s.career, s.team)}<div style="text-align:center;margin-top:10px"><span class="rp">${s.career.rp} Rep Points</span>${Season.sponsorOf(s.career) ? `<div class="hint" style="margin:4px 0 0">👟 ${esc(Season.sponsorOf(s.career).name)} · +${Season.sponsorOf(s.career).pay} Rep Points a game</div>` : ''}</div>${chemHTML}`
     : `<div class="box" style="text-align:center;padding:18px"><div style="display:inline-block">${crest(team, 'crest')}</div><style>#hubCard .crest{width:84px;height:84px;border-radius:50%;display:grid;place-items:center;font-family:var(--display);font-size:22px;border:4px solid}</style><h3 style="margin:10px 0 2px">${team.city} ${team.name}</h3><span class="hint">${Season.record(s, s.team)} · Team OVR ${team.ovr}</span></div>`;
 
   // What your player did in the game that was just simmed
@@ -1654,8 +1758,9 @@ function renderHub() {
         <button data-v="player" class="${s.control !== 'team' ? 'on' : ''}">Just my player</button>
         <button data-v="team" class="${s.control === 'team' ? 'on' : ''}">Whole team</button></div>
         <p>${s.control === 'team' ? 'You switch between all five players, like a normal game.' : `You stay on ${esc(s.career.first)} the whole game. Teammates play on their own. Press Pass to call for the ball.`}</p></div>` : ''}
-      ${healthHTML(s)}
+      ${healthHTML(s)}${offersHTML(s)}
       ${hr.meOut ? `<button class="primary" id="hubSim">Simulate (you are out)</button>` : `<button class="primary" id="hubPlay">Play Game</button><button id="hubSim">Simulate</button>${kind === 'career' && hr.tired.some((x) => x.isMe) ? '<button id="hubRest">Rest my player</button>' : ''}`}`;
+    $$('#hubNext [data-sign]').forEach((b) => b.addEventListener('click', () => { if (Season.signOffer(s, b.dataset.sign)) { sfx.levelUp(); hud.toast('SIGNED', 'Starting from your next game', 3); renderHub(); } }));
     if ($('#hubRest')) $('#hubRest').onclick = () => { Season.simUserGame(s, { rest: true }); sfx.menu(); session.lastSim = null; maybeChampion(s) || renderHub(); };
     $$('#hubControl button').forEach((b) => b.addEventListener('click', () => { s.control = b.dataset.v; Season.save(s); sfx.menu(); renderHub(); }));
     if ($('#hubPlay')) $('#hubPlay').onclick = () => playHubGame();
@@ -1673,7 +1778,7 @@ function renderHub() {
   }
 
   // Tabs
-  const tabs = [...(kind === 'career' ? [['upgrades', 'Upgrades'], ['log', 'My Games']] : []), ['tactics', 'Tactics'], ['kit', 'Kit'], ['standings', 'Standings'], ['schedule', 'Schedule'], ['stats', 'Team Stats'], ['playoffs', 'Playoffs'], ['options', 'Options']];
+  const tabs = [...(kind === 'career' ? [['upgrades', 'Upgrades'], ['sponsors', 'Sponsors'], ['log', 'My Games']] : []), ['tactics', 'Tactics'], ['kit', 'Kit'], ['standings', 'Standings'], ['schedule', 'Schedule'], ['stats', 'Team Stats'], ['playoffs', 'Playoffs'], ['options', 'Options']];
   $('#hubTabs').innerHTML = tabs.map(([k, l]) => `<button class="${k === hubTab ? 'on' : ''}" data-k="${k}">${l}</button>`).join('');
   $$('#hubTabs button').forEach((b) => b.addEventListener('click', () => { hubTab = b.dataset.k; sfx.menu(); renderHub(); }));
   const body = $('#hubTab');
@@ -1723,6 +1828,11 @@ function renderHub() {
       const before = Season.tier(Season.careerOvr(c)).name;
       if (Season.upgrade(s, b.dataset.k)) { if (Season.tier(Season.careerOvr(c)).name !== before) sfx.levelUp(); else sfx.select(); renderHub(); }
     }));
+  } else if (hubTab === 'sponsors') {
+    const c = s.career;
+    body.innerHTML = `<p class="hint" style="text-align:left;margin:0 0 8px">Sponsors pay Rep Points every game you play and put their shoes on your player. One deal at a time; a first signing pays a bonus. Earn offers with milestones.</p><div class="spons">${Season.sponsorOffers(c).map((sp) =>
+      `<div class="sp${sp.active ? ' on' : ''}${sp.open ? '' : ' locked'}"><div class="shoe" style="--u:${sp.shoes[0]};--s:${sp.shoes[1]}"></div><div><b>${esc(sp.name)}</b><small>${esc(sp.tag)} · +${sp.pay} Rep Points a game · ${sp.bonus} signing bonus</small><small>${sp.open ? (sp.active ? 'Your current deal' : (c.signed || []).includes(sp.id) ? 'Signed before: no new bonus' : 'Offer open') : `🔒 ${esc(sp.need)}`}</small></div>${sp.active ? '<em>Active</em>' : `<button data-sp="${sp.id}" ${sp.open ? '' : 'disabled'}>Sign</button>`}</div>`).join('')}</div>`;
+    $$('#hubTab [data-sp]').forEach((b) => b.addEventListener('click', () => { const bonus = Season.signSponsor(s, b.dataset.sp); if (bonus === false) return; sfx.levelUp(); hud.toast('SIGNED', bonus ? `+${bonus} Rep Points signing bonus` : 'New shoes, same hustle', 3); renderHub(); }));
   } else if (hubTab === 'kit') {
     body.innerHTML = `<div style="display:flex;align-items:center;gap:14px;padding:6px 4px">${crest(team, 'crest')}<div><b>${team.city} ${team.name}</b><div class="hint" style="margin:2px 0 0;text-align:left">Change your colors, logo and shoes. Your players wear them in every game.</div></div></div><div class="row"><button id="hubKit" class="primary">Customize kit &amp; shoes</button></div>`;
     $('#hubKit').addEventListener('click', () => { sfx.menu(); openKit(team, () => { renderHub(); show('hub'); }); });
@@ -1794,9 +1904,99 @@ function renderContestsHome() {
   const b = bestScores();
   $('#cstBest').textContent = `Best 3-point score: ${b.three ?? '-'} / 30   ·   Best dunk score: ${b.dunk ?? '-'} / 90`;
 }
+$('#tileDraft').addEventListener('click', () => { initAudio(); sfx.select(); musicMaybe(); renderDraft(); show('draft'); });
+
+// ---------- Draft: pick a squad, then a run of up to four wins ----------
+const teamName = (i) => `${TEAMS[i].city} ${TEAMS[i].name}`;
+function draftCard(p, extra = '') {
+  const t = TEAMS[p.team], r = p.ratings;
+  const top = Object.entries(r).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return `<div class="dcard" style="--tc:${t.primary}"><div class="dc-top"><b class="ovr">${p.ovr}</b><span class="pos">${p.pos}</span><span class="dot" style="background:${t.primary}"></span></div>
+    <b class="name">${esc(p.first)} ${esc(p.last)}</b><small>${esc(t.city)} ${esc(t.name)}${p.bench ? ' · bench' : ''}</small>
+    <div class="dc-r">${top.map(([k, v]) => `<span>${esc(ATTR_SHORT[k] || k)} <b>${v}</b></span>`).join('')}</div>${extra}</div>`;
+}
+const ATTR_SHORT = { three: '3PT', mid: 'MID', inside: 'INS', dunk: 'DNK', pass: 'PAS', handle: 'HDL', speed: 'SPD', def: 'DEF', steal: 'STL', block: 'BLK', reb: 'REB' };
+function renderDraft() {
+  const d = Draft.loadDraft();
+  const body = $('#draftBody');
+  $('#tileDraftSub').textContent = d && !d.done ? (d.slot < Draft.SLOTS.length ? `Drafting · pick ${d.slot + 1} of ${Draft.SLOTS.length}` : `Run: ${d.run.wins} win${d.run.wins === 1 ? '' : 's'} so far`) : `Build a squad, win four in a row${d && d.best ? ` · best run ${d.best}` : ''}`;
+  if (!d || d.done) {
+    $('#draftTitle').textContent = 'Draft';
+    body.innerHTML = `${d && d.done ? `<div class="box draft-result"><h4>${d.run.wins >= Draft.RUN_LEN ? '🏆 Perfect run!' : `Run over: ${d.run.wins} win${d.run.wins === 1 ? '' : 's'}`}</h4><p>${d.reward ? `+${d.reward} Rep Points were paid into every career.` : 'No reward this time. Draft again!'}</p><p class="hint" style="margin:4px 0 0">${d.run.games.map((g) => `${g.won ? 'W' : 'L'} ${g.us}-${g.them} vs ${TEAMS[g.opp].id}`).join(' · ')}</p></div>` : ''}
+      <div class="box"><h4>How it works</h4><p class="hint" style="text-align:left;margin:4px 0 0">Eight picks, five choices each: a point guard, a shooting guard, a small forward, a power forward, a center and three bench players, drawn from every team in the league. Then play up to four games in a row against tougher and tougher opponents. One loss ends the run. Wins pay Rep Points into every career: ${Draft.REWARDS.slice(1).map((v, i) => `${i + 1} win${i ? 's' : ''} ${v}`).join(' · ')}.</p>
+      <div class="row" style="margin-top:12px"><label>Difficulty <select id="drDiff">${Object.entries(DIFFICULTY).map(([k, v]) => `<option value="${k}" ${k === settings.diff ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label><label>Quarters <select id="drQ"><option value="2">2 min</option><option value="3">3 min</option><option value="5">5 min</option></select></label><button class="primary" id="drStart">Start a draft</button></div>
+      ${d && d.runs ? `<p class="hint">Best run: ${d.best} win${d.best === 1 ? '' : 's'} · ${d.runs} draft${d.runs === 1 ? '' : 's'} played</p>` : ''}</div>`;
+    $('#drQ').value = String(Math.min(5, Number(settings.q) || 2));
+    $('#drStart').onclick = () => { Draft.newDraft({ diff: $('#drDiff').value, q: Number($('#drQ').value) }); sfx.select(); renderDraft(); };
+    return;
+  }
+  if (d.slot < Draft.SLOTS.length) {
+    const want = Draft.SLOTS[d.slot];
+    $('#draftTitle').textContent = `Pick ${d.slot + 1} of ${Draft.SLOTS.length}: ${want === 'bench' ? 'a bench player' : { PG: 'your point guard', SG: 'your shooting guard', SF: 'your small forward', PF: 'your power forward', C: 'your center' }[want]}`;
+    body.innerHTML = `<div class="dpicks">${d.offers.map((p, i) => `<button class="dpick" data-i="${i}">${draftCard(p)}</button>`).join('')}</div>
+      <div class="dsquad"><h4>Your squad so far${d.picks.length ? ` · ${Draft.squadOvr(d)} OVR` : ''}</h4><div class="dmini">${Draft.SLOTS.map((sl, i) => `<span class="${d.picks[i] ? 'on' : ''}">${d.picks[i] ? `${d.picks[i].pos} ${d.picks[i].ovr}` : sl === 'bench' ? 'BN' : sl}</span>`).join('')}</div></div>`;
+    $$('#draftBody .dpick').forEach((b) => b.addEventListener('click', () => { if (Draft.pick(d, Number(b.dataset.i))) { sfx.select(); renderDraft(); } }));
+    return;
+  }
+  const team = Draft.squadTeam(d), n = d.run.games.length;
+  $('#draftTitle').textContent = `Your Draft · ${team.ovr} OVR`;
+  body.innerHTML = `<div class="box draft-run"><h4>Run: ${d.run.wins} of ${Draft.RUN_LEN} wins</h4><div class="drun">${Array.from({ length: Draft.RUN_LEN }, (_, i) => { const g = d.run.games[i]; return `<span class="${g ? (g.won ? 'w' : 'l') : i === n ? 'next' : ''}">${g ? `${g.won ? 'W' : 'L'} ${g.us}-${g.them}` : i === n ? 'NEXT' : '—'}</span>`; }).join('')}</div>
+    <div class="row" style="margin-top:10px"><button class="primary" id="drPlay">Play game ${n + 1}</button><button id="drQuit">Abandon draft</button></div></div>
+    <div class="dsquad"><h4>Starters</h4><div class="dgrid">${team.roster.slice(0, 5).map((p) => draftCard(p)).join('')}</div><h4>Bench</h4><div class="dgrid">${team.roster.slice(5).map((p) => draftCard(p)).join('')}</div></div>`;
+  $('#drPlay').onclick = () => {
+    const opp = Draft.nextOpponent(d);
+    session = { kind: 'draft', save: null, draft: { opp: TEAMS.findIndex((t) => t.id === opp.id) } };
+    sfx.select();
+    launch({ home: team, away: opp, userSide: 'home', diff: d.diff, q: d.q, lock: -1, stage: `Draft · Game ${n + 1}` });
+  };
+  $('#drQuit').onclick = () => { if (confirm('Abandon this draft? The run ends with no reward.')) { Draft.clearDraft(); sfx.menu(); renderDraft(); } };
+}
+// A draft game is over: record it, and show the reward on the final screen
+function recordDraftGame(g, winner) {
+  const d = Draft.loadDraft();
+  if (!d || d.done || g.recorded || session.kind !== 'draft') return '';
+  g.recorded = true;
+  Draft.recordGame(d, { won: winner.isUser, us: g.home.score, them: g.away.score, opp: session.draft.opp });
+  if (d.done) {
+    if (d.reward) sfx.levelUp();
+    return `<div class="pog"><span class="big">${d.run.wins >= Draft.RUN_LEN ? '🏆' : '🏁'}</span><div><small>Draft run over</small><b>${d.run.wins} win${d.run.wins === 1 ? '' : 's'}</b><br><span>${d.reward ? `+${d.reward} Rep Points into every career` : 'No reward this time'}</span></div></div>`;
+  }
+  return `<div class="pog"><span class="big">✔</span><div><small>Draft run</small><b>${d.run.wins} of ${Draft.RUN_LEN} wins</b><br><span>Keep it going: game ${d.run.games.length + 1} is next</span></div></div>`;
+}
 $('#tileContests').addEventListener('click', () => { initAudio(); sfx.select(); renderContestsHome(); show('contests'); });
 $('#cstThree').addEventListener('click', () => { initAudio(); sfx.select(); startContest('three'); });
 $('#cstDunk').addEventListener('click', () => { initAudio(); sfx.select(); startContest('dunk'); });
+$('#cstStreet').addEventListener('click', () => { initAudio(); sfx.select(); startStreet(3); });
+$('#cst21').addEventListener('click', () => { initAudio(); sfx.select(); startStreet(1); });
+
+// ---------- Street ball: 3-on-3 and 21 (1-on-1) ----------
+// Half the players, no refs: ones and twos, no fouls, make it take it, first to 21 wins
+function startStreet(size) {
+  endGameObjects();
+  session = { kind: 'street', save: null, street: size };
+  const home = TEAMS[settings.home], away = TEAMS[settings.away === settings.home ? (settings.home + 3) % TEAMS.length : settings.away];
+  buildWorld(home, away);
+  game = new Game(scene, arena, home, away, { difficulty: settings.diff, quarterMinutes: 999, userSide: 'home', playerLock: size === 1 ? 0 : -1, strictLock: size === 1, noFouls: true, noTimeouts: true, noViolations: true, autoSubs: false, recaps: false, street: { to: 21, size } }, hud);
+  hookFx(game);
+  attachAnnouncer(game); attachCrowd(game, arena); attachLowerThirds(game, { on: () => settings.lowerThirds !== false }); attachTrophies(game, (t, s) => { hud.toast(t, s, 4); sfx.levelUp(); });
+  setQuiet(false); stopMusic();
+  mode = 'game';
+  // the best players stay: by rating, one per position slot when it is 3-on-3
+  for (const t of game.teams) {
+    const order = t.full ? t.full : t.players.slice();
+    const pick = order.map((p, i) => ({ p, i })).sort((a, b) => b.p.data.ovr - a.p.data.ovr).slice(0, size).map((o) => o.i);
+    t.full = order;
+    t.full.forEach((p, i) => { p.root.visible = pick.includes(i); p.setControlled(false); });
+    t.players = pick.map((i) => order[i]);
+    t.players.forEach((p, i) => { p.index = i; });
+    if (t.human) game.setCtl(t, t.players[0]);
+  }
+  game.forcePossession(game.user.players[0], new THREE.Vector3(game.user.dir * (C.HOOP_X - 8.4), 0, 0.3));
+  camPos.set(0, 8.2, 16); camTarget.set(0, 1.2, 0);
+  show(null);
+  $('#hud').classList.add('show');
+  hud.toast(size === 1 ? '21 · ONE ON ONE' : 'STREET 3-ON-3', 'Ones and twos. No fouls. Make it, take it. First to 21.', 3.5);
+}
 $('#crMenu').addEventListener('click', () => { sfx.menu(); quitToMenu(); });
 $('#crAgain').addEventListener('click', () => { sfx.select(); startContest(contest ? contest.kind : 'three'); });
 
@@ -2062,7 +2262,7 @@ function playHubGame() {
   const ng = Season.nextGame(s);
   if (!ng) return;
   session.lastSim = null;
-  const mine = Season.applyHealth(s, s.career ? Season.careerTeamData(s) : TEAMS[s.team]);
+  const mine = Season.applyHealth(s, Season.withSignings(s, s.career ? Season.careerTeamData(s) : TEAMS[s.team]));
   const other = (i) => (s.career ? Season.scaledTeam(i, s.year) : TEAMS[i]);
   const home = ng.h === s.team ? mine : other(ng.h);
   const away = ng.a === s.team ? mine : other(ng.a);
@@ -2080,12 +2280,13 @@ function recordSessionGame(g, winner) {
   const rows = everyone(g.user).map((p) => ({ key: `${p.data.first} ${p.data.last}#${p.data.number}`, name: `${p.data.first} ${p.data.last}`, pos: p.data.pos, ...p.stats, energy: p.energy, bench: !p.starter, isMe: !!p.data.isMe }));
   Season.recordGame(s, g.home.score, g.away.score, rows);
   Season.afterGame(s, rows, false);
+  Season.updateChemistry(s, { won: winner.isUser, lineupChanged: g.user.data.roster.some((p) => p.injured) });
   if (!s.career) return '';
   const me = everyone(g.user).find((p) => p.data.isMe);
   if (!me) return '';
   const r = Season.careerReward(s, me.stats, winner.isUser);
   sfx.levelUp();
-  return `<div class="reward"><span class="grade">${r.grade}</span><div><small>Your game grade</small><b>${me.stats.pts} PTS · ${me.stats.reb} REB · ${me.stats.ast} AST</b><br><span class="rp">+${r.rp} Rep Points</span></div></div>`;
+  return `<div class="reward"><span class="grade">${r.grade}</span><div><small>Your game grade</small><b>${me.stats.pts} PTS · ${me.stats.reb} REB · ${me.stats.ast} AST</b><br><span class="rp">+${r.rp} Rep Points${r.pay ? ` (incl. +${r.pay} sponsor)` : ``}</span></div></div>`;
 }
 
 function afterSessionGame() {
@@ -2094,6 +2295,7 @@ function afterSessionGame() {
   mode = 'menu';
   startAttract();
   musicMaybe();
+  if (kind === 'draft') { renderHome(); renderDraft(); show('draft'); return; }
   hubTab = kind === 'career' ? 'upgrades' : 'standings';
   maybeChampion(s) || (renderHub(), show('hub'));
 }
@@ -2357,7 +2559,7 @@ const activityNow = () => {
 };
 setInterval(async () => {
   if (!auth.token || auth.offline) return;
-  const r = await heartbeat(activityNow());
+  const r = await heartbeat(activityNow(), online && online.playing && online.role !== 'watch' ? online.room.code : '');
   if (r === 'none') { quitToMenu(); updateAccountUI(); showLogin(false); $('#loginError').textContent = 'You were signed out. Please log in again.'; return; }
   if (r === 'ok') { refreshNotice(); refreshFriendsDot(); if ($('#giftModal').hidden) applyInbox(); }
 }, 90000);
@@ -2365,7 +2567,7 @@ setInterval(async () => {
 // The basketball next to the logo opens the admin code page
 $('#adminBall').addEventListener('click', () => { initAudio(); sfx.menu(); openAdmin(); });
 initAdmin({ $, $$, show, sfx, esc, exit: () => { renderHome(); show('menu'); } });
-initFriends({ $, show, sfx, esc });
+initFriends({ watch: (code) => watchGame(code), $, show, sfx, esc });
 onCloudStatus((s) => { const el = $('#cloudInfo'); if (el) el.textContent = s; const row = $('#cloudRow'); if (row) row.hidden = !(auth.token && !auth.offline); });
 $('#cloudNow').addEventListener('click', async () => { sfx.menu(); await cloudPush(); });
 async function doLogout() {
@@ -2419,7 +2621,8 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.se
 // Debug handle for testing in the browser console
 window.pph = {
   manual: false, input, Season, portrait, camera, auth, gfxStats, renderer, getContest: () => contest,
-  get game() { return game; }, get tutorial() { return tutorial; }, get session() { return session; }, get intro() { return intro; },
+  get game() { return game; }, get tutorial() { return tutorial; }, get session() { return session; }, get intro() { return intro; }, get scene() { return scene; },
+  watch: (code) => watchGame(code),
   endIntro,
   // Step the game with a fixed input state (used by automated tests)
   step(n = 1, inp = {}) {

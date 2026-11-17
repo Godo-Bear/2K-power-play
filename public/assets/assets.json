@@ -41,7 +41,10 @@
       "key": "#2a6a6a",
       "apron": "#47565f",
       "lines": "#ffffff"
-    }
+    },
+    "hide": [
+      "Dust_Bin"
+    ]
   },
   "arena": {
     "models": [

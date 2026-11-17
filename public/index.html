@@ -120,7 +120,8 @@
         <span class="t-title">Practice</span>
         <span class="t-sub">Work on your game</span>
       </button>
-      <button class="tile small" id="tileContests"><span class="t-title">Contests</span><span class="t-sub">3-point &amp; dunk contest</span></button>
+      <button class="tile small" id="tileDraft"><span class="t-title">Draft</span><span class="t-sub" id="tileDraftSub">Build a squad, win four in a row</span></button>
+      <button class="tile small" id="tileContests"><span class="t-title">Contests</span><span class="t-sub">3-point, dunks &amp; street ball</span></button>
       <button class="tile small" id="tutorialBtn"><span class="t-title">Tutorial</span><span class="t-sub">Learn every move</span></button>
       <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
       <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
@@ -237,6 +238,7 @@
       </label>
       <label class="check"><input type="checkbox" id="optVoice"> Announcer voice (spoken play-by-play)</label>
       <label class="check"><input type="checkbox" id="optRecaps"> Quarter recaps between quarters (stats, leaders and the play of the quarter)</label>
+      <label class="check"><input type="checkbox" id="optCtlHelp"> Show the controls on screen while playing (a small key guide in the corner)</label>
       <label class="check"><input type="checkbox" id="optLT"> TV lower-thirds (name cards for named dunks, milestones, hot streaks and each new quarter)</label>
       <label class="check"><input type="checkbox" id="optMusic"> Menu music</label>
       <label class="check"><input type="checkbox" id="optMute"> Mute all sound</label>
@@ -262,6 +264,7 @@
     <div id="scorePop"></div>
     <div id="caption"></div>
     <div id="lt" aria-hidden="true"></div>
+    <div id="ctlHelp" hidden></div>
     <div id="vignette"></div>
     <div id="hudBtns">
       <button id="pauseBtn" aria-label="Pause">❚❚</button>
@@ -333,6 +336,7 @@
       <button id="pauseTimeout">Call Timeout</button>
       <button id="pauseTactics">Team Tactics</button>
       <button id="pauseMoves">Move Guide</button>
+      <button id="pauseCtlHelp">Show controls on screen</button>
       <button data-go="controls">Controls</button>
       <button data-go="settings">Settings</button>
       <button id="quitBtn">Quit to Menu</button>
@@ -373,6 +377,13 @@
     <div class="row"><button id="movesDone" class="primary">Done</button></div>
   </div>
 
+  <!-- Draft -->
+  <div id="draft" class="screen">
+    <h2 id="draftTitle">Draft</h2>
+    <div id="draftBody" class="draft-body"></div>
+    <div class="row"><button data-go="menu">Back</button></div>
+  </div>
+
   <!-- Contests -->
   <div id="contests" class="screen">
     <h2>Contests</h2>
@@ -380,6 +391,12 @@
     <div class="row">
       <button id="cstThree" class="primary">3-Point Contest<small style="display:block;font-weight:500">5 racks · 25 balls · 70 seconds</small></button>
       <button id="cstDunk" class="primary">Dunk Contest<small style="display:block;font-weight:500">3 rounds · judges score your style</small></button>
+    </div>
+    <h4 style="margin:14px 0 4px">Street ball</h4>
+    <p class="hint">Ones and twos, no fouls, make it take it. First to 21.</p>
+    <div class="row">
+      <button id="cstStreet" class="primary">Street 3-on-3<small style="display:block;font-weight:500">Your best three against theirs</small></button>
+      <button id="cst21" class="primary">21<small style="display:block;font-weight:500">One on one, you against their best</small></button>
     </div>
     <p class="hint" id="cstBest"></p>
     <div class="row"><button data-go="menu">Back</button></div>
@@ -511,10 +528,18 @@
           <input type="text" id="onCode" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
           <button id="onJoin" class="primary">Join Room</button>
         </div>
+        <div class="box">
+          <h4>Ranked</h4>
+          <p class="hint">Get matched with another player. Wins move you up the ladder.</p>
+          <p class="hint" id="rkMe"></p>
+          <button id="rkFind" class="primary">Find Ranked Match</button>
+          <button id="rkLadder">Ladder</button>
+        </div>
       </div>
       <p class="hint on-error" id="onError"></p>
       <div class="row"><button data-go="menu">Back</button></div>
     </div>
+    <div id="rkBody" class="rk-body" hidden></div>
     <div id="onLobby" hidden>
       <div class="on-code"><span>Room code</span><b id="onRoomCode"></b><button id="onCopy">Copy</button></div>
       <p class="hint" id="onStatus"></p>

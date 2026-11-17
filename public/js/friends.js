@@ -25,6 +25,7 @@ export function initFriends(c) {
   $('#frBody').addEventListener('click', async (ev) => {
     const t = ev.target.closest('[data-act]'); if (!t) return;
     const name = t.dataset.name, act = t.dataset.act;
+    if (act === 'watch') { if (ctx.watch) ctx.watch(name); return; }
     if (act === 'open') { current = name; renderChat(true); renderList(); return; }
     if (act === 'accept' || act === 'decline') await api(`/api/friends/${act}`, { username: name });
     if (act === 'remove') { if (!confirm(`Remove ${name} from your friends?`)) return; await api('/api/friends/remove', { username: name }); if (current === name) current = null; }
@@ -77,7 +78,7 @@ function renderList() {
   const fr = state.friends.slice().sort((a, b) => (b.online - a.online) || a.name.localeCompare(b.name)).map((f) => `
     <div class="fr-row ${current === f.name ? 'on' : ''}"><button type="button" class="fr-open" data-act="open" data-name="${esc(f.name)}"><i class="dot ${f.online ? 'on' : ''}"></i><b>${esc(f.name)}</b>
       <small>${f.online ? esc(ACTIVITY[f.activity] || 'Playing') : 'Seen ' + ago(f.lastSeen)}</small>${f.unread ? `<span class="adm-count hot">${f.unread}</span>` : ''}</button>
-      <button type="button" class="fr-x" title="Remove friend" aria-label="Remove ${esc(f.name)}" data-act="remove" data-name="${esc(f.name)}">×</button></div>`).join('');
+      ${f.room ? `<button type="button" class="fr-watch" data-act="watch" data-name="${esc(f.room)}" title="Watch their game">Watch</button>` : ''}<button type="button" class="fr-x" title="Remove friend" aria-label="Remove ${esc(f.name)}" data-act="remove" data-name="${esc(f.name)}">×</button></div>`).join('');
   el.innerHTML = (inc ? `<h4>Requests</h4>${inc}` : '') + `<h4>Friends <small>${state.friends.length}</small></h4>${fr || '<p class="adm-empty">No friends yet. Add someone by their username above.</p>'}${out}`;
 }
 

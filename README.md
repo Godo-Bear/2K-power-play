@@ -9,8 +9,13 @@ built with Three.js and deployed on Cloudflare Workers.
 - **Play Now**: pick any two teams and which one you control
 - **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, a starter play style), join a team, and earn Rep Points from your game grades to upgrade your ratings. Like FC PlayStyles, the others unlock as your OVR climbs, and you can equip up to 2 extras. Each style changes how you play (shooting, speed, steals, blocks, rebounds, passing), not just your ratings. Your player card goes from Bronze to Legend as you improve.
 - **Season**: a 16-team league where you play every other team once (15 games), with standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
+- **Season life**: playoffs are best-of-5 semifinals and a best-of-7 final (2-2-1-1-1 home court). Tiredness from a long game carries into the next one and players can pick up short injuries (1-3 games; your own player misses at most 2, and admins can clear them with the Heal gift). Team chemistry grows with games and wins together and makes passes cleaner. In the summer a few free agents offer to join: sign one and they start for you. In My Career, sponsors pay Rep Points every game and put their shoes on your player
 - **Online**: play a friend. One player creates a room and shares the 5-letter code, the other joins with it. If your friend leaves, the CPU takes over their team.
+- **Ranked**: on the Online screen, Find Ranked Match pairs you with another player. Ratings start at 1000 and move with each result (Elo, K = 32); the Ladder shows the top 50 and your rank
+- **Watch a friend**: when a friend is in an online game, a Watch button appears next to their name in Friends. Watchers see the live game but cannot affect it, and leaving changes nothing for the players
 - **Contests**: a 3-point contest (5 racks, a money ball on each) and a dunk contest (3 rounds, judges score your style against three rivals)
+- **Street ball**: 3-on-3 and 21 (one on one) on the Contests screen. Ones and twos, no fouls, make it take it, first to 21 wins
+- **Draft**: like FC's draft. Eight picks from five choices each (a player at every position plus three bench players, drawn from the whole league), then a run of up to four games against tougher and tougher teams. One loss ends it. Wins pay Rep Points into every career (60, 140, 260 or 450)
 - **Practice**: no clock and no fouls. Choose how many players are on your team (1-5) and how many opponents (0-5), easy or real defense, with a shot tracker.
 - **Tutorial**: 13 interactive steps covering every control
 
@@ -22,6 +27,8 @@ built with Three.js and deployed on Cloudflare Workers.
 - **Customize kit & shoes**: change your team's colors, logo (20 emblems, 4 shapes), home kit style and sneaker colors, with a 3D front-and-back preview. Your players wear the logo, number and name on their jerseys.
 - **Real rules**: 24-second shot clock, 8 seconds to cross half court, no going back over it (backcourt), 3 seconds in the lane, goaltending, free throws and the bonus, and the possession arrow (the team that loses the opening tip starts Q2 and Q3, with a sideline inbound). The CPU manages the clock, fouls on purpose when trailing late, and avoids throwing into defended lanes
 - **More moves**: pump fake (tap Pass while winding up a shot), post-ups, defensive slides, pick-and-roll, hot and cold streaks, and CPU coaches who adjust to the score
+- **Hustle plays**: when a shot goes up, players near the rim box out, and a rebound with two players on it is a fight that position, the rebound rating and timing decide. Tap Pass near a loose ball on the floor to dive for it (the CPU dives too)
+- **On-screen controls**: Settings (or Pause, Show controls on screen) puts a small key guide in the corner while you play, with your own bindings for the situation you are in
 - **Move Guide**: a screen (Pause menu, Controls, home footer) that lists every move and which button does it, using your own key bindings. Its **Dunks & moves** tab is a live 3D court that plays out 26 moves (five dunks, four finishes, five shots, four dribble moves, three passes, steal, block, slide, post-up, pump fake) on the game's own poses, with slow-mo, replay and arrow-key browsing
 - **TV lower-thirds**: name-and-stat cards slide in for named dunks, scoring milestones, double- and triple-doubles, hot streaks, foul trouble, big runs and each new quarter (Settings can turn them off)
 - **Referees and benches**: two officials run with the play and signal fouls, violations and baskets; substitutes sit on their bench
@@ -34,6 +41,7 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Presentation**
 - **Graphics**: Low, Medium, High (smooth edges and glow) and Ultra (renders at 4K and scales down), plus adaptive resolution that holds the frame rate steady
+- **Performance auto-tuner**: when the frame rate drops, the resolution goes down first, then bloom, then shadows, and they come back when the game is smooth again. **Install app**: on browsers that support it the home screen offers to install the game, and an app-shell cache makes it open instantly
 - **Commentary**: a play-by-play voice and a color analyst with no player names, reacting to shots, runs, violations and the score (spoken or as captions)
 - Home hub with a live CPU game playing behind the menus, and original menu music
 - Pre-game intro with a camera fly-in and matchup banner
@@ -193,6 +201,8 @@ public/
   js/announcer.js           play-by-play commentary
   js/lowerthirds.js         TV lower-third name cards
   js/movelab.js             the Move Guide's live court (scripted moves on the game's poses)
+  js/draft.js               the Draft mode (picks, squad, runs)
+  sw.js                     app-shell cache for the installable app
   js/tutorial.js            interactive tutorial
   js/input.js, audio.js     remappable controls and synthesized sound
   assets/                   your uploaded models and textures

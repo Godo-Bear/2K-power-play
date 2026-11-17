@@ -36,10 +36,10 @@ export async function checkSession() {
 
 // A quiet check-in about every minute and a half: it tells the admin you are online and what you are doing.
 // Returns 'ok', 'none' (this login is no longer valid: signed out or suspended) or 'unreachable'.
-export async function heartbeat(activity) {
+export async function heartbeat(activity, room = '') {
   if (!auth.token) return 'none';
   try {
-    const r = await call(`/api/me?a=${encodeURIComponent(activity || 'menu')}`, { method: 'GET', token: auth.token });
+    const r = await call(`/api/me?a=${encodeURIComponent(activity || 'menu')}${room ? `&r=${encodeURIComponent(room)}` : ''}`, { method: 'GET', token: auth.token });
     if (r.status === 200) return 'ok';
     if (r.status === 401) { forget(); return 'none'; }
   } catch { /* offline */ }

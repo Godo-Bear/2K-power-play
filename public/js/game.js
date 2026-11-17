@@ -79,6 +79,7 @@ export class Game {
       extra: { paint: 0, fb: 0, pot: 0 },       // points in the paint, on the fast break and off steals/turnovers (halftime stats)
       timeouts: 5,
       fouls: 0,
+      chem: Number.isFinite(data.chemistry) ? data.chemistry : 0.5,   // team chemistry (0.5 = a normal team): cleaner passes, better looks off a pass
     });
     this.home = mkTeam(homeData, true);
     this.away = mkTeam(awayData, false);
@@ -171,7 +172,7 @@ export class Game {
     this.user.lock = opts.playerLock >= 0 ? this.user.players[opts.playerLock] : null;
 
     this.startPeriod();
-    if (!opts.tutorial && !opts.guest) this.setupTipoff();
+    if (!opts.tutorial && !opts.guest && !opts.street) this.setupTipoff();
   }
 
   // Start play after the intro (or straight away): a jump ball if one is set up
@@ -578,7 +579,7 @@ export class Game {
     contest = Math.max(0.05, contest - defBonus * (1 - Math.min(1, contest)) * 1.5);
     // Playmakers set teammates up: a shot right off their pass is a little easier
     const b = this.ball;
-    if (b.lastPasser && b.lastPasser !== p && b.lastPasser.team === p.team && this.time - b.lastPassTime < 2.5) contest += b.lastPasser.perk.passSpeed * 0.2;
+    if (b.lastPasser && b.lastPasser !== p && b.lastPasser.team === p.team && this.time - b.lastPassTime < 2.5) contest += b.lastPasser.perk.passSpeed * 0.2 + (p.team.chem - 0.5) * 0.1;
     const spot = d < 3.2 ? pk.inside : !three ? pk.mid : pk.three;
     return { p: Math.max(0.02, Math.min(0.95, base * contest + spot)), three, d, contest };
   }
@@ -712,7 +713,7 @@ export class Game {
     prob = Math.min(1, prob);
     if (label === 'EXCELLENT' && isUser && team === this.user) sfx.green();
     const made = Math.random() < prob;
-    const pts = info.three ? 3 : 2;
+    const pts = this.opts.street ? (info.three ? 2 : 1) : info.three ? 3 : 2;   // street rules: ones and twos
     p.stats.fga++; if (pts === 3) p.stats.tpa++;
     this.emit('shot', { player: p, kind: p.state, label, user: isUser });
     this.launchShot(p, made, pts, p.state, airball);
@@ -742,6 +743,13 @@ export class Game {
     b.holder = null;
     b.lastTouch = team;
     const near = this.nearestDefender(p);
+    // Box-outs: players near the rim get position as the shot goes up (defenders more often, big men more often); it decides rebound fights
+    for (const q of this.allPlayers) {
+      if (q === p || q.airborne || q.state !== 'idle') continue;
+      if (hdist(q.pos, hoop) > 3.2) continue;
+      const chance = (q.team === team ? 0.3 : 0.55) + (q.r.reb - 60) / 150;
+      if (Math.random() < chance) q.boxT = 0.9 + Math.random() * 0.4;
+    }
     b.shot = { shooter: p, team, made, pts, T, t: 0, target, start, airball, kind, style, checked: new Set(), fouled: null,
       dist, contest: near.p ? near.d : null, contester: near.p || null, fb: this.transitionT > 0, assistStyle: b.lastPassStyle };
     b.vel.set((target.x - start.x) / T, (target.y - start.y + 0.5 * G * T * T) / T, (target.z - start.z) / T);
@@ -813,6 +821,18 @@ export class Game {
       if (s > bs) { bs = s; best = q; }
     }
     return best;
+  }
+
+  // Lay out for a loose ball: a lunge along the floor that reaches further than a standing pickup, then a beat to get up
+  dive(p) {
+    if (p.state !== 'idle' || p.airborne || p.stumbleT > 0 || (p.diveCd || 0) > 0) return;
+    const b = this.ball;
+    const dx = b.pos.x + b.vel.x * 0.25 - p.pos.x, dz = b.pos.z + b.vel.z * 0.25 - p.pos.z, d = Math.hypot(dx, dz) || 1;
+    p.state = 'dive'; p.actionT = 0; p.diveCd = 1.6;
+    p.diveDir = { x: dx / d, z: dz / d };
+    p.facing = p.targetFacing = Math.atan2(dx, dz); p.faceTarget = null;
+    sfx.squeak();
+    this.emit('diveStart', { player: p });
   }
 
   attemptSteal(p) {
@@ -919,7 +939,7 @@ export class Game {
 
   // Apply queued subs, forced foul-out subs, and automatic fatigue subs
   applySubs() {
-    if (this.opts.tutorial) return;
+    if (this.opts.tutorial || this.opts.street) return;   // street ball: the same players all game
     for (const team of this.teams) {
       for (const q of team.pendingSubs) this.substitute(team, q.courtIdx, q.benchIdx);
       team.pendingSubs = [];
@@ -1362,9 +1382,24 @@ export class Game {
       this.startFreeThrows(p, 1);
       return;
     }
+    if (this.opts.street) {
+      // Street: first to the target wins, and the scorers keep the ball (checked up at the top of the key)
+      if (team.score >= this.opts.street.to) { this.streetOver(team); return; }
+      this.beginDead(1.2, team, new THREE.Vector3(team.dir * (C.HOOP_X - 8.4), 0, 0.3));
+      return;
+    }
     const newOff = this.nextOffense(this.other(team));
     const spot = new THREE.Vector3(team.dir * (C.HALF_L - 0.2), 0, 1.2);
     this.beginDead(1.7, newOff, spot);
+  }
+  streetOver(winner) {
+    for (const t of this.teams) { t.meter.visible = false; t.quarterScores = [t.score]; }
+    this.state = 'over';
+    this.ball.state = 'free'; this.ball.holder = null;
+    if (winner.isUser) sfx.cheer(1);
+    this.flushClips();
+    this.emit('gameOver', { winner });
+    this.hud.gameOver(this);
   }
 
   // ---------- Main update ----------
@@ -1442,6 +1477,8 @@ export class Game {
       } else if (this.state !== 'timeout') this.controlPlayers(dt);
       for (const p of this.allPlayers) {
         if (p.state !== 'idle') p.actionT += dt;
+        p.diveCd = Math.max(0, (p.diveCd || 0) - dt);
+        p.boxT = Math.max(0, (p.boxT || 0) - dt);
         this.updateAction(p);
         p.update(dt);
       }
@@ -1501,7 +1538,7 @@ export class Game {
         ballPos: this.ball.pos, ballSide: (p.crossSide || 1) * (p.burstT > 0.25 ? -1 : 1),
         style: p.shotStyle, move: (p.moveT || 0) > 0 ? p.moveName : null,
         spin: (p.spinT || 0) > 0 ? (1 - p.spinT / 0.45) * (p.spinDir || 1) : 0,
-        pumpT: p.pumpT || 0, postT: p.postT || 0,
+        pumpT: p.pumpT || 0, postT: p.postT || 0, boxT: p.boxT || 0,
         passT: p.passT || 0, passStyle: p.passStyle, passLocal: p.passLocal, actionT: p.actionT, stealStyle: p.stealStyle,
       });
     }
@@ -1602,7 +1639,7 @@ export class Game {
     return m;
   }
 
-  periodName() { return this.period <= 4 ? `Q${this.period}` : this.period === 5 ? 'OT' : `${this.period - 4}OT`; }
+  periodName() { return this.opts.street ? (this.opts.street.size === 1 ? '21' : 'STREET') : this.period <= 4 ? `Q${this.period}` : this.period === 5 ? 'OT' : `${this.period - 4}OT`; }
 
   // Real rules: 8 seconds to cross half court, no going back over it, 3 seconds in the lane
   ruleTick(dt) {
@@ -1697,6 +1734,13 @@ export class Game {
     } else if (p.postWas) {
       p.postWas = false;
       if (b.holder === p && p.state === 'idle') this.startShot(p);   // turn and finish
+    }
+    if (p.state === 'dive') {
+      // Out along the floor for 0.3 s, then the body is down and sliding; up again after half a second
+      const dir = p.diveDir || { x: 0, z: 1 };
+      const sp = p.actionT < 0.3 ? 7.5 : Math.max(0, 7.5 - (p.actionT - 0.3) * 30);
+      p.vel.set(dir.x * sp, 0, dir.z * sp); p.desired.set(0, 0, 0);
+      if (p.actionT > 0.55) { p.state = 'idle'; p.stumbleT = 0.45; this.emit('dive', { player: p, got: false }); }
     }
     if (p.state === 'steal') {
       // Lunge at the ball handler while the arm strikes, land the result mid-strike, then recover
@@ -1866,6 +1910,7 @@ export class Game {
           let chance = (d < 0.5 ? 0.9 : 0.62) + q.r.steal / 1000 + q.perk.steal * 0.5;
           if (!q.team.human) chance *= 0.55 * Math.min(1, 0.55 + this.diff.aiSteal * 0.45) * (1 + q.team.skill * 0.1); // the CPU reads lanes less cleanly than a person who steps into one
           chance *= 1 - ps.from.team.skill * 0.12;      // sharp passers read the lane
+          chance *= 1 - (ps.from.team.chem - 0.5) * 0.3;  // teammates who know each other throw cleaner passes
           if (q.state === 'steal' || q.stumbleT > 0) chance *= 0.6; // off balance
           chance = Math.min(0.97, chance);
           if (Math.random() < chance) {
@@ -1997,14 +2042,32 @@ export class Game {
     if (Math.abs(b.pos.z) > C.HALF_W + 3) { b.pos.z = Math.sign(b.pos.z) * (C.HALF_W + 3); b.vel.z *= -0.5; }
 
     if (b.state === 'loose' && this.state === 'live') {
-      // Pickups
-      let best = null, bd = 1e9;
+      // Pickups. A diving player reaches further; a rebound with two players on it is a fight that box-outs, rating and timing decide.
+      const cands = [];
       for (const p of this.allPlayers) {
         if (p === b.ignore) continue;
         const d = hdist(p.pos, b.pos);
-        if (d < 0.7 && b.pos.y < p.reach + 0.15 && d < bd) { bd = d; best = p; }
+        const reach = p.state === 'dive' ? 1.25 : 0.7;
+        if (d < reach && b.pos.y < p.reach + 0.15) cands.push({ p, d });
       }
-      if (best) this.setHolder(best);
+      if (cands.length) {
+        let best = cands[0];
+        if (b.reboundable && cands.length > 1 && new Set(cands.map((c) => c.p.team)).size > 1) {
+          const score = (c) => c.p.r.reb * 0.5 + (c.p.boxT > 0 ? 16 : 0) + (c.p.airborne ? 10 : 0) - c.d * 12 + (c.p.stumbleT > 0 ? -20 : 0) + Math.random() * 18;
+          cands.sort((x, y) => score(y) - score(x));
+          best = cands[0];
+          const loser = cands.find((c) => c.p.team !== best.p.team);
+          if (loser) {
+            loser.p.stumbleT = 0.4;
+            this.emit('reboundFight', { player: best.p, victim: loser.p, boxed: best.p.boxT > 0 });
+            if (best.p.team.isUser && this.ctl(best.p)) this.hud.feedback(best.p.boxT > 0 ? 'BOXED OUT!' : 'WON THE BOARD!', '#3dff7a');
+            else if (loser.p.team.isUser && this.ctl(loser.p)) this.hud.feedback('OUT-MUSCLED', '#ff8c1a');
+          }
+        } else best = cands.sort((x, y) => x.d - y.d)[0];
+        const dove = best.p.state === 'dive';
+        this.setHolder(best.p);
+        if (dove) { best.p.state = 'idle'; best.p.stumbleT = 0.35; this.hud.feedback('DIVE!', best.p.team.isUser ? '#3dff7a' : '#ff8c1a'); this.emit('dive', { player: best.p, got: true }); sfx.cheer(0.5); this.arena.excitement = Math.min(1, this.arena.excitement + 0.35); }
+      }
     }
   }
 
@@ -2036,6 +2099,10 @@ export class Game {
           this.moveTo(p, land, true);
           const d = hdist(p.pos, b.pos);
           if (d < 1.4 && b.pos.y > 2.1 && b.pos.y < 3.8 && b.vel.y < 1 && !p.airborne && Math.random() < dt * 8) p.jump(0.6, 0.6);
+          // A ball on the floor just out of reach, rolling away or toward the line: lay out for it
+          const rolling = b.pos.y < 0.5 && Math.hypot(b.vel.x, b.vel.z) > 1.2;
+          const nearLine = Math.abs(b.pos.x) > C.HALF_L - 1.4 || Math.abs(b.pos.z) > C.HALF_W - 1.2;
+          if (d > 1.1 && d < 2.6 && b.pos.y < 0.9 && (rolling || nearLine) && Math.random() < dt * 2.2) this.dive(p);
         }
       }
     }
@@ -2084,6 +2151,7 @@ export class Game {
       // Defense or loose ball
       if (input.pressed.shoot && !p.airborne) { p.jump(0.65, 0.75); this.emit('defJump', { player: p }); }
       if (input.pressed.pass && b.holder) this.attemptSteal(p);
+      else if (input.pressed.pass && b.state === 'loose' && b.pos.y < 1.2 && hdist(p.pos, b.pos) < 3.2) this.dive(p);
       if (input.pressed.move && !(this.opts.strictLock && p.team.lock)) {
         const target = b.holder ? b.holder.pos : b.pos;
         const next = this.closestTo(p.team.players, target, p);
@@ -2331,6 +2399,7 @@ export class Game {
 
   // ---------- Info for HUD ----------
   clockText() {
+    if (this.opts.street) return `TO ${this.opts.street.to}`;
     const s = Math.max(0, this.gameClock);
     if (s < 60) return s.toFixed(1);
     const m = Math.floor(s / 60), sec = Math.floor(s % 60);
