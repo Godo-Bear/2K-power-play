@@ -3,7 +3,11 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-export const HAIR_STYLES = ['Bald', 'Buzz Cut', 'Short', 'High Top', 'Afro', 'Mohawk', 'Locs', 'Top Bun', 'Cornrows', 'Curly Top'];
+// 0-2 come from the player model (bald, a buzz-cut scalp, the model's own short hair). 3 and up are the modelled styles in
+// assets/models/hair-styles.glb, in this order (style3 is the first mesh in that file).
+export const HAIR_STYLES = ['Bald', 'Buzz Cut', 'Short', 'Messy Crop', 'Curtains', 'Curly', 'Ponytail', 'Crew Cut', 'Shag', 'Side Swept', 'Slick Back', 'Quiff', 'Layered', 'Textured Crop', 'Fringe', 'Spiky', 'Messy Spikes'];
+// Without the hair models (they failed to load), these older built-in styles stand in for the modelled ones
+export const FALLBACK_STYLE = (style) => (style >= 3 ? 3 + ((style - 3) % 7) : style);
 
 // How the model's own scalp hair should be coloured for each style: 'skin' (bald), 'buzz' (faint), or 'hair'
 export function scalpTint(style) { return style === 0 ? 'skin' : style === 1 ? 'buzz' : 'hair'; }

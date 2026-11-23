@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { buildHair, scalpTint } from './hair.js';
+import { buildHair, scalpTint, FALLBACK_STYLE } from './hair.js';
 
 const BASE = 'assets/';
 const gltfLoader = new GLTFLoader();
@@ -71,6 +71,24 @@ export async function loadCustomAssets() {
       out[k] = THREE.AnimationClip.parse(await res.json());
     }));
     custom.overlays = out;
+  }));
+  // Modelled hair styles: one mesh per style, plus the measurements of the head they were made on
+  if (m.player?.hairStyles) jobs.push(attempt('hair styles', async () => {
+    const g = await loadGLTF(m.player.hairStyles);
+    const head = g.asset && g.asset.extras && g.asset.extras.head;
+    if (!head) throw new Error('no head measurements');
+    const styles = [];
+    g.scene.updateMatrixWorld(true);
+    g.scene.traverse((o) => {
+      const k = /^style(\d+)$/.exec(o.name || '');
+      if (!k || !o.isMesh) return;
+      // Bake the node's transform (the quantized positions are scaled by it) and give the hair smooth normals
+      const geo = o.geometry.clone();
+      geo.applyMatrix4(o.matrixWorld);
+      geo.computeVertexNormals();
+      styles[Number(k[1])] = geo;
+    });
+    custom.hairStyles = { styles, head };
   }));
   if (m.shoes?.left && m.shoes?.right) jobs.push(attempt('shoes', async () => {
     const [l, r] = await Promise.all([loadGLTF(m.shoes.left), loadGLTF(m.shoes.right)]);
@@ -160,12 +178,54 @@ function scalpColor(data) {
 }
 
 // Put styled hair on the model's head bone so it follows the head
+// A modelled hair style, fitted to this model's head: eye height, the top of the skull and the skull's width and depth above
+// the eyes are matched to the head the styles were made on
+function attachModelHair(holder, model, bones, data, geo) {
+  const H = custom.hairStyles.head;
+  let headMesh = null; const eyes = [];
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    const n = ((Array.isArray(o.material) ? o.material[0] : o.material).name || '');
+    if (!headMesh && /skin_head/i.test(n)) headMesh = o;
+    if (/^Std_Eye_[LR]$/i.test(n)) eyes.push(o);
+  });
+  if (!headMesh || !eyes.length) return false;
+  const eyeY = eyes.reduce((a, e) => a + new THREE.Box3().setFromObject(e).getCenter(new THREE.Vector3()).y, 0) / eyes.length;
+  const pos = headMesh.geometry.attributes.position, v = new THREE.Vector3();
+  let top = -1e9; const sl = { minX: 1e9, maxX: -1e9, minZ: 1e9, maxZ: -1e9 };
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyMatrix4(headMesh.matrixWorld);
+    top = Math.max(top, v.y);
+    if (v.y < eyeY) continue;
+    sl.minX = Math.min(sl.minX, v.x); sl.maxX = Math.max(sl.maxX, v.x); sl.minZ = Math.min(sl.minZ, v.z); sl.maxZ = Math.max(sl.maxZ, v.z);
+  }
+  const sy = (top - eyeY) / H.top, sx = (sl.maxX - sl.minX) / 2 / H.halfW, sz = (sl.maxZ - sl.minZ) / 2 / H.halfD;
+  if (!(sy > 0 && sx > 0 && sz > 0)) return false;
+  // Mostly uniform (a style keeps its shape), a little per axis so it hugs this skull; a touch larger so the scalp never pokes through
+  const avg = (sx + sy + sz) / 3, clamp = (s) => Math.min(avg * 1.12, Math.max(avg * 0.9, s)) * 1.035;
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: data.hair || '#1a1a1a', roughness: 0.72, metalness: 0, side: THREE.DoubleSide }));
+  mesh.scale.set(clamp(sx), clamp(sy), clamp(sz));
+  mesh.position.set((sl.minX + sl.maxX) / 2, eyeY, (sl.minZ + sl.maxZ) / 2);
+  mesh.castShadow = false; mesh.frustumCulled = false;
+  const hair = new THREE.Group();
+  hair.add(mesh);
+  holder.add(hair);
+  holder.updateMatrixWorld(true);
+  bones.head.attach(hair);
+  return true;
+}
+
 function attachHair(holder, model, bones, data, cfg = {}) {
   if (!bones.head) return;
-  const style = data.hairStyle ?? 2;
-  // A model with its own hair mesh uses it for the Short style. Every other style is built by the game.
+  let style = data.hairStyle ?? 2;
+  // A model with its own hair mesh uses it for the Short style
   if (cfg.hairMesh && style === 2) return;
   holder.updateMatrixWorld(true);
+  if (style >= 3 && custom.hairStyles) {
+    const geo = custom.hairStyles.styles[style - 3];
+    if (geo && attachModelHair(holder, model, bones, data, geo)) return;
+  }
+  style = FALLBACK_STYLE(style);   // the built-in styles when the hair models are missing
   // Fit the hair to the real skull, measured from the model's head mesh (the top of the head, not the jaw)
   let dims = null, center = null, headMesh = null;
   model.traverse((o) => {

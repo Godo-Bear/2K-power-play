@@ -23,7 +23,8 @@
       "jumpshot": "anims/jumpshot.json",
       "dribbleLeft": "anims/dribble-left.json",
       "dribbleRight": "anims/dribble-right.json"
-    }
+    },
+    "hairStyles": "models/hair-styles.glb"
   },
   "ball": {
     "model": "models/basketball.glb",
@@ -87,7 +88,8 @@
     "Jump shot motion: \"Pj_shot\" by Keith_Pamment (Sketchfab Standard license) via Sketchfab",
     "Dribble motion: \"Basketball Player Dribbles Invisible Ball\" by LasquetiSpice (CC-BY 4.0) via Sketchfab",
     "Running motion: \"Running Motion\" by Jason Kan (CC-BY 4.0) via Sketchfab",
-    "Jumping motion: \"Boy Jumping\" by myzatulsarah (CC-BY 4.0) via Sketchfab"
+    "Jumping motion: \"Boy Jumping\" by myzatulsarah (CC-BY 4.0) via Sketchfab",
+    "Hair styles: \"FREE Male Fashion Hair collection 01 lowpoly\" by Vincent Page (CC-BY 4.0) via Sketchfab"
   ],
   "shoes": {
     "left": "models/shoe-left.glb",
