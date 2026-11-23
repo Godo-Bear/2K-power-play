@@ -5,7 +5,7 @@ import { getTactics, tacticsNorm } from './tactics.js';
 import { DIFFICULTY } from './data.js';
 import { input } from './input.js';
 import { sfx } from './audio.js';
-import { custom, applyCustomPlayer, updateCustomPlayer, makeCustomBall } from './assets.js';
+import { custom, applyCustomPlayer, updateCustomPlayer, makeCustomBall, castShadows } from './assets.js';
 import { Referees, buildBenches, seatPos } from './referee.js';
 import { Director } from './highlights.js';
 import { simCareerLine } from './season.js';
@@ -140,6 +140,19 @@ export class Game {
     this.ball.ring.rotation.x = -Math.PI / 2;
     this.ball.ring.renderOrder = 3;
     scene.add(this.ball.ring);
+    // Who has the ball: a small orange arrow over the ball handler's head (drawn through other players)
+    {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false });
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.2, 4), mat);
+      tip.rotation.x = Math.PI;   // pointing down
+      const edge = new THREE.Mesh(new THREE.ConeGeometry(0.135, 0.26, 4), new THREE.MeshBasicMaterial({ color: 0x1a0d02, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false }));
+      edge.rotation.x = Math.PI; edge.position.y = 0.01;
+      edge.renderOrder = 28; tip.renderOrder = 29;
+      this.ballMark = new THREE.Group();
+      this.ballMark.add(edge, tip);
+      this.ballMark.visible = false;
+      scene.add(this.ballMark);
+    }
 
     this.period = 1;
     this.gameClock = this.quarterLen;
@@ -916,7 +929,7 @@ export class Game {
     inn.facing = inn.targetFacing = out.facing;
     inn.index = courtIdx; out.index = benchIdx;
     inn.state = 'idle'; inn.jumpT = -1; inn.y = 0; inn.faceTarget = null; inn.stamina = 1;
-    out.seated = true; out.root.visible = this.extras; inn.seated = false; inn.root.visible = true;
+    out.seated = true; out.root.visible = this.extras; inn.seated = false; inn.root.visible = true; castShadows(inn, true);
     this.placeSeat(out, team, benchIdx);
     out.streak = 0; out.onFire = false;
     team.players[courtIdx] = inn; team.bench[benchIdx] = out;
@@ -1491,6 +1504,7 @@ export class Game {
   }
 
   placeSeat(p, team, slot) {
+    castShadows(p, false);     // seated: no shadow (saves a shadow pass per body part for every substitute)
     const s = seatPos(team, slot);
     p.pos.set(s.x, 0, s.z); p.vel.set(0, 0, 0); p.y = 0; p.jumpT = -1; p.state = 'idle';
     p.facing = p.targetFacing = 0;     // facing the court
@@ -1540,6 +1554,8 @@ export class Game {
         spin: (p.spinT || 0) > 0 ? (1 - p.spinT / 0.45) * (p.spinDir || 1) : 0,
         pumpT: p.pumpT || 0, postT: p.postT || 0, boxT: p.boxT || 0,
         passT: p.passT || 0, passStyle: p.passStyle, passLocal: p.passLocal, actionT: p.actionT, stealStyle: p.stealStyle,
+        // motion-captured jump shot and dribble (not during replays or on an online guest, where the ball is not simulated here)
+        overlays: !this.guest && !this.replay && !this.replayActors, dribblePhase: hasBall ? this.ball.dribblePhase : null, meterIdeal: METER_TIME * METER_TARGET,
       });
     }
     // Ball mesh
@@ -1555,6 +1571,17 @@ export class Game {
         b.ring.position.set(b.pos.x, 0.025, b.pos.z);
         b.ring.scale.setScalar(1 + k * 1.7);
         b.ring.material.opacity = (held ? 0.32 : 0.85) * (1 - 0.5 * k);
+      }
+    }
+    // Ball handler marker (hidden on your own controlled player, who already has the YOU pointer, and when it is switched off)
+    if (this.ballMark) {
+      const h = this.ball.holder;
+      const show = !!h && this.ball.state === 'held' && this.showBallMark !== false && !(h.marker && h.marker.visible) && !this.replay;
+      this.ballMark.visible = show;
+      if (show) {
+        const r = h.root.position;
+        this.ballMark.position.set(r.x, r.y + h.data.height + 0.32 + Math.sin(this.time * 6) * 0.04, r.z);
+        this.ballMark.rotation.y += dt * 2.2;
       }
     }
     // Nets
@@ -1860,7 +1887,10 @@ export class Game {
     if (b.state === 'held' && b.holder) {
       const p = b.holder;
       b.spin = 0;
-      if (p.state === 'shoot' || p.state === 'layup' || p.state === 'ft') {
+      const H = p.ballHold;
+      if (H && H.kind === 'shot' && (p.state === 'shoot' || p.state === 'ft')) {
+        b.pos.set(p.pos.x + H.x, p.y + H.y, p.pos.z + H.z);       // in the shooter's hands (motion-captured shot)
+      } else if (p.state === 'shoot' || p.state === 'layup' || p.state === 'ft') {
         const u = Math.min(1, p.actionT / 0.3);
         const fwd = tmp.set(Math.sin(p.facing), 0, Math.cos(p.facing));
         b.pos.set(p.pos.x + fwd.x * 0.2, p.y + p.data.height * (0.62 + 0.42 * u), p.pos.z + fwd.z * 0.2);
@@ -1878,7 +1908,8 @@ export class Game {
         const side = (p.crossSide || 1) * (p.burstT > 0.25 ? -1 : 1);
         const behind = p.moveName === 'behind' && (p.moveT || 0) > 0.2;
         const off = tmp.set(0.3 * side, 0, behind ? -0.22 : 0.32).applyAxisAngle(new THREE.Vector3(0, 1, 0), p.facing);
-        const handY = p.data.height * 0.47;
+        let handY = p.data.height * 0.47;
+        if (H && H.kind === 'dribble' && !behind) { off.set(H.x, 0, H.z); handY = H.y - BALL_R * 1.25; }   // under the dribbling hand
         b.pos.set(p.pos.x + off.x, BALL_R + (handY - BALL_R) * bounce + p.y, p.pos.z + off.z);
       }
       return;
@@ -2409,6 +2440,7 @@ export class Game {
   dispose() {
     for (const t of this.teams) for (const p of [...(t.full || t.players), ...t.bench]) this.scene.remove(p.root);
     if (this.ball.ring) this.scene.remove(this.ball.ring);
+    if (this.ballMark) this.scene.remove(this.ballMark);
     this.scene.remove(this.ball.mesh);
     if (this.officials) this.officials.dispose();
     if (this.benchProps) this.scene.remove(this.benchProps);

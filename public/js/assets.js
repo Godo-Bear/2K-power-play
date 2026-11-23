@@ -61,6 +61,17 @@ export async function loadCustomAssets() {
     const g = await loadGLTF(m.player.model);
     custom.player = { scene: g.scene, animations: g.animations, cfg: m.player };
   }));
+  // Motion-captured upper-body clips (a jump shot and a dribble), layered over the procedural body. Only the motion is
+  // stored (public/assets/anims), retargeted onto the player model from the original GLB files
+  if (m.player?.overlays) jobs.push(attempt('animations', async () => {
+    const out = {};
+    await Promise.all(Object.entries(m.player.overlays).map(async ([k, file]) => {
+      const res = await fetch(url(file));
+      if (!res.ok) throw new Error(`${file}: ${res.status}`);
+      out[k] = THREE.AnimationClip.parse(await res.json());
+    }));
+    custom.overlays = out;
+  }));
   if (m.shoes?.left && m.shoes?.right) jobs.push(attempt('shoes', async () => {
     const [l, r] = await Promise.all([loadGLTF(m.shoes.left), loadGLTF(m.shoes.right)]);
     l.scene.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
@@ -211,6 +222,7 @@ function tintModel(model, cfg, fake) {
     const mname = ((Array.isArray(o.material) ? o.material[0] : o.material).name || '');
     if (/Tongue|Teeth|Nails|Eyelash|Cornea/i.test(mname)) o.visible = false;
     o.castShadow = /Skin|T_shirt|Shorts/i.test(mname);
+    o.userData.casts = o.castShadow;
     const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
       const c = mt.clone();
       const rule = rules.find(([k]) => (mt.name || '').toLowerCase().includes(k));
@@ -384,14 +396,16 @@ const _vs = { a: new THREE.Vector3(), b: new THREE.Vector3() };
 const _AX = new THREE.Vector3(1, 0, 0), _AY = new THREE.Vector3(0, 1, 0);
 function orientShoes(player, fresh = false) {
   const h = player.customModel;
+  // fresh: the body's matrices were just brought up to date (only rotations and differences are read here, so the
+  // floor adjustment applied since then does not matter) and they can be read directly
   if (!fresh) h.updateMatrixWorld(true);
-  h.getWorldQuaternion(_qs.h);
+  if (fresh) h.matrixWorld.decompose(_vs.a, _qs.h, _vs.b); else h.getWorldQuaternion(_qs.h);
   _qs.i.copy(_qs.h).invert();
   _qs.yaw.setFromAxisAngle(_AY, -Math.PI / 2);
   for (const s of player.shoes) {
     let pitch = 0;
     if (s.calf) {
-      s.foot.getWorldPosition(_vs.a); s.calf.getWorldPosition(_vs.b);
+      if (fresh) { _vs.a.setFromMatrixPosition(s.foot.matrixWorld); _vs.b.setFromMatrixPosition(s.calf.matrixWorld); } else { s.foot.getWorldPosition(_vs.a); s.calf.getWorldPosition(_vs.b); }
       _vs.a.sub(_vs.b).applyQuaternion(_qs.i);          // calf to ankle, in the body's own frame
       pitch = Math.max(-0.9, Math.min(0.7, Math.atan2(_vs.a.z, -_vs.a.y) * 0.55));
     }
@@ -399,11 +413,18 @@ function orientShoes(player, fresh = false) {
     _qs.d.copy(_qs.h).multiply(_qs.pitch).multiply(_qs.yaw);          // desired world rotation
     // Turn the foot bone itself (the clips leave the feet twisted), so the bare foot and the shoe agree
     _qs.d.multiply(_qs.r.copy(s.rel).invert());                         // the bone's own desired world rotation
-    s.foot.parent.getWorldQuaternion(_qs.p);
+    if (fresh) s.foot.parent.matrixWorld.decompose(_vs.a, _qs.p, _vs.b); else s.foot.parent.getWorldQuaternion(_qs.p);
     s.foot.quaternion.copy(_qs.p.invert()).multiply(_qs.d);
-    s.foot.updateMatrixWorld(true);
+    if (!fresh) s.foot.updateMatrixWorld(true);                         // (fresh: the renderer updates it with everything else)
     s.obj.quaternion.copy(s.rel);
   }
+}
+
+// Turn a person's shadow on or off (the body parts chosen to cast one when the model was set up)
+export function castShadows(player, on) {
+  if (!player.customModel || player.shadowOn === on) return;
+  player.shadowOn = on;
+  player.customModel.traverse((o) => { if (o.isMesh && o.userData.casts) o.castShadow = on; });
 }
 
 // Replace a procedural player's look with the custom model (keeps the hidden rig for gameplay).
@@ -445,6 +466,78 @@ export function applyCustomPlayer(player) {
     player.currentClip = null;
     player.mixer.update(Math.random() * 2);
   }
+  player.ov = null;
+  if (custom.overlays) {
+    player.ov = {};
+    for (const [k, clip] of Object.entries(custom.overlays)) {
+      const ch = [];
+      for (const tr of clip.tracks) {
+        const bone = model.getObjectByName(tr.name.split('.')[0]);
+        if (bone) ch.push({ bone, it: tr.createInterpolant(), arm: /_[LR]_/.test(bone.name) });
+      }
+      if (ch.length) player.ov[k] = { ch, w: 0, dur: clip.duration };
+    }
+    let kr = null, kl = null;
+    model.traverse((o) => { if (!kr && /^CC_Base_R_Mid1/.test(o.name)) kr = o; if (!kl && /^CC_Base_L_Mid1/.test(o.name)) kl = o; });
+    player.knuckles = kr && kl ? [kr, kl] : null;
+  }
+}
+
+// ---------- Motion-captured overlays ----------
+// Timing inside the clips (seconds): the jump shot's set point and release, and the dribble's hand at the top of a bounce
+const SHOT = { set: 1.72, release: 1.75, followRate: 1.4 };
+const DRIB = { top: 0.57, bounces: 3 };
+const _oq = new THREE.Quaternion(), _ov = new THREE.Vector3(), _ov2 = new THREE.Vector3();
+function applyOverlay(o, t, w, armsOnly) {
+  for (const c of o.ch) {
+    if (armsOnly && !c.arm) continue;
+    _oq.fromArray(c.it.evaluate(t));
+    c.bone.quaternion.slerp(_oq, w);
+  }
+}
+// Plays the overlays that fit what the player is doing; returns true when they own the arms this frame
+function updateOverlays(player, dt, state, speed, ctx) {
+  const O = player.ov;
+  if (!O || !ctx.overlays) { if (O) for (const o of Object.values(O)) o.w = 0; return false; }
+  const shooting = (state === 'shoot' || state === 'ft') && !!O.jumpshot && !(ctx.pumpT > 0);
+  const dribbling = !shooting && ctx.hasBall && ctx.dribblePhase != null && !ctx.move && !ctx.airborne && !(ctx.postT > 0) && !(ctx.passT > 0)
+    && (state === 'dribble' || state === 'idle' || state === 'walk' || state === 'run');
+  const dk = (ctx.ballSide || 1) > 0 ? 'dribbleLeft' : 'dribbleRight';   // +x is the player's left
+  for (const [name, o] of Object.entries(O)) {
+    const want = name === 'jumpshot' ? shooting : dribbling && name === dk;
+    o.w += ((want ? 1 : 0) - o.w) * Math.min(1, dt * (want ? 14 : 9));
+    if (o.w < 0.005) { o.w = 0; continue; }
+    if (name === 'jumpshot') {
+      // Up to the set point while the shot is held (timed to the meter's ideal release), then the release and follow-through
+      if (ctx.released) { if (player.relAt == null) player.relAt = player.life; } else player.relAt = null;
+      const t = player.relAt == null ? SHOT.set * Math.min(1, (ctx.actionT || 0) / (ctx.meterIdeal || 0.55))
+        : Math.min(o.dur - 0.02, SHOT.release + (player.life - player.relAt) * SHOT.followRate);
+      applyOverlay(o, t, o.w, false);
+    } else {
+      // The hand follows the ball: at the top of every bounce the clip is at a hand-at-the-top frame
+      const per = o.dur / DRIB.bounces;
+      const ph = (((ctx.dribblePhase || 0) % Math.PI) + Math.PI) % Math.PI;
+      applyOverlay(o, (DRIB.top + (ph / Math.PI) * per) % o.dur, o.w, speed > 0.6);   // moving: arms only, the legs and lean stay procedural
+    }
+  }
+  return shooting || dribbling;
+}
+// Where the hands hold the ball this frame (relative to the player's position), for the game to put the ball there
+function recordBallHold(player, ctx) {
+  const O = player.ov, h = player.customModel;
+  player.ballHold = null;
+  if (!O || !player.knuckles || !ctx.hasBall) return;
+  const shot = O.jumpshot && O.jumpshot.w > 0.6;
+  const dk = (ctx.ballSide || 1) > 0 ? 'dribbleLeft' : 'dribbleRight';
+  const drib = !shot && O[dk] && O[dk].w > 0.6;
+  if (!shot && !drib) return;
+  h.updateMatrix(); h.matrixWorld.multiplyMatrices(player.root.matrixWorld, h.matrix);
+  const [kr, kl] = player.knuckles, top = h.children[0] || h;
+  refreshDown(top, kr); refreshDown(top, kl);
+  _ov.setFromMatrixPosition(kr.matrixWorld); _ov2.setFromMatrixPosition(kl.matrixWorld);
+  const r = player.root.position;
+  if (shot) { _ov.add(_ov2).multiplyScalar(0.5); player.ballHold = { kind: 'shot', x: _ov.x - r.x, y: _ov.y + 0.04 - r.y, z: _ov.z - r.z }; }
+  else { const k = dk === 'dribbleLeft' ? _ov2 : _ov; player.ballHold = { kind: 'dribble', x: k.x - r.x, y: k.y - r.y, z: k.z - r.z }; }
 }
 
 // ---------- Procedural poses layered on top of the model's clips ----------
@@ -458,11 +551,17 @@ function toWorld(d, facing, out) {
 // animation left it, so thighs and arms never wring themselves out at the hip and shoulder (that tore the shorts and shirt).
 const _aimP = new THREE.Vector3(), _aimC = new THREE.Vector3(), _aimD = new THREE.Vector3(), _aimT = new THREE.Vector3(), _aimS = new THREE.Vector3();
 const _aimQ = new THREE.Quaternion(), _aimW = new THREE.Quaternion(), _aimPQ = new THREE.Quaternion();
+// Recompute world matrices from `top` (whose parent is up to date) down to `node`
+const _chain = [];
+function refreshDown(top, node) {
+  _chain.length = 0;
+  for (let n = node; n && n !== top.parent; n = n.parent) _chain.push(n);
+  for (let i = _chain.length - 1; i >= 0; i--) { const n = _chain[i]; n.updateMatrix(); n.matrixWorld.multiplyMatrices(n.parent.matrixWorld, n.matrix); }
+}
 function aim(bone, dirWorld, w) {
   const child = bone.userData.child;
   if (!child) return;
-  bone.updateWorldMatrix(true, false);
-  child.updateWorldMatrix(true, false);
+  refreshDown(bone, child);
   bone.matrixWorld.decompose(_aimP, _aimW, _aimS);                    // where the bone is and how it is turned now
   _aimC.setFromMatrixPosition(child.matrixWorld);
   _aimD.subVectors(_aimC, _aimP);
@@ -474,6 +573,7 @@ function aim(bone, dirWorld, w) {
   bone.parent.matrixWorld.decompose(_aimP, _aimPQ, _aimS);
   _aimQ.premultiply(_aimPQ.invert());                                  // back into the parent's space
   bone.quaternion.slerp(_aimQ, w);
+  refreshDown(bone, child);                                            // keep the limb fresh down to the next joint (this rig has helper nodes in between)
 }
 
 // Which pose each arm/leg should take. Returns { aL, aR, lL, lR } with [upperDir, lowerDir] or null.
@@ -646,8 +746,8 @@ function applyLimb(p, key, upper, lower, pose, dt, ctx) {
   aim(upper, toWorld(L.pose[0], p.facing, _e), L.w);
   if (L.pose[1] === 'ball' && ctx.ballPos) {
     // Point the forearm at the ball (never lower than the knees, so the arm doesn't hyper-extend)
-    lower.parent.updateWorldMatrix(true, false);
-    lower.getWorldPosition(_e);
+    refreshDown(upper, lower);
+    _e.setFromMatrixPosition(lower.matrixWorld);
     _e.set(ctx.ballPos.x - _e.x, Math.max(ctx.ballPos.y, p.data.height * 0.34 + p.y) - _e.y, ctx.ballPos.z - _e.z).normalize();
     aim(lower, _e, L.w);
   } else if (L.pose[1] !== 'ball') aim(lower, toWorld(L.pose[1], p.facing, _e), L.w);
@@ -658,6 +758,7 @@ const FALLBACK = { walk: ['run', 'idle'], run: ['walk', 'idle'], celebrate: ['id
 
 export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   if (!player.customModel) return;
+  if (player.offscreen) { player.walkPhase = ((player.walkPhase || 0) + dt * 8) % (Math.PI * 2); return; }
   const h = player.customModel;
   // Whole-body flourishes: spin moves turn a full circle, reverse layups turn the back to the rim
   let yaw = player.facing + (ctx.spin || 0) * Math.PI * 2;
@@ -699,15 +800,20 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
     }
     if (!ctx.freezeMixer) player.mixer.update(dt);
   }
+  const ovArms = updateOverlays(player, dt, state, speed, ctx);
   const b = player.bones;
   if (!b || !player.limb) return;
+  // Bring only the chains from the body down to each limb up to date (the renderer refreshes the rest of the body anyway)
+  player.root.updateWorldMatrix(true, false);
+  h.updateMatrix(); h.matrixWorld.multiplyMatrices(player.root.matrixWorld, h.matrix);
+  for (const bone of [b.uaL, b.uaR, b.ulL, b.ulR]) if (bone) refreshDown(h.children[0] || h, bone);
   const sliding = ctx.defending && speed > 0.6 && !ctx.airborne && !ctx.hasBall && speed < 4.6;
   if (state === 'walk' || state === 'run' || sliding) player.walkPhase = ((player.walkPhase || 0) + dt * (sliding ? 5 + speed * 1.6 : Math.min(15, 6 + speed * 1.0))) % (Math.PI * 2);
   const pose = choosePose(player, state, { ...ctx, speed, phase: player.walkPhase || 0, landT: player.landT || 0, t: player.life });
   const realFacing = player.facing;
   player.facing = yaw; // limbs follow the turned body
-  applyLimb(player, 'aL', b.uaL, b.laL, pose.aL, dt, ctx);
-  applyLimb(player, 'aR', b.uaR, b.laR, pose.aR, dt, ctx);
+  applyLimb(player, 'aL', b.uaL, b.laL, ovArms ? null : pose.aL, dt, ctx);   // a playing overlay owns the arms
+  applyLimb(player, 'aR', b.uaR, b.laR, ovArms ? null : pose.aR, dt, ctx);
   applyLimb(player, 'lL', b.ulL, b.llL, pose.lL, dt, ctx);
   applyLimb(player, 'lR', b.ulR, b.llR, pose.lR, dt, ctx);
   player.facing = realFacing;
@@ -716,14 +822,15 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   player.fixY = (player.fixY || 0) + (fixTarget - (player.fixY || 0)) * Math.min(1, dt * 16);
   h.position.y = (player.bobY || 0) - player.fixY;
   if (player.shoes && player.shoes.length) orientShoes(player, true);
+  if (player.ov) recordBallHold(player, ctx);
 }
 
 const _gv = { a: new THREE.Vector3(), b: new THREE.Vector3() };
 function groundFix(player) {
   const b = player.bones, h = player.customModel;
   if (!b || !b.ftL || !b.ftR || player.ankleH == null) return 0;
-  h.updateMatrixWorld(true);
-  b.ftL.getWorldPosition(_gv.a); b.ftR.getWorldPosition(_gv.b);
+  refreshDown(b.ulL || b.ftL, b.ftL); refreshDown(b.ulR || b.ftR, b.ftR);   // the legs were just aimed: refresh down to the ankles
+  _gv.a.setFromMatrixPosition(b.ftL.matrixWorld); _gv.b.setFromMatrixPosition(b.ftR.matrixWorld);
   h.worldToLocal(_gv.a); h.worldToLocal(_gv.b);
   return THREE.MathUtils.clamp(Math.min(_gv.a.y, _gv.b.y) - player.ankleH, 0, 0.62);
 }

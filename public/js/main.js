@@ -89,7 +89,7 @@ const TIERS = {
 let renderScale = 1;           // adaptive resolution: 1 = full quality, lower when the frame rate drops
 // Auto-tuner: when fewer pixels are not enough, effects come off one step at a time (bloom, then shadows, then a lower pixel floor), and come back when there is headroom
 let tuneLevel = 0, tuneStableT = 0, tuneSlowT = 0;
-const TUNE_STEPS = ['', 'bloom off', 'shadows off', 'lower resolution'];
+const TUNE_STEPS = ['', 'bloom off, lighter shadows', 'shadows off', 'lower resolution'];
 function tier() {
   const T = { ...(TIERS[settings.gfx] || TIERS.high) };
   if (tuneLevel >= 1) T.post = false;
@@ -343,6 +343,7 @@ $('#optMute').checked = settings.mute;
 $('#optVoice').checked = settings.voice;
 $('#optRecaps').checked = settings.recaps !== false;
 $('#optLT').checked = settings.lowerThirds !== false;
+$('#optBallMark').checked = settings.ballMark !== false;
 $('#optCtlHelp').checked = !!settings.ctlHelp;
 $('#optCtlHelp').addEventListener('change', (e) => { settings.ctlHelp = e.target.checked; saveSettings(); renderCtlHelp(); });
 $('#pauseCtlHelp').addEventListener('click', () => { settings.ctlHelp = !settings.ctlHelp; $('#optCtlHelp').checked = settings.ctlHelp; saveSettings(); renderCtlHelp(); sfx.menu(); });
@@ -388,6 +389,7 @@ $('#optAdaptive').checked = settings.adaptive !== false;
 $('#optAdaptive').addEventListener('change', (e) => { settings.adaptive = e.target.checked; renderScale = 1; tuneLevel = 0; saveSettings(); applyQuality(); });
 $('#optMute').addEventListener('change', (e) => { settings.mute = e.target.checked; setMuted(settings.mute); setVoice(settings.voice && !settings.mute); saveSettings(); musicMaybe(); });
 $('#optRecaps').addEventListener('change', (e) => { settings.recaps = e.target.checked; if (game) game.opts.recaps = settings.recaps; saveSettings(); });
+$('#optBallMark').addEventListener('change', (e) => { settings.ballMark = e.target.checked; saveSettings(); });
 $('#optLT').addEventListener('change', (e) => { settings.lowerThirds = e.target.checked; if (!e.target.checked) stopLowerThirds(); saveSettings(); });
 $('#optVoice').addEventListener('change', (e) => { settings.voice = e.target.checked; setVoice(settings.voice && !settings.mute); saveSettings(); });
 $('#optMusic').addEventListener('change', (e) => { settings.music = e.target.checked; saveSettings(); musicMaybe(); });
@@ -2391,6 +2393,7 @@ function stepGame(dt) {
     netGuestTick(dt);
   } else {
     if (netPlaying() && online.remote) online.remote.tick();
+    game.showBallMark = settings.ballMark !== false;
     game.update(dt * (attract ? 0.9 : settings.speed)); // overall game speed (Settings)
     if (game && netPlaying()) netHostTick(dt);
   }
@@ -2412,15 +2415,37 @@ function adaptResolution(dt) {
   const before = renderScale;
   // Only trade sharpness for speed when the frame rate is really struggling, and never go below 80% (stays crisp)
   const floorNow = tuneLevel >= 3 ? 0.6 : 0.8;
-  if (avg > 1 / 40) renderScale = Math.max(floorNow, renderScale - (avg > 1 / 28 ? 0.1 : 0.05));
-  else if (avg < 1 / 56 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.05);
+  if (avg > 1 / 50) renderScale = Math.max(floorNow, renderScale - (avg > 1 / 32 ? 0.12 : 0.06));
+  else if (avg < 1 / 58 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.04);
   if (renderScale !== before) { renderer.setPixelRatio(targetRatio()); resize(); }
   // Still slow with the resolution already at its floor: take an effect off. Smooth for a good while: put one back.
-  if (avg > 1 / 36 && renderScale <= floorNow + 1e-6) { tuneSlowT += 1.2; tuneStableT = 0; } else if (avg < 1 / 58) { tuneStableT += 1.2; tuneSlowT = 0; } else { tuneSlowT = 0; }
-  if (tuneSlowT >= 3.6 && tuneLevel < 3) { tuneLevel++; tuneSlowT = 0; tuneStableT = 0; applyQuality(); hud.toast('SMOOTHER', `Graphics auto-tuned: ${TUNE_STEPS[tuneLevel]}`, 2.5); }
+  if (avg > 1 / 48 && renderScale <= floorNow + 1e-6) { tuneSlowT += 1.2; tuneStableT = 0; } else if (avg < 1 / 58) { tuneStableT += 1.2; tuneSlowT = 0; } else { tuneSlowT = 0; }
+  if (tuneSlowT >= 2.4 && tuneLevel < 3) { tuneLevel++; tuneSlowT = 0; tuneStableT = 0; applyQuality(); hud.toast('SMOOTHER', `Graphics auto-tuned: ${TUNE_STEPS[tuneLevel]}`, 2.5); }
   else if (tuneStableT >= 30 && tuneLevel > 0) { tuneLevel--; tuneStableT = 0; applyQuality(); }
   const st = $('#gfxInfo');
   if (st && st.offsetParent) st.textContent = `Rendering ${gfxStats.w}x${gfxStats.h} at ${Math.round(gfxStats.fps)} fps${tuneLevel ? ` (auto-tuned: ${TUNE_STEPS.slice(1, tuneLevel + 1).join(', ')})` : ''}`;
+}
+// People outside the camera's view are neither drawn nor posed. (Their meshes skip three.js culling because skinned
+// meshes get culled wrongly while animated, so this test uses a sphere around each whole body instead.)
+let shadowFrame = 0;
+const _frus = new THREE.Frustum(), _frusM = new THREE.Matrix4(), _frusS = new THREE.Sphere();
+function cullPeople() {
+  if (!game) return;
+  camera.updateMatrixWorld();
+  _frusM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _frus.setFromProjectionMatrix(_frusM);
+  const one = (p) => {
+    if (!p || !p.customModel) return;
+    _frusS.center.set(p.pos.x, (p.y || 0) + p.data.height * 0.5, p.pos.z);
+    _frusS.radius = 2.3;                                    // generous, so a shadow cast into view is still drawn
+    const vis = _frus.intersectsSphere(_frusS);
+    _frusS.radius = 4.5;                                    // keep posing people just outside, so nobody pops in mid-stride
+    p.offscreen = !_frus.intersectsSphere(_frusS);
+    p.customModel.visible = vis;
+  };
+  for (const p of game.allPlayers) one(p);
+  for (const t of game.teams || []) for (const p of t.bench || []) one(p);
+  if (game.officials) for (const p of game.officials.refs) one(p);
 }
 function frame() {
   requestAnimationFrame(frame);
@@ -2463,6 +2488,9 @@ function frame() {
     }
   }
   updateCamera(dt, t);
+  cullPeople();
+  // When the auto-tuner has stepped in, the shadows are redrawn every other frame (they move little in 1/60 s)
+  if (renderer.shadowMap.enabled) { shadowFrame = (shadowFrame + 1) % 2; renderer.shadowMap.autoUpdate = tuneLevel === 0 || shadowFrame === 0; }
   if ((TIERS[settings.gfx] || TIERS.high).post) composer.render();
   else renderer.render(scene, camera);
   adaptResolution(rawDt);

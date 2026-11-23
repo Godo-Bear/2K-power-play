@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { C } from './arena.js';
 import { Player } from './player.js';
-import { applyCustomPlayer, updateCustomPlayer } from './assets.js';
+import { applyCustomPlayer, updateCustomPlayer, castShadows } from './assets.js';
 
 const RATINGS = { three: 60, mid: 60, inside: 60, dunk: 60, pass: 60, handle: 60, speed: 62, def: 60, steal: 60, block: 60, reb: 60 };
 const SKINS = ['#c68642', '#8d5524', '#e0ac69'];
@@ -43,6 +43,7 @@ export class Referees {
       const p = new Player(data, kit, 20 + i, scene);
       p.root.visible = true;
       applyCustomPlayer(p);
+      castShadows(p, false);
       p.signal = null; p.signalT = 0; p.signalPoint = null;
       p.pos.set(i ? 3 : -3, 0, i ? -C.HALF_W - 0.8 : C.HALF_W - 1);
       this.refs.push(p);

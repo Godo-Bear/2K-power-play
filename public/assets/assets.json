@@ -16,6 +16,11 @@
     "animations": {
       "idle": "Standing_03",
       "celebrate": "Standing_01"
+    },
+    "overlays": {
+      "jumpshot": "anims/jumpshot.json",
+      "dribbleLeft": "anims/dribble-left.json",
+      "dribbleRight": "anims/dribble-right.json"
     }
   },
   "ball": {
@@ -76,7 +81,9 @@
     "Basketball Court by Klieg3D (CC-BY 4.0) via Sketchfab",
     "Basketball (shape only) by FIELDFLY3R (CC-BY 4.0) via Sketchfab",
     "Low Poly Sports Stands by Cole Brenner (CC-BY 3.0) via Poly Pizza",
-    "AJ 12 Basketball Sneakers by Real Slim Shady (CC-BY 4.0) via Sketchfab"
+    "AJ 12 Basketball Sneakers by Real Slim Shady (CC-BY 4.0) via Sketchfab",
+    "Jump shot motion: \"Pj_shot\" by Keith_Pamment (Sketchfab Standard license) via Sketchfab",
+    "Dribble motion: \"Basketball Player Dribbles Invisible Ball\" by LasquetiSpice (CC-BY 4.0) via Sketchfab"
   ],
   "shoes": {
     "left": "models/shoe-left.glb",

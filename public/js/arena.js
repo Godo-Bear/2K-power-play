@@ -265,7 +265,7 @@ export function buildArena(scene, home, away, opts = {}) {
   const standMat = new THREE.MeshStandardMaterial({ color: 0x16181f, roughness: 0.85 });
   // Low-poly spectators (3,000+ of them): a tapered prism and a small sphere keep the stands light on the GPU
   const crowdGeo = new THREE.CylinderGeometry(0.19, 0.23, 0.5, 8, 1); crowdGeo.scale(1, 1, 0.72);
-  const headGeo = new THREE.SphereGeometry(0.12, 8, 5);
+  const headGeo = new THREE.SphereGeometry(0.12, 7, 4);
   const seats = [];
   const tiers = 14;
   const addStand = (cx, cz, len, rotY, startDist) => {
