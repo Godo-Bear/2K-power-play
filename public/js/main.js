@@ -1,5 +1,5 @@
 import { SLIDERS, PRESETS, PRESET_KEYS, presetValues, getTactics, saveTactics, resetTactics, matchPreset, tacticsNorm, traits as tacTraits } from './tactics.js';
-import { cloudSync, push as cloudPush, onCloudStatus } from './cloud.js';
+import { cloudSync, push as cloudPush, onCloudStatus, listBackups, restoreBackup } from './cloud.js';
 import { SYMBOLS, SHAPES, PALETTE, SHOE_COLORS, LOOKS, getKit, saveKit, applyAllKits } from './kit.js';
 import { PERK_TEXT } from './styles.js';
 import * as THREE from 'three';
@@ -2570,6 +2570,37 @@ initAdmin({ $, $$, show, sfx, esc, exit: () => { renderHome(); show('menu'); } }
 initFriends({ watch: (code) => watchGame(code), $, show, sfx, esc });
 onCloudStatus((s) => { const el = $('#cloudInfo'); if (el) el.textContent = s; const row = $('#cloudRow'); if (row) row.hidden = !(auth.token && !auth.offline); });
 $('#cloudNow').addEventListener('click', async () => { sfx.menu(); await cloudPush(); });
+// Older versions of careers, seasons and drafts, kept by the server: any of them can be brought back
+function describeSave(key, v) {
+  let s = null; try { s = JSON.parse(v); } catch { /* not readable */ }
+  const slot = /career-(\d)/.exec(key);
+  const what = slot ? `Career slot ${slot[1]}` : key === 'pph-season' ? 'Season' : 'Draft';
+  if (!s) return what;
+  if (key === 'pph-draft') return `${what}${s.wins != null ? ` · ${s.wins} wins` : ''}`;
+  const team = TEAMS[s.team] ? TEAMS[s.team].name : '';
+  const played = s.round || 0;
+  const who = s.career ? `${s.career.first} ${s.career.last}` : '';
+  return `${what} · ${[who, team, `Year ${s.year || 1}`, played ? `${played} games` : ''].filter(Boolean).join(' · ')}`;
+}
+$('#cloudBakBtn').addEventListener('click', async () => {
+  sfx.menu();
+  const box = $('#cloudBak');
+  if (!box.hidden) { box.hidden = true; return; }
+  box.hidden = false; box.innerHTML = '<p class="hint">Loading backups…</p>';
+  const all = await listBackups();
+  if (!all) { box.innerHTML = '<p class="hint">Backups need the game server and a login.</p>'; return; }
+  const rows = [];
+  for (const [k, list] of Object.entries(all)) for (const [i, b] of list.entries()) rows.push({ k, i, b });
+  rows.sort((a, b) => b.b.t - a.b.t);
+  box.innerHTML = rows.length
+    ? `<p class="hint">Older versions of your saves. Restoring one replaces what is in that slot now (the current one is backed up first).</p>${rows.map((r) => `<div class="bak-row"><div><b>${esc(describeSave(r.k, r.b.v))}</b><small>Saved ${new Date(r.b.t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</small></div><button type="button" data-bk="${esc(r.k)}" data-bi="${r.i}">Restore</button></div>`).join('')}`
+    : '<p class="hint">No backups yet. From now on, older versions of your careers, seasons and drafts are kept here.</p>';
+  $$('#cloudBak [data-bk]').forEach((btn) => btn.addEventListener('click', () => {
+    const b = all[btn.dataset.bk] && all[btn.dataset.bk][Number(btn.dataset.bi)];
+    if (!b || !confirm(`Restore this? ${describeSave(btn.dataset.bk, b.v)}`)) return;
+    if (restoreBackup(btn.dataset.bk, b.v)) { sfx.levelUp(); btn.textContent = 'Restored'; btn.disabled = true; cloudPush(); renderHome(); }
+  }));
+});
 async function doLogout() {
   sfx.menu();
   quitToMenu();          // leaves any game and online room first

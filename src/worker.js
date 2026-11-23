@@ -100,18 +100,60 @@ export class User extends DurableObject {
     const all = await this.ctx.storage.list({ prefix: 'save:' });
     const data = {};
     for (const [k, v] of all) data[k.slice(5)] = v;
-    return { data, updated: (await this.ctx.storage.get('saveAt')) || 0 };
+    const meta = (await this.ctx.storage.get('saveMeta')) || { t: {}, d: {} };
+    return { data, updated: (await this.ctx.storage.get('saveAt')) || 0, times: meta.t || {}, deleted: meta.d || {} };
   }
 
-  async putSave(data, updated) {
+  // Merge, key by key: a key is only replaced (or deleted) by a change at least as new as the one stored, so an old tab or
+  // another device can never wipe out a career it never had. Careers, seasons and drafts keep their last versions as backups.
+  // Older clients (no `times`) never delete anything.
+  async putSave(data, updated, times, deleted, bak) {
     const old = await this.ctx.storage.list({ prefix: 'save:' });
-    const drop = [...old.keys()].filter((k) => !(k.slice(5) in data));
-    if (drop.length) await this.ctx.storage.delete(drop);
-    const entries = {};
-    for (const [k, v] of Object.entries(data)) entries[`save:${k}`] = v;
-    if (Object.keys(entries).length) await this.ctx.storage.put(entries);
-    await this.ctx.storage.put('saveAt', updated);
+    const saveAt = (await this.ctx.storage.get('saveAt')) || 0;
+    const meta = (await this.ctx.storage.get('saveMeta')) || { t: {}, d: {} };
+    meta.t = meta.t || {}; meta.d = meta.d || {};
+    const legacy = !times || typeof times !== 'object';
+    const backups = {};
+    const keepOld = (k, v) => { if (BACKUP_KEY_RE.test(k) && typeof v === 'string' && v.length > 2) (backups[k] = backups[k] || []).push(v); };
+    const writes = {}, drops = [];
+    for (const [k, v] of Object.entries(data)) {
+      const t = legacy ? updated : Number(times[k]) || updated;
+      const cur = old.has(`save:${k}`) ? (meta.t[k] || saveAt) : 0;
+      if (t < Math.max(cur, meta.d[k] || 0)) continue;           // the stored copy is newer
+      const prev = old.get(`save:${k}`);
+      if (prev !== undefined && prev !== v) keepOld(k, prev);
+      writes[`save:${k}`] = v; meta.t[k] = t; delete meta.d[k];
+    }
+    if (!legacy && deleted && typeof deleted === 'object') {
+      for (const [k, t0] of Object.entries(deleted)) {
+        const t = Number(t0) || 0;
+        if (!SAVE_KEY_RE.test(k) || k in data) continue;
+        const cur = old.has(`save:${k}`) ? (meta.t[k] || saveAt) : 0;
+        if (t < cur) continue;
+        if (old.has(`save:${k}`)) { keepOld(k, old.get(`save:${k}`)); drops.push(`save:${k}`); }
+        meta.d[k] = Math.max(meta.d[k] || 0, t); delete meta.t[k];
+      }
+    }
+    if (bak && typeof bak === 'object') for (const [k, v] of Object.entries(bak)) if (SAVE_KEY_RE.test(k)) keepOld(k, v);
+    if (drops.length) await this.ctx.storage.delete(drops);
+    if (Object.keys(writes).length) await this.ctx.storage.put(writes);
+    // Old deletions are forgotten after 60 days
+    const cutoff = Date.now() - 60 * 864e5;
+    for (const [k, t] of Object.entries(meta.d)) if (t < cutoff) delete meta.d[k];
+    await this.ctx.storage.put({ saveMeta: meta, saveAt: Math.max(saveAt, updated) });
+    for (const [k, vals] of Object.entries(backups)) {
+      const list = (await this.ctx.storage.get(`bak:${k}`)) || [];
+      for (const v of vals) if (!list.some((b) => b.v === v)) list.unshift({ t: Date.now(), v });
+      await this.ctx.storage.put(`bak:${k}`, list.slice(0, 6));
+    }
     return true;
+  }
+
+  async getBackups() {
+    const all = await this.ctx.storage.list({ prefix: 'bak:' });
+    const out = {};
+    for (const [k, v] of all) out[k.slice(4)] = v;
+    return out;
   }
 
   // ----- Admin tools for one account (called only by the admin routes below) -----
@@ -166,9 +208,15 @@ export class User extends DurableObject {
   async revokeSessions() { await this.ctx.storage.delete('sessions'); return true; }
 
   async clearSave() {
+    // Recorded as deletions, so the player's browsers drop their copies too instead of uploading them again
     const old = await this.ctx.storage.list({ prefix: 'save:' });
+    const now = Date.now(), meta = { t: {}, d: {} };
+    for (const [k, v] of old) {
+      meta.d[k.slice(5)] = now;
+      if (BACKUP_KEY_RE.test(k.slice(5))) { const list = (await this.ctx.storage.get(`bak:${k.slice(5)}`)) || []; list.unshift({ t: now, v }); await this.ctx.storage.put(`bak:${k.slice(5)}`, list.slice(0, 6)); }
+    }
     if (old.size) await this.ctx.storage.delete([...old.keys()]);
-    await this.ctx.storage.delete('saveAt');
+    await this.ctx.storage.put({ saveMeta: meta, saveAt: now });
     return true;
   }
 
@@ -476,10 +524,18 @@ async function authenticate(env, raw) {
 const bearer = (request) => (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
 
 const SAVE_KEY_RE = /^pph-[a-z0-9_-]{1,40}$/i;
-async function handleSave(request, env) {
+const BACKUP_KEY_RE = /^pph-(career-\d+|season|draft)$/;
+const cleanTimes = (o) => {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(o).slice(0, 60)) if (SAVE_KEY_RE.test(k) && Number.isFinite(v) && v > 0) out[k] = Math.min(v, Date.now() + 864e5);
+  return out;
+};
+async function handleSave(request, env, path = '/api/save') {
   const user = await authenticate(env, bearer(request));
   if (!user) return json({ error: 'not-logged-in' }, 401);
   const stub = userStub(env, user);
+  if (path === '/api/save/backups') return request.method === 'GET' ? json({ backups: await stub.getBackups() }) : json({ error: 'method' }, 405);
   if (request.method === 'GET') return json(await stub.getSave());
   if (request.method !== 'PUT') return json({ error: 'method' }, 405);
   const body = await readJson(request, 1_000_000);
@@ -487,8 +543,14 @@ async function handleSave(request, env) {
   if (!data) return json({ error: 'bad' }, 400);
   const keys = Object.keys(data);
   if (keys.length > 40 || keys.some((k) => !SAVE_KEY_RE.test(k) || k === 'pph-auth' || typeof data[k] !== 'string' || data[k].length > 120000)) return json({ error: 'bad' }, 400);
-  const updated = Number.isFinite(body.updated) ? body.updated : Date.now();
-  await stub.putSave(data, updated);
+  const updated = Number.isFinite(body.updated) ? Math.min(body.updated, Date.now() + 864e5) : Date.now();
+  let bak = null;
+  if (body.bak && typeof body.bak === 'object') {
+    bak = {};
+    for (const [k, v] of Object.entries(body.bak).slice(0, 8)) if (BACKUP_KEY_RE.test(k) && typeof v === 'string' && v.length <= 120000) bak[k] = v;
+  }
+  const hasTimes = body.times && typeof body.times === 'object';
+  await stub.putSave(data, updated, hasTimes ? cleanTimes(body.times) : null, hasTimes ? cleanTimes(body.deleted) : null, bak);
   return json({ ok: true, updated });
 }
 
@@ -945,7 +1007,7 @@ export default {
       return env.ROOMS.get(env.ROOMS.idFromName(room[1])).fetch(request);
     }
     if (path === '/api/ping') return json({ ok: true });
-    if (path === '/api/save') return handleSave(request, env);
+    if (path === '/api/save' || path === '/api/save/backups') return handleSave(request, env, path);
     if (path === '/api/me' || path === '/api/register' || path === '/api/login' || path === '/api/logout') return handleAccount(request, env, path, ctx);
     if (path.startsWith('/api/admin/')) return handleAdmin(request, env, path);
     if (path === '/api/inbox' || path === '/api/inbox/claim') return handleInbox(request, env, path);
