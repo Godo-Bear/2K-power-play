@@ -496,14 +496,36 @@ function applyOverlay(o, t, w, armsOnly) {
   }
 }
 // Plays the overlays that fit what the player is doing; returns true when they own the arms this frame
+const ORDER = ['run', 'jumpshot', 'dribbleLeft', 'dribbleRight'];   // the run moves the whole body; the others go on top
+const RUN = { strides: 2 };   // the running clip holds two full strides (left and right steps each)
 function updateOverlays(player, dt, state, speed, ctx) {
   const O = player.ov;
-  if (!O || !ctx.overlays) { if (O) for (const o of Object.values(O)) o.w = 0; return false; }
+  const res = { arms: false, legs: false };
+  if (!O) return res;
+  // Running: the captured run, played at the speed the player's feet are actually covering ground (its stride follows the
+  // same phase as the procedural stride), so a sprint plays it about twice as fast as the original treadmill jog.
+  // Not while sliding on defence or in the air. Used for everyone on the court, the referees included.
+  const running = !!O.run && state === 'run' && !ctx.airborne && !(ctx.defending && speed < 4.6) && !ctx.refSignal;
+  if (O.run) {
+    const o = O.run;
+    const want = running ? Math.min(1, Math.max(0, (speed - 2.4) / 1.4)) : 0;
+    o.w += (want - o.w) * Math.min(1, dt * 10);
+    if (o.w < 0.005) o.w = 0;
+    else {
+      const cyc = o.dur / RUN.strides;
+      const ph = (((player.walkPhase || 0) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      applyOverlay(o, (ph / (Math.PI * 2)) * cyc, o.w, false);
+      if (o.w > 0.5) { res.arms = true; res.legs = true; }
+    }
+  }
+  if (!ctx.overlays) { for (const k of ['jumpshot', 'dribbleLeft', 'dribbleRight']) if (O[k]) O[k].w = 0; return res; }
   const shooting = (state === 'shoot' || state === 'ft') && !!O.jumpshot && !(ctx.pumpT > 0);
   const dribbling = !shooting && ctx.hasBall && ctx.dribblePhase != null && !ctx.move && !ctx.airborne && !(ctx.postT > 0) && !(ctx.passT > 0)
     && (state === 'dribble' || state === 'idle' || state === 'walk' || state === 'run');
   const dk = (ctx.ballSide || 1) > 0 ? 'dribbleLeft' : 'dribbleRight';   // +x is the player's left
-  for (const [name, o] of Object.entries(O)) {
+  for (const name of ORDER) {
+    const o = O[name];
+    if (!o || name === 'run') continue;
     const want = name === 'jumpshot' ? shooting : dribbling && name === dk;
     o.w += ((want ? 1 : 0) - o.w) * Math.min(1, dt * (want ? 14 : 9));
     if (o.w < 0.005) { o.w = 0; continue; }
@@ -520,7 +542,9 @@ function updateOverlays(player, dt, state, speed, ctx) {
       applyOverlay(o, (DRIB.top + (ph / Math.PI) * per) % o.dur, o.w, speed > 0.6);   // moving: arms only, the legs and lean stay procedural
     }
   }
-  return shooting || dribbling;
+  if (shooting || dribbling) res.arms = true;
+  if (shooting) res.legs = false;    // the jump shot's legs stay procedural (the game does the jump)
+  return res;
 }
 // Where the hands hold the ball this frame (relative to the player's position), for the game to put the ball there
 function recordBallHold(player, ctx) {
@@ -769,7 +793,8 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   h.rotation.z += (roll - h.rotation.z) * Math.min(1, dt * 10);
   // Lean into sprints, sit into a defensive stance
   const sprintK = Math.min(1, Math.max(0, (speed - 5) / 3.5));
-  const lean = Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
+  const runW = player.ov && player.ov.run ? player.ov.run.w : 0;   // the captured run has its own lean
+  const lean = (Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0)) * (1 - 0.75 * runW) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
     + (state === 'steal' ? 0.3 : 0) + (state === 'dive' ? (ctx.actionT < 0.3 ? 0.6 + ctx.actionT * 2.5 : 1.3) : 0)
     + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
   h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
@@ -800,7 +825,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
     }
     if (!ctx.freezeMixer) player.mixer.update(dt);
   }
-  const ovArms = updateOverlays(player, dt, state, speed, ctx);
+  const ovr = updateOverlays(player, dt, state, speed, ctx), ovArms = ovr.arms;
   const b = player.bones;
   if (!b || !player.limb) return;
   // Bring only the chains from the body down to each limb up to date (the renderer refreshes the rest of the body anyway)
@@ -814,8 +839,8 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   player.facing = yaw; // limbs follow the turned body
   applyLimb(player, 'aL', b.uaL, b.laL, ovArms ? null : pose.aL, dt, ctx);   // a playing overlay owns the arms
   applyLimb(player, 'aR', b.uaR, b.laR, ovArms ? null : pose.aR, dt, ctx);
-  applyLimb(player, 'lL', b.ulL, b.llL, pose.lL, dt, ctx);
-  applyLimb(player, 'lR', b.ulR, b.llR, pose.lR, dt, ctx);
+  applyLimb(player, 'lL', b.ulL, b.llL, ovr.legs ? null : pose.lL, dt, ctx);
+  applyLimb(player, 'lR', b.ulR, b.llR, ovr.legs ? null : pose.lR, dt, ctx);
   player.facing = realFacing;
   // Keep the feet on the floor: when the legs bend, lower the whole body by how far the ankles were lifted
   const fixTarget = ctx.airborne || state === 'dunk' || state === 'layup' || state === 'dive' ? 0 : groundFix(player);

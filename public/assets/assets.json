@@ -18,6 +18,7 @@
       "celebrate": "Standing_01"
     },
     "overlays": {
+      "run": "anims/run.json",
       "jumpshot": "anims/jumpshot.json",
       "dribbleLeft": "anims/dribble-left.json",
       "dribbleRight": "anims/dribble-right.json"
@@ -83,7 +84,8 @@
     "Low Poly Sports Stands by Cole Brenner (CC-BY 3.0) via Poly Pizza",
     "AJ 12 Basketball Sneakers by Real Slim Shady (CC-BY 4.0) via Sketchfab",
     "Jump shot motion: \"Pj_shot\" by Keith_Pamment (Sketchfab Standard license) via Sketchfab",
-    "Dribble motion: \"Basketball Player Dribbles Invisible Ball\" by LasquetiSpice (CC-BY 4.0) via Sketchfab"
+    "Dribble motion: \"Basketball Player Dribbles Invisible Ball\" by LasquetiSpice (CC-BY 4.0) via Sketchfab",
+    "Running motion: \"Running Motion\" by Jason Kan (CC-BY 4.0) via Sketchfab"
   ],
   "shoes": {
     "left": "models/shoe-left.glb",
