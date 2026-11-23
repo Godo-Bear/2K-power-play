@@ -496,8 +496,12 @@ function applyOverlay(o, t, w, armsOnly) {
   }
 }
 // Plays the overlays that fit what the player is doing; returns true when they own the arms this frame
-const ORDER = ['run', 'jumpshot', 'dribbleLeft', 'dribbleRight'];   // the run moves the whole body; the others go on top
-const RUN = { strides: 2 };   // the running clip holds two full strides (left and right steps each)
+const ORDER = ['run', 'jump', 'jumpshot', 'dribbleLeft', 'dribbleRight'];   // the run moves the whole body; the others go on top
+const RUN = { strides: 2 };
+// The jump clip (blocks, rebounds, jump balls): 0.03 s is the take-off, 0.25 s the highest reach and 0.63 s the landing
+const JUMP = { takeoff: 0.03, reach: 0.25, land: 0.63 };
+// Legs while jumping: nearly straight under the body with the feet pointing down (the captured jump tucks its knees up)
+const JUMP_LEGS = { lL: [[0.09, -1, 0.06], [0.02, -1, -0.1]], lR: [[-0.09, -1, 0.06], [-0.02, -1, -0.1]] };   // the running clip holds two full strides (left and right steps each)
 function updateOverlays(player, dt, state, speed, ctx) {
   const O = player.ov;
   const res = { arms: false, legs: false };
@@ -518,6 +522,22 @@ function updateOverlays(player, dt, state, speed, ctx) {
       if (o.w > 0.5) { res.arms = true; res.legs = true; }
     }
   }
+  // Jumping without the ball in a shot (blocks, rebounds, contests, jump balls): the captured jump's arms and upper body,
+  // stretched over however long this jump lasts, so the reach peaks at the top of the jump
+  if (O.jump) {
+    const o = O.jump;
+    const jumping = state === 'jump' && player.jumpT >= 0 && player.jumpDur > 0;
+    o.w += ((jumping ? 1 : 0) - o.w) * Math.min(1, dt * (jumping ? 18 : 8));
+    if (o.w < 0.005) o.w = 0;
+    else {
+      // The highest reach (JUMP.reach) lands on the top of the jump. Arms only: the captured jump curls its back at the top
+      // to meet its tucked knees, which looks broken with the legs kept down
+      const u = jumping ? Math.min(1, player.jumpT / player.jumpDur) : 1;
+      const t = u < 0.5 ? JUMP.takeoff + (u / 0.5) * (JUMP.reach - JUMP.takeoff) : JUMP.reach + ((u - 0.5) / 0.5) * (JUMP.land - JUMP.reach);
+      applyOverlay(o, t, o.w, true);
+      if (o.w > 0.5) { res.arms = true; res.legs = false; res.jumpLegs = true; }
+    }
+  }
   if (!ctx.overlays) { for (const k of ['jumpshot', 'dribbleLeft', 'dribbleRight']) if (O[k]) O[k].w = 0; return res; }
   const shooting = (state === 'shoot' || state === 'ft') && !!O.jumpshot && !(ctx.pumpT > 0);
   const dribbling = !shooting && ctx.hasBall && ctx.dribblePhase != null && !ctx.move && !ctx.airborne && !(ctx.postT > 0) && !(ctx.passT > 0)
@@ -525,7 +545,7 @@ function updateOverlays(player, dt, state, speed, ctx) {
   const dk = (ctx.ballSide || 1) > 0 ? 'dribbleLeft' : 'dribbleRight';   // +x is the player's left
   for (const name of ORDER) {
     const o = O[name];
-    if (!o || name === 'run') continue;
+    if (!o || name === 'run' || name === 'jump') continue;   // handled above
     const want = name === 'jumpshot' ? shooting : dribbling && name === dk;
     o.w += ((want ? 1 : 0) - o.w) * Math.min(1, dt * (want ? 14 : 9));
     if (o.w < 0.005) { o.w = 0; continue; }
@@ -839,8 +859,8 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   player.facing = yaw; // limbs follow the turned body
   applyLimb(player, 'aL', b.uaL, b.laL, ovArms ? null : pose.aL, dt, ctx);   // a playing overlay owns the arms
   applyLimb(player, 'aR', b.uaR, b.laR, ovArms ? null : pose.aR, dt, ctx);
-  applyLimb(player, 'lL', b.ulL, b.llL, ovr.legs ? null : pose.lL, dt, ctx);
-  applyLimb(player, 'lR', b.ulR, b.llR, ovr.legs ? null : pose.lR, dt, ctx);
+  applyLimb(player, 'lL', b.ulL, b.llL, ovr.jumpLegs ? JUMP_LEGS.lL : ovr.legs ? null : pose.lL, dt, ctx);
+  applyLimb(player, 'lR', b.ulR, b.llR, ovr.jumpLegs ? JUMP_LEGS.lR : ovr.legs ? null : pose.lR, dt, ctx);
   player.facing = realFacing;
   // Keep the feet on the floor: when the legs bend, lower the whole body by how far the ankles were lifted
   const fixTarget = ctx.airborne || state === 'dunk' || state === 'layup' || state === 'dive' ? 0 : groundFix(player);

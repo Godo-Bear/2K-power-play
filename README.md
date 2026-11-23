@@ -41,7 +41,7 @@ built with Three.js and deployed on Cloudflare Workers.
 
 **Presentation**
 - **Graphics**: Low, Medium, High (smooth edges and glow) and Ultra (renders at 4K and scales down), plus adaptive resolution that holds the frame rate steady
-- **Motion-captured run, jump shot and dribble**: running uses a captured run cycle, sped up to match how fast the player is really moving; the arms and upper body play real captured motion (a right- and a left-handed dribble kept in time with the ball's bounce, and a jump shot timed to the shot meter, with the ball held in the hands), layered over the procedural legs and moves
+- **Motion-captured run, jump, jump shot and dribble**: running uses a captured run cycle, sped up to match how fast the player is really moving; blocks, rebounds and jump balls use a captured jump (arms reaching at the top, feet kept down); the arms and upper body play real captured motion (a right- and a left-handed dribble kept in time with the ball's bounce, and a jump shot timed to the shot meter, with the ball held in the hands), layered over the procedural legs and moves
 - **Ball handler marker**: a small orange arrow over whoever has the ball (Settings to switch it off)
 - **Performance auto-tuner**: when the frame rate drops, the resolution goes down first, then bloom, then shadows, and they come back when the game is smooth again. **Install app**: on browsers that support it the home screen offers to install the game, and an app-shell cache makes it open instantly
 - **Commentary**: a play-by-play voice and a color analyst with no player names, reacting to shots, runs, violations and the score (spoken or as captions)
@@ -222,6 +222,7 @@ src/worker.js               Cloudflare Worker: static site, accounts and the onl
 - Jump shot motion: "Pj_shot" by Keith_Pamment (Sketchfab Standard license), via [Sketchfab](https://sketchfab.com/3d-models/pj-shot-f7d31c3808ef481f8e98eca7cdf54664). Only the retargeted motion is included (public/assets/anims), not the model
 - Dribble motion: "Basketball Player Dribbles Invisible Ball" by LasquetiSpice (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/basketball-player-dribbles-invisible-ball-426b74048cd34a2a9c7fec0c3b603f4e). Retargeted from a Mixamo skeleton, plus a mirrored left-handed version
 - Running motion: "Running Motion" by Jason Kan (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/running-motion-92847620b80b4b7c92a7f98f971f9ed5). Only the runner's motion is used (the treadmill is left out), played at the player's real speed
+- Jumping motion: "Boy Jumping" by myzatulsarah (CC-BY 4.0), via [Sketchfab](https://sketchfab.com/3d-models/boy-jumping-7bd8d2d9821449abbd8657e053bafea8). The arms and upper body are used for blocks, rebounds and jump balls; the legs stay extended with the feet down
 
 The uploaded models were optimized for the web (smaller textures, unused animations and the court's fence removed; the sneakers went from 176k to about 6k triangles per shoe and were split into a left and a right).
 Credits are also shown in the game's Settings screen.
