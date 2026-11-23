@@ -355,7 +355,7 @@ function renderCtlHelp() {
   el.hidden = !on;
   if (!on) return;
   const g = game, p = g.userPlayer, mine = p && g.ball.holder === p, off = p && p.team === g.possession, loose = g.ball.state === 'loose';
-  const rows = mine ? [['shoot', 'Shoot (hold, release in green)'], ['pass', 'Pass'], ['move', 'Dribble move'], ['sprint', 'Sprint'], ['shoot', 'Hold Shoot + Pass: pump fake']]
+  const rows = mine ? [['shoot', 'Shoot (hold, release in green)'], ['pass', 'Pass'], ['move', 'Dribble move (stick: side = crossover, back = step-back)'], ['sprint', 'Sprint (+ Shoot at the rim: dunk; + Move: spin)'], ['flair', 'Hold for the fancy version: tomahawk, reverse, fadeaway, behind the back, bounce / lob'], ['shoot', 'Hold Shoot + Pass: pump fake']]
     : off && !loose ? [['pass', 'Call for the ball'], ['switch', 'Switch player'], ['shoot', 'Jump for a rebound'], ['sprint', 'Sprint']]
       : [['shoot', 'Jump to block / rebound'], ['pass', loose ? 'Dive for the ball' : 'Steal'], ['move', 'Quick switch to the nearest defender'], ['sprint', 'Sprint back']];
   const key = rows.map(([id, what]) => `${id}:${what}`).join('|');
@@ -894,7 +894,9 @@ $('#kitReset').addEventListener('click', () => {
 $('#selKit').addEventListener('click', () => { sfx.menu(); openKit(TEAMS[settings[settings.side]], () => { renderSelect(); show('select'); }); });
 
 // ---------- Move guide: what every button does ----------
+const STICK_LABEL = { side: '⇆ Stick to the side', away: '⇣ Stick away from the rim', toward: '⇡ Stick toward the rim' };
 const bindLabel = (id) => {
+  if (STICK_LABEL[id]) return STICK_LABEL[id];
   const k = bindings.keys[id] && bindings.keys[id][0];
   const pad = bindings.pad[id];
   return [k ? keyName(k) : null, pad != null && pad >= 0 ? padName(pad) : null].filter(Boolean).join(' / ') || '—';
@@ -902,11 +904,24 @@ const bindLabel = (id) => {
 const MOVE_TABS = [
   { id: 'see', label: 'Dunks & moves', lab: true },
   { id: 'ball', label: 'With the ball', items: [
-    { b: ['shoot'], how: 'Hold, then release', t: 'Jump shot', d: 'A meter fills while you hold. Let go in the green zone and it almost always goes in. The game picks the shot: pull-up on the move, step-back after a step-back, fadeaway when guarded close, floater in the lane.' },
-    { b: ['shoot'], how: 'Tap near the rim', t: 'Layup and dunk', d: 'Close to the basket the same button goes up for a layup. Sprint in with speed and it becomes a dunk: a windmill or tomahawk when you are open, a two-hand slam when crowded, plus euro-steps and reverse layups.' },
-    { b: ['pass'], how: 'Tap, point the stick', t: 'Pass', d: 'Aim the stick at a teammate. The game chooses a chest pass, a bounce pass through traffic, or a lob for an alley-oop near the rim.' },
-    { b: ['move'], how: 'Tap', t: 'Crossover moves', d: 'The situation picks the move: crossover, behind-the-back, hesitation, step-back, or a spin when a defender is on you and you are driving. Good handles make defenders stumble.' },
-    { b: ['move'], how: 'Stand still near the rim', t: 'Post-up', d: 'A big player near the basket with a defender on their back can back the defender down. They turn and finish on their own when the move ends.' },
+    { b: ['shoot'], how: 'Hold, then release', t: 'Jump shot', d: 'A meter fills while you hold. Let go in the green zone and it almost always goes in.' },
+    { b: ['sprint', 'shoot'], how: 'Sprint, then hold Shoot', t: 'Pull-up', d: 'Stop and rise up while you are moving fast.' },
+    { b: ['flair', 'shoot'], how: 'Hold Flair, hold Shoot', t: 'Fadeaway', d: 'Lean away from the defender as you shoot. Hard to block.' },
+    { b: ['flair', 'shoot'], how: 'In the lane: hold Flair, tap Shoot', t: 'Floater', d: 'A soft, high shot over a big man waiting at the rim.' },
+    { b: ['shoot'], how: 'Tap at the rim', t: 'Layup', d: 'Up and in off the glass.' },
+    { b: ['side', 'shoot'], how: 'Stick to the side, tap at the rim', t: 'Euro step', d: 'Step around the defender in the air before you finish.' },
+    { b: ['flair', 'shoot'], how: 'Hold Flair, tap at the rim', t: 'Reverse layup', d: 'Finish on the far side of the rim, back to the hoop.' },
+    { b: ['sprint', 'shoot'], how: 'Sprint at the rim, tap', t: 'Two-hand slam', d: 'Dunks need Sprint, a running start and a Dunk rating of 68 or more (otherwise it is a layup).' },
+    { b: ['sprint', 'side', 'shoot'], how: 'Sprint, stick to the side, tap', t: 'One-hand jam', d: 'One big hand above the rim.' },
+    { b: ['sprint', 'flair', 'shoot'], how: 'Sprint, hold Flair, tap', t: 'Tomahawk', d: 'The ball goes way back behind the head, then down through the rim.' },
+    { b: ['sprint', 'flair', 'side', 'shoot'], how: 'Sprint, hold Flair, stick to the side, tap', t: 'Windmill', d: 'The arm swings a full circle before the slam.' },
+    { b: ['pass'], how: 'Tap, point the stick', t: 'Chest pass', d: 'Aim the stick at a teammate. Plain Pass is always a chest pass.' },
+    { b: ['flair', 'pass'], how: 'Hold Flair, tap', t: 'Bounce pass / lob', d: 'A bounce pass under a defender in the lane, or a lob for an alley-oop when the teammate is a dunker near the rim.' },
+    { b: ['side', 'move'], how: 'Stick to the side, tap', t: 'Crossover', d: 'The ball switches hands and you burst the other way.' },
+    { b: ['flair', 'move'], how: 'Hold Flair, tap', t: 'Behind the back', d: 'Around your back to the other hand.' },
+    { b: ['sprint', 'move'], how: 'Sprint, tap', t: 'Spin move', d: 'A full turn around the defender: the ball cannot be stolen while you spin.' },
+    { b: ['away', 'move'], how: 'Pull the stick back, tap', t: 'Step-back', d: 'Hop back to make room. Shoot within a second and a half for a bonus.' },
+    { b: ['move'], how: 'Tap, stick still', t: 'Hesitation', d: 'Freeze for a beat, then burst past. Near the rim with a big man, the same press posts up.' },
     { b: ['shoot', 'pass'], how: 'Hold Shoot, tap Pass', t: 'Pump fake', d: 'Cancel the shot and fake it. A defender who bites jumps and is out of the play, so drive past him.' },
     { b: ['sprint'], how: 'Hold', t: 'Sprint', d: 'Faster, and needed for dunks and fast breaks. It tires players, so rotate your bench.' },
     { b: ['shoot'], how: 'Hold, then release', t: 'Free throws', d: 'Same meter as a jump shot. Wait for the green zone.' },

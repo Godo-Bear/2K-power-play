@@ -9,20 +9,21 @@ export const ACTIONS = [
   { id: 'sprint', label: 'Sprint', kb: true, pad: true },
   { id: 'shoot', label: 'Shoot / Block / Rebound', kb: true, pad: true },
   { id: 'pass', label: 'Pass / Steal', kb: true, pad: true },
-  { id: 'move', label: 'Crossover / Quick switch (defense)', kb: true, pad: true },
+  { id: 'move', label: 'Dribble move / Quick switch (defense)', kb: true, pad: true },
+  { id: 'flair', label: 'Flair (hold with another button for the fancy version of a move)', kb: true, pad: true },
   { id: 'switch', label: 'Switch player', kb: true, pad: true },
   { id: 'timeout', label: 'Call timeout', kb: true, pad: true },
   { id: 'pause', label: 'Pause', kb: true, pad: true },
 ];
-const BUTTONS = ['shoot', 'pass', 'move', 'switch', 'sprint', 'timeout', 'pause'];
+const BUTTONS = ['shoot', 'pass', 'move', 'switch', 'sprint', 'timeout', 'pause', 'flair'];
 
 const DEFAULT_KEYS = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
   sprint: ['ShiftLeft', 'ShiftRight'], shoot: ['Space', ''], pass: ['KeyJ', ''], move: ['KeyK', ''],
-  switch: ['KeyQ', ''], timeout: ['KeyT', ''], pause: ['Escape', 'KeyP'],
+  switch: ['KeyQ', ''], timeout: ['KeyT', ''], pause: ['Escape', 'KeyP'], flair: ['KeyL', ''],
 };
 // Standard mapping: 0=A/✕ 1=B/○ 2=X/□ 3=Y/△ 4=LB 5=RB 6=LT 7=RT 8=Back 9=Start
-const DEFAULT_PAD = { sprint: 7, shoot: 2, pass: 0, move: 1, switch: 4, timeout: 8, pause: 9 };
+const DEFAULT_PAD = { sprint: 7, shoot: 2, pass: 0, move: 1, switch: 4, timeout: 8, pause: 9, flair: 3 };
 
 const STORE = 'pph-bindings';
 export const bindings = { keys: structuredClone(DEFAULT_KEYS), pad: { ...DEFAULT_PAD } };
@@ -185,10 +186,10 @@ export function pollInput() {
 // ---------- Touch controls ----------
 // Each control has a centre position (fractions of the screen) and a size multiplier, saved per browser.
 const TOUCH_STORE = 'pph-touch';
-const TOUCH_BASE = { stick: 130, shoot: 88, pass: 72, move: 62, sprint: 62, switch: 62 }; // px at 100%
+const TOUCH_BASE = { stick: 130, shoot: 88, pass: 72, move: 62, sprint: 62, switch: 62, flair: 58 }; // px at 100%
 const TOUCH_DEFAULT = {
   stick: { x: 0.13, y: 0.72, s: 1 }, shoot: { x: 0.9, y: 0.76, s: 1 }, pass: { x: 0.79, y: 0.86, s: 1 },
-  move: { x: 0.8, y: 0.62, s: 1 }, sprint: { x: 0.91, y: 0.52, s: 1 }, switch: { x: 0.7, y: 0.72, s: 1 },
+  move: { x: 0.8, y: 0.62, s: 1 }, sprint: { x: 0.91, y: 0.52, s: 1 }, switch: { x: 0.7, y: 0.72, s: 1 }, flair: { x: 0.8, y: 0.45, s: 1 },
 };
 export const touchLayout = structuredClone(TOUCH_DEFAULT);
 try {
@@ -200,9 +201,9 @@ export function saveTouchLayout() { try { localStorage.setItem(TOUCH_STORE, JSON
 // Layout presets: mirrored for left-handed play, or everything within one thumb's reach
 const TOUCH_PRESETS = {
   standard: TOUCH_DEFAULT,
-  left: { stick: { x: 0.87, y: 0.72, s: 1 }, shoot: { x: 0.1, y: 0.76, s: 1 }, pass: { x: 0.21, y: 0.86, s: 1 }, move: { x: 0.2, y: 0.62, s: 1 }, sprint: { x: 0.09, y: 0.52, s: 1 }, switch: { x: 0.3, y: 0.72, s: 1 } },
-  oneRight: { stick: { x: 0.86, y: 0.72, s: 0.9 }, shoot: { x: 0.6, y: 0.8, s: 1 }, pass: { x: 0.62, y: 0.58, s: 0.9 }, move: { x: 0.82, y: 0.38, s: 0.85 }, sprint: { x: 0.5, y: 0.68, s: 0.8 }, switch: { x: 0.7, y: 0.4, s: 0.8 } },
-  oneLeft: { stick: { x: 0.14, y: 0.72, s: 0.9 }, shoot: { x: 0.4, y: 0.8, s: 1 }, pass: { x: 0.38, y: 0.58, s: 0.9 }, move: { x: 0.18, y: 0.38, s: 0.85 }, sprint: { x: 0.5, y: 0.68, s: 0.8 }, switch: { x: 0.3, y: 0.4, s: 0.8 } },
+  left: { stick: { x: 0.87, y: 0.72, s: 1 }, shoot: { x: 0.1, y: 0.76, s: 1 }, pass: { x: 0.21, y: 0.86, s: 1 }, move: { x: 0.2, y: 0.62, s: 1 }, sprint: { x: 0.09, y: 0.52, s: 1 }, switch: { x: 0.3, y: 0.72, s: 1 }, flair: { x: 0.2, y: 0.45, s: 1 } },
+  oneRight: { stick: { x: 0.86, y: 0.72, s: 0.9 }, shoot: { x: 0.6, y: 0.8, s: 1 }, pass: { x: 0.62, y: 0.58, s: 0.9 }, move: { x: 0.82, y: 0.38, s: 0.85 }, sprint: { x: 0.5, y: 0.68, s: 0.8 }, switch: { x: 0.7, y: 0.4, s: 0.8 }, flair: { x: 0.52, y: 0.46, s: 0.8 } },
+  oneLeft: { stick: { x: 0.14, y: 0.72, s: 0.9 }, shoot: { x: 0.4, y: 0.8, s: 1 }, pass: { x: 0.38, y: 0.58, s: 0.9 }, move: { x: 0.18, y: 0.38, s: 0.85 }, sprint: { x: 0.5, y: 0.68, s: 0.8 }, switch: { x: 0.3, y: 0.4, s: 0.8 }, flair: { x: 0.48, y: 0.46, s: 0.8 } },
 };
 export function applyTouchPreset(name) {
   const P = TOUCH_PRESETS[name] || TOUCH_DEFAULT;

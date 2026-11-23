@@ -3,7 +3,7 @@
 // A small relay on the Cloudflare Worker (src/worker.js) passes messages between the two.
 import { auth } from './auth.js';
 
-const BTN = ['shoot', 'pass', 'move', 'switch', 'sprint', 'timeout', 'pause'];
+const BTN = ['shoot', 'pass', 'move', 'switch', 'sprint', 'timeout', 'pause', 'flair'];
 const r2 = (v) => Math.round(v * 100) / 100;
 
 export function makeCode() {

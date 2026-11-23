@@ -609,8 +609,26 @@ export class Game {
     if (p.team === this.user && this.ctl(p) && Game.MOVE_LABEL[style]) this.hud.feedback(Game.MOVE_LABEL[style], '#35f0ff');
   }
 
+  // What the person controlling p is asking for: the Flair and Sprint buttons, and where the stick points relative to the
+  // basket (toward it, away from it, to one side, or nowhere). Each move has its own combination; computer players
+  // (and anyone not controlled by a person) still get the move the situation calls for.
+  intent(p) {
+    if (!this.ctl(p) || this.autoplay || !p.team.input) return null;
+    const inp = p.team.input, hoop = this.hoopOf(p.team);
+    const mx = inp.moveX || 0, mz = inp.moveY || 0, len = Math.hypot(mx, mz);
+    const tx = hoop.x - p.pos.x, tz = -p.pos.z, tl = Math.hypot(tx, tz) || 1;
+    let dir = 'none', side = 1;
+    if (len > 0.3) {
+      const along = (mx * tx + mz * tz) / (len * tl), across = (mx * tz - mz * tx) / (len * tl);
+      dir = along > 0.55 ? 'toward' : along < -0.55 ? 'away' : 'side';
+      side = across > 0 ? 1 : -1;
+    }
+    return { flair: !!(inp.held && inp.held.flair), sprint: !!inp.sprint, dir, side, sx: len > 0.3 ? mx / len : 0, sz: len > 0.3 ? mz / len : 0 };
+  }
+
   startShot(p) {
     if (this.ball.holder !== p || p.state !== 'idle') return;
+    const ui = this.intent(p);
     const hoop = this.hoopOf(p.team);
     const d = Math.hypot(p.pos.x - hoop.x, p.pos.z);
     p.faceTarget = hoop;
@@ -624,7 +642,38 @@ export class Game {
     const inFront = !!def && toHoop.dot(tmp2.set(def.pos.x - p.pos.x, 0, def.pos.z - p.pos.z).normalize()) > 0.3;
     const driving = sp > 2.4 && toHoop.x * p.vel.x + toHoop.z * p.vel.z > 1.5;
     let style;
-    if (d < 2.6) {
+    if (ui && d < 2.6 && !p.forceDunkStyle) {
+      // At the rim: Sprint makes it a dunk (if he can), Flair the fancy version, the stick sideways the one-hand / euro version
+      const canDunk = p.r.dunk >= 68 && (p.sprinting || sp > 3 || d < 1.4) && p.stamina > 0.1;
+      if (ui.sprint && canDunk) {
+        p.state = 'dunk';
+        style = ui.flair ? (ui.dir === 'side' ? 'windmill' : 'tomahawk') : (ui.dir === 'side' ? 'onehand' : 'twohand');
+      } else {
+        p.state = 'layup';
+        style = ui.flair ? 'reverse' : ui.dir === 'side' ? 'euro' : 'layup';
+        if (style === 'euro') p.euroDir = new THREE.Vector3(ui.sx, 0, ui.sz);
+      }
+      p.jump(p.state === 'dunk' ? 0.9 : 0.74, p.state === 'dunk' ? 1.12 : 0.78);
+      if (p.state === 'dunk' && !this.opts.tutorial) { this.slowT = 0.75; this.focus = p; this.emit('dunkStart', { player: p }); }
+    } else if (ui && d < 4.4 && ui.flair) {
+      // In the lane with Flair: a floater
+      p.state = 'layup';
+      style = 'floater';
+      p.jump(0.7, 0.6);
+    } else if (ui && d >= 2.6) {
+      // Jump shots: Flair fades away, Sprint pulls up, right after a step-back it is a step-back jumper
+      p.state = 'shoot';
+      if (ui.flair) {
+        style = 'fadeaway';
+        const away = def && dd < 2.5 ? tmp2.set(p.pos.x - def.pos.x, 0, p.pos.z - def.pos.z).normalize() : tmp2.copy(toHoop).multiplyScalar(-1);
+        p.vel.set(away.x * 2.6, 0, away.z * 2.6);
+      } else {
+        style = (p.rhythmT || 0) > 0 ? 'stepback' : ui.sprint && sp > 2.5 ? 'pullup' : 'jumper';
+        p.vel.multiplyScalar(0.3);
+      }
+      p.jump(0.86, 0.62);
+      p.aiRelease = null;
+    } else if (d < 2.6) {
       const canDunk = p.forceDunkStyle || (p.r.dunk >= 68 && (p.sprinting || sp > 3 || d < 1.4) && p.stamina > 0.1);
       p.state = canDunk && (p.forceDunkStyle || Math.random() < 0.4 + p.r.dunk / 200) ? 'dunk' : 'layup';
       if (p.state === 'dunk' && p.forceDunkStyle) { style = p.forceDunkStyle; p.forceDunkStyle = null; }
@@ -779,7 +828,7 @@ export class Game {
     });
   }
 
-  startPass(p, target) {
+  startPass(p, target, ask = null) {
     if (!target || this.ball.holder !== p) return;
     const b = this.ball;
     const hoop = this.hoopOf(p.team);
@@ -792,7 +841,9 @@ export class Game {
       const t = ((q.pos.x - p.pos.x) * ax + (q.pos.z - p.pos.z) * az) / (d * d || 1);
       return t > 0.15 && t < 0.85 && Math.hypot(q.pos.x - (p.pos.x + ax * t), q.pos.z - (p.pos.z + az * t)) < 1.0;
     });
-    if (tHoop < 3.0 && d > 3 && target.r.dunk >= 70 && !target.airborne && this.nearestDefender(target).d > 0.9 && !this.opts.tutorial && Math.random() < (this.ctl(p) ? 0.8 : 0.4)) style = 'lob';
+    const lobOK = tHoop < 3.0 && d > 3 && target.r.dunk >= 70 && !target.airborne && this.nearestDefender(target).d > 0.9 && !this.opts.tutorial;
+    if (ask) style = ask.flair ? (lobOK ? 'lob' : 'bounce') : 'chest';   // a person picks: Pass is a chest pass, Flair + Pass a lob to a dunker near the rim or a bounce pass
+    else if (lobOK && Math.random() < 0.4) style = 'lob';
     else if (lane && d > 2.5) style = 'bounce';
     b.state = 'pass';
     b.holder = null;
@@ -1268,16 +1319,20 @@ export class Game {
     const sp = Math.hypot(p.vel.x, p.vel.z);
     const want = Math.hypot(p.desired.x, p.desired.z) > 0.2 ? p.desired.x * toHoop.x + p.desired.z * toHoop.z : (sp > 1 ? (p.vel.x * toHoop.x + p.vel.z * toHoop.z) / sp : 0);
     // Big enough, close to the rim and with a defender on his back: post up and bang him backwards
-    if (hdist(p.pos, hoop) < 6.2 && sp < 1.6 && def && d < 2.0 && p.r.inside >= 66 && p.index >= 2) {
+    const ask = this.intent(p);
+    if (hdist(p.pos, hoop) < 6.2 && sp < 1.6 && def && d < 2.0 && p.r.inside >= 66 && p.index >= 2 && !(ask && (ask.flair || ask.sprint || ask.dir === 'side' || ask.dir === 'away'))) {
       p.postT = 1.4; p.moveCd = 2.4;
       if (this.ctl(p)) this.hud.feedback('POST UP', '#35f0ff');
       this.emit('post', { player: p });
       return;
     }
-    // The situation picks the move
+    // A person picks the move: Sprint spins, Flair goes behind the back, the stick sideways crosses over,
+    // pulled away from the basket steps back, anything else is a hesitation. Otherwise the situation picks it.
     let name;
     const roll = Math.random();
-    if (def && d < 1.35 && want > 0.4 && sp > 2) name = 'spin';
+    const ui = this.intent(p);
+    if (ui) name = ui.sprint ? 'spin' : ui.flair ? 'behind' : ui.dir === 'side' ? 'crossover' : ui.dir === 'away' ? 'stepback' : 'hesi';
+    else if (def && d < 1.35 && want > 0.4 && sp > 2) name = 'spin';
     else if (want < -0.3) name = 'stepback';
     else if (def && d < 1.3 && sp < 1.5) name = roll < 0.28 ? 'stepback' : roll < 0.55 ? 'crossover' : roll < 0.78 ? 'hesi' : 'behind';
     else if (sp < 1.2) name = 'hesi';
@@ -2172,7 +2227,7 @@ export class Game {
 
     if (b.holder === p) {
       if (input.pressed.shoot) this.startShot(p);
-      else if (input.pressed.pass && p.state === 'idle') this.startPass(p, this.pickPassTarget(p, mx, mz));
+      else if (input.pressed.pass && p.state === 'idle') this.startPass(p, this.pickPassTarget(p, mx, mz), this.intent(p));
       else if (input.pressed.move) this.dribbleMove(p);
     } else if (p.team === this.possession && b.state !== 'loose') {
       // Offense without the ball: call for it / switch

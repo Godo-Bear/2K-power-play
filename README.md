@@ -69,11 +69,27 @@ built with Three.js and deployed on Cloudflare Workers.
 | Sprint | Shift | RT / R2 |
 | Shoot / Layup / Dunk / Free throw (hold, then release) | Space | X / □ |
 | Pass, or Steal on defense | J | A / ✕ |
-| Crossover, or quick switch on defense | K | B / ○ |
+| Dribble move, or quick switch on defense | K | B / ○ |
+| Flair (hold with another button for the fancy version) | L | Y / △ |
 | Switch player | Q | LB / L1 |
 | Block / Rebound (defense) | Space | X / □ |
 | Call timeout | T | Back / Share |
 | Pause | Esc / P | Start |
+
+Every move has its own combination (the Move Guide shows them with your own keys). "Side" means the stick pushed to the side of the line to the basket, "away" pulled away from it:
+
+| Move | Buttons |
+|---|---|
+| Two-hand slam / one-hand jam | Sprint + Shoot at the rim / the same with the stick to the side |
+| Tomahawk / windmill | Sprint + Flair + Shoot / the same with the stick to the side |
+| Layup / euro step / reverse layup | Shoot at the rim / stick to the side + Shoot / Flair + Shoot |
+| Floater | Flair + Shoot in the lane |
+| Jump shot / pull-up / fadeaway | Hold Shoot / Sprint + Shoot / Flair + Shoot |
+| Crossover / behind the back / spin / step-back / hesitation | Stick to the side + Move / Flair + Move / Sprint + Move / stick away + Move / Move |
+| Chest pass / bounce pass or alley-oop lob | Pass / Flair + Pass (a lob when the teammate is a dunker near the rim) |
+| Pump fake | Hold Shoot, tap Pass |
+
+Computer players still choose their own moves.
 
 ## Run locally
 
