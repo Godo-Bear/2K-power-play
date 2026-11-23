@@ -1950,8 +1950,8 @@ export class Game {
         const fwd = tmp.set(Math.sin(p.facing), 0, Math.cos(p.facing));
         b.pos.set(p.pos.x + fwd.x * 0.2, p.y + p.data.height * (0.62 + 0.42 * u), p.pos.z + fwd.z * 0.2);
       } else if (p.state === 'dunk') {
-        p.handWorld(true, b.pos);
-        b.pos.y += 0.06;
+        if (H && H.kind === 'dunk') b.pos.set(p.pos.x + H.x, p.y + H.y, p.pos.z + H.z);   // in the model's dunking hand
+        else { p.handWorld(true, b.pos); b.pos.y += 0.06; }
       } else {
         const sp = Math.hypot(p.vel.x, p.vel.z);
         b.dribblePhase += dt * (6.5 + sp * 0.9);

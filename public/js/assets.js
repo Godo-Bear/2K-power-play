@@ -627,10 +627,23 @@ function updateOverlays(player, dt, state, speed, ctx) {
   return res;
 }
 // Where the hands hold the ball this frame (relative to the player's position), for the game to put the ball there
-function recordBallHold(player, ctx) {
+function recordBallHold(player, ctx, state) {
   const O = player.ov, h = player.customModel;
   player.ballHold = null;
-  if (!O || !player.knuckles || !ctx.hasBall) return;
+  if (!player.knuckles || !ctx.hasBall) return;
+  if (state === 'dunk' && !ctx.released) {
+    // Dunks: in the slamming hand (between both hands for a two-hander)
+    h.updateMatrix(); h.matrixWorld.multiplyMatrices(player.root.matrixWorld, h.matrix);
+    const [kr, kl] = player.knuckles, top = h.children[0] || h;
+    refreshDown(top, kr); refreshDown(top, kl);
+    _ov.setFromMatrixPosition(kr.matrixWorld); _ov2.setFromMatrixPosition(kl.matrixWorld);
+    const two = ctx.style === 'twohand' || ctx.style === 'alley';
+    if (two) _ov.add(_ov2).multiplyScalar(0.5);
+    const r = player.root.position;
+    player.ballHold = { kind: 'dunk', x: _ov.x - r.x, y: _ov.y + (two ? 0.06 : 0.1) - r.y, z: _ov.z - r.z };
+    return;
+  }
+  if (!O) return;
   const shot = O.jumpshot && O.jumpshot.w > 0.6;
   const dk = (ctx.ballSide || 1) > 0 ? 'dribbleLeft' : 'dribbleRight';
   const drib = !shot && O[dk] && O[dk].w > 0.6;
@@ -678,6 +691,75 @@ function aim(bone, dirWorld, w) {
   _aimQ.premultiply(_aimPQ.invert());                                  // back into the parent's space
   bone.quaternion.slerp(_aimQ, w);
   refreshDown(bone, child);                                            // keep the limb fresh down to the next joint (this rig has helper nodes in between)
+}
+
+// ---------- Dunks: keyframes of [upper, lower] directions per limb (player space: +x left, +y up, +z forward) ----------
+const L_ = (u, l) => [u, l];
+const mirX = (k) => k && [[-k[0][0], k[0][1], k[0][2]], [-k[1][0], k[1][1], k[1][2]]];
+// legs: driving up, tucked at the top, reaching down for the landing
+const LEG = {
+  drive: [L_([0.1, -0.95, 0.25], [0.02, -0.98, -0.15]), L_([-0.1, -0.85, -0.45], [-0.02, -0.75, -0.65])],
+  tuck: [L_([0.12, -0.55, 0.83], [0.02, -0.85, -0.52]), L_([-0.12, -0.75, 0.66], [-0.02, -0.7, -0.7])],
+  land: [L_([0.1, -0.9, 0.42], [0.02, -0.99, 0.05]), L_([-0.1, -0.92, 0.38], [-0.02, -0.99, 0.08])],
+};
+const legs = (k) => ({ lL: k[0], lR: k[1] });
+const both_ = (u, l) => ({ aL: L_(u, l), aR: mirX(L_(u, l)) });
+const balance = L_([0.78, 0.2, 0.3], [0.5, 0.55, 0.4]);   // the free arm out for balance
+const one = (u, l) => ({ aR: L_(u, l), aL: balance });
+const DUNK_KEYS = {
+  twohand: [
+    [0.0, { ...both_([0.22, -0.35, 0.9], [0.1, 0.35, 0.93]), ...legs(LEG.drive) }],   // ball at the chest
+    [0.16, { ...both_([0.18, 0.92, -0.05], [0.06, 0.95, -0.2]), ...legs(LEG.tuck) }], // up over the head
+    [0.32, { ...both_([0.16, 0.85, -0.45], [0.05, 0.25, -0.96]), ...legs(LEG.tuck) }], // cocked behind it
+    [0.4, { ...both_([0.15, 0.5, 0.86], [0.03, -0.45, 0.9]), ...legs(LEG.tuck) }],    // slam
+    [0.46, { ...both_([0.2, 0.88, 0.42], [0.06, 0.97, 0.2]), ...legs(LEG.land) }],    // hanging on the rim
+    [0.54, { ...both_([0.55, -0.35, 0.45], [0.35, -0.6, 0.6]), ...legs(LEG.land) }],   // let go, arms out to land
+  ],
+  onehand: [
+    [0.0, { ...one([-0.2, -0.35, 0.9], [-0.1, 0.35, 0.93]), ...legs(LEG.drive) }],
+    [0.18, { ...one([-0.14, 0.95, -0.05], [-0.05, 0.97, -0.2]), ...legs(LEG.tuck) }],
+    [0.33, { ...one([-0.16, 0.86, -0.42], [-0.05, 0.3, -0.95]), ...legs(LEG.tuck) }],
+    [0.4, { ...one([-0.12, 0.5, 0.86], [-0.02, -0.45, 0.9]), ...legs(LEG.tuck) }],
+    [0.46, { ...one([-0.18, 0.9, 0.4], [-0.05, 0.98, 0.18]), ...legs(LEG.land) }],
+    [0.54, { aR: L_([-0.55, -0.35, 0.45], [-0.35, -0.6, 0.6]), aL: L_([0.55, -0.35, 0.45], [0.35, -0.6, 0.6]), ...legs(LEG.land) }],
+  ],
+  tomahawk: [
+    [0.0, { ...one([-0.2, -0.35, 0.9], [-0.1, 0.35, 0.93]), ...legs(LEG.drive) }],
+    [0.14, { ...one([-0.14, 0.95, -0.15], [-0.05, 0.9, -0.42]), ...legs(LEG.tuck) }],
+    [0.3, { ...one([-0.16, 0.62, -0.77], [-0.06, -0.05, -1]), ...legs(LEG.tuck) }],   // way back behind the head
+    [0.4, { ...one([-0.12, 0.42, 0.9], [-0.02, -0.55, 0.83]), ...legs(LEG.tuck) }],   // chopped down through the rim
+    [0.46, { ...one([-0.18, 0.9, 0.4], [-0.05, 0.98, 0.18]), ...legs(LEG.land) }],
+    [0.54, { aR: L_([-0.55, -0.35, 0.45], [-0.35, -0.6, 0.6]), aL: L_([0.55, -0.35, 0.45], [0.35, -0.6, 0.6]), ...legs(LEG.land) }],
+  ],
+  windmill: [
+    [0.0, { ...one([-0.2, -0.35, 0.9], [-0.1, 0.35, 0.93]), ...legs(LEG.drive) }],
+    [0.2, { ...one([-0.25, -0.9, -0.35], [-0.2, -0.8, -0.55]), ...legs(LEG.tuck) }],
+    [0.4, { ...one([-0.12, 0.45, 0.88], [-0.02, -0.5, 0.86]), ...legs(LEG.tuck) }],
+    [0.46, { ...one([-0.18, 0.9, 0.4], [-0.05, 0.98, 0.18]), ...legs(LEG.land) }],
+    [0.54, { aR: L_([-0.55, -0.35, 0.45], [-0.35, -0.6, 0.6]), aL: L_([0.55, -0.35, 0.45], [0.35, -0.6, 0.6]), ...legs(LEG.land) }],
+  ],
+};
+// The alley-oop starts with both hands up, catching the lob
+DUNK_KEYS.alley = [[0.0, { ...both_([0.18, 0.95, 0.3], [0.06, 0.9, 0.42]), ...legs(LEG.drive) }], ...DUNK_KEYS.twohand.slice(1)];
+// How the body leans through a dunk (+ forward): into the gather, back for the cock, snapping forward on the slam
+const DUNK_LEAN = [[0, 0.12], [0.16, -0.05], [0.32, -0.28], [0.4, 0.3], [0.46, 0.05], [0.54, 0]];
+const TOMAHAWK_LEAN = [[0, 0.12], [0.14, -0.1], [0.3, -0.42], [0.4, 0.38], [0.46, 0.05], [0.54, 0]];
+function sampleCurve(keys, t) {
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) if (t < keys[i][0]) { const [t0, a] = keys[i - 1], [t1, b] = keys[i]; const u = (t - t0) / (t1 - t0), s = u * u * (3 - 2 * u); return a + (b - a) * s; }
+  return keys[keys.length - 1][1];
+}
+export function dunkLean(style, t) { return sampleCurve(style === 'tomahawk' ? TOMAHAWK_LEAN : DUNK_LEAN, t); }
+// Smoothly blend the two keyframes around time t (directions are blended and re-normalised)
+const _nv = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+function sampleKeys(keys, t) {
+  let i = 1;
+  while (i < keys.length && t >= keys[i][0]) i++;
+  if (i >= keys.length) return keys[keys.length - 1][1];
+  const [t0, A] = keys[i - 1], [t1, B] = keys[i];
+  const u = Math.max(0, Math.min(1, (t - t0) / (t1 - t0))), s = u * u * (3 - 2 * u);
+  const mix = (a, b) => (a && b ? [_nv(a[0].map((v, n) => v + (b[0][n] - v) * s)), _nv(a[1].map((v, n) => v + (b[1][n] - v) * s))] : (s < 0.5 ? a : b));
+  return { aL: mix(A.aL, B.aL), aR: mix(A.aR, B.aR), lL: mix(A.lL, B.lL), lR: mix(A.lR, B.lR) };
 }
 
 // Which pose each arm/leg should take. Returns { aL, aR, lL, lR } with [upperDir, lowerDir] or null.
@@ -729,22 +811,15 @@ function choosePose(p, state, ctx) {
       out.lR = [[-0.05, -0.45, 0.9], [0, -0.95, -0.3]];                        // knee drive
     }
   } else if (state === 'dunk') {
-    const wind = !ctx.released;
-    if (style === 'twohand' || style === 'alley') {
-      if (wind) both([0.16, 0.95, style === 'alley' ? 0.25 : -0.12], [0.05, 0.85, style === 'alley' ? 0.3 : -0.5]);
-      else both([0.14, 0.5, 0.86], [0.02, -0.3, 0.95]);
-    } else if (style === 'windmill') {
-      // The arm sweeps a full circle before the slam
-      const a = Math.min(1, (ctx.actionT || 0) / 0.38) * Math.PI * 2 - Math.PI * 0.5;
-      out.aR = wind ? [[-0.25, Math.sin(a), Math.cos(a)], [-0.2, Math.sin(a + 0.5), Math.cos(a + 0.5)]] : [[-0.1, 0.5, 0.88], [0, -0.3, 0.95]];
-      out.aL = [[0.8, 0.2, 0.2], [0.55, 0.5, 0.35]];
-    } else {
-      const deep = style === 'tomahawk';
-      out.aR = wind ? [[-0.15, deep ? 0.8 : 0.95, deep ? -0.5 : -0.12], [-0.05, deep ? 0.25 : 0.75, deep ? -0.95 : -0.6]] : [[-0.1, 0.5, 0.88], [0, -0.3, 0.95]];
-      out.aL = [[0.75, 0.25, 0.3], [0.5, 0.55, 0.4]];
+    // Keyframed dunks, timed to the game's dunk (the ball is released at 0.38 s, he lands at about 0.55 s): gather, lift, cock, slam, hang, land
+    const t = ctx.actionT || 0;
+    const k = sampleKeys(DUNK_KEYS[style] || DUNK_KEYS.twohand, t);
+    out.aL = k.aL; out.aR = k.aR; out.lL = k.lL; out.lR = k.lR;
+    if (style === 'windmill' && t > 0.02 && t < 0.38) {
+      // The ball arm travels a full circle: down, back, over the top and through the rim
+      const u = (t - 0.02) / 0.36, a = -Math.PI / 2 - u * (Math.PI * 1.5 + 0.55);
+      out.aR = [[-0.28, Math.sin(a), Math.cos(a)], [-0.2, Math.sin(a - 0.35), Math.cos(a - 0.35)]];
     }
-    out.lL = [[0.1, -0.72, 0.68], [0, -0.75, -0.66]];
-    out.lR = [[-0.1, -0.6, 0.8], [0, -0.8, -0.6]];
   } else if (state === 'dive') {
     both([0.3, 0.1, 0.95], [0.1, 0.15, 1]);                                     // arms stretched out at the ball
     out.lL = [[0.12, -0.5, -0.86], [0.05, -0.3, -0.95]]; out.lR = [[-0.12, -0.5, -0.86], [-0.05, -0.3, -0.95]];   // legs trailing behind
@@ -874,10 +949,10 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   // Lean into sprints, sit into a defensive stance
   const sprintK = Math.min(1, Math.max(0, (speed - 5) / 3.5));
   const runW = player.ov && player.ov.run ? player.ov.run.w : 0;   // the captured run has its own lean
-  const lean = (Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0)) * (1 - 0.75 * runW) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? -0.12 : 0)
+  const lean = (Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0)) * (1 - 0.75 * runW) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? dunkLean(ctx.style, ctx.actionT || 0) : 0)
     + (state === 'steal' ? 0.3 : 0) + (state === 'dive' ? (ctx.actionT < 0.3 ? 0.6 + ctx.actionT * 2.5 : 1.3) : 0)
     + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
-  h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * 8);
+  h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * (state === 'dunk' ? 18 : 8));   // a dunk's lean snaps
   // Life in the body: a bounce on every stride, a shoulder sway, and slow breathing when standing still
   player.life = (player.life || 0) + dt;
   const stride = (state === 'walk' || state === 'run') ? Math.min(1, Math.max(0, (speed - 1.2) / 4.5)) : -1;
@@ -927,7 +1002,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   player.fixY = (player.fixY || 0) + (fixTarget - (player.fixY || 0)) * Math.min(1, dt * 16);
   h.position.y = (player.bobY || 0) - player.fixY;
   if (player.shoes && player.shoes.length) orientShoes(player, true);
-  if (player.ov) recordBallHold(player, ctx);
+  if (player.knuckles) recordBallHold(player, ctx, state);
 }
 
 const _gv = { a: new THREE.Vector3(), b: new THREE.Vector3() };
