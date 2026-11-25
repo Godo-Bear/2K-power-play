@@ -40,7 +40,7 @@ built with Three.js and deployed on Cloudflare Workers.
 - Player switching, Player Lock, and CPU AI with 4 difficulty levels
 
 **Presentation**
-- **Graphics**: Low, Medium, High (smooth edges and glow) and Ultra (renders at 4K and scales down), plus adaptive resolution that holds the frame rate steady
+- **Graphics**: Low, Medium, High (smooth edges and glow) and Ultra (4K). Ultra is the default on computers: the screen is always 4K (the HUD and menus stay sharp) while the 3D picture renders at whatever resolution holds the frame rate, down to about half of 4K, and is sharpened back up to 4K, the way console games do it
 - **Motion-captured run, jump, jump shot and dribble**: running uses a captured run cycle, sped up to match how fast the player is really moving; blocks, rebounds and jump balls use a captured jump (arms reaching at the top, feet kept down); the arms and upper body play real captured motion (a right- and a left-handed dribble kept in time with the ball's bounce, and a jump shot timed to the shot meter, with the ball held in the hands), layered over the procedural legs and moves
 - **Ball handler marker**: a small orange arrow over whoever has the ball (Settings to switch it off)
 - **Performance auto-tuner**: when the frame rate drops, the resolution goes down first, then bloom, then shadows, and they come back when the game is smooth again. **Install app**: on browsers that support it the home screen offers to install the game, and an app-shell cache makes it open instantly

@@ -46,6 +46,10 @@ try {
   Object.assign(settings, savedSettings);
   // Phones start on Medium so they stay smooth; everything else starts on High
   if (!savedSettings.gfx && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) settings.gfx = 'medium';
+  // Computers move up to 4K once (Ultra). Its 3D picture renders at whatever resolution holds the frame rate and is
+  // sharpened up to 4K, so it stays smooth; anyone can still pick another level in Settings afterwards.
+  const phone = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) || (window.matchMedia && matchMedia('(pointer: coarse)').matches);
+  if (!settings.gfx4k) { settings.gfx4k = 1; if (!phone && settings.gfx === 'high' && (navigator.hardwareConcurrency || 4) >= 4) settings.gfx = 'ultra'; }
 } catch { /* ignore */ }
 const saveSettings = () => { try { localStorage.setItem('pph-settings', JSON.stringify(settings)); } catch { /* ignore */ } };
 
@@ -84,7 +88,7 @@ const TIERS = {
   low: { dpr: 1, shadow: false, post: false, msaa: 0, shadowRes: 1024, aniso: 4 },
   medium: { dpr: 1.5, shadow: true, post: false, msaa: 0, shadowRes: 2048, aniso: 8 },
   high: { dpr: 2, shadow: true, post: true, msaa: 4, shadowRes: 2048, aniso: 8 },
-  ultra: { dpr: 3, shadow: true, post: true, msaa: 4, shadowRes: 4096, aniso: 16, fourK: true },
+  ultra: { dpr: 3, shadow: true, post: true, msaa: 2, shadowRes: 4096, aniso: 16, fourK: true },
 };
 let renderScale = 1;           // adaptive resolution: 1 = full quality, lower when the frame rate drops
 // Auto-tuner: when fewer pixels are not enough, effects come off one step at a time (bloom, then shadows, then a lower pixel floor), and come back when there is headroom
@@ -105,8 +109,10 @@ function targetRatio() {
   const maxPixels = T.fourK ? 3840 * 2160 * 1.02 : 2560 * 1440 * 1.1;
   r = Math.min(r, Math.sqrt(maxPixels / (w * h)));
   const floor = tuneLevel >= 3 ? 0.6 : T.fourK ? 1 : 0.75;
-  return Math.max(floor, r * (settings.adaptive ? renderScale : 1));
+  return Math.max(floor, r * (settings.adaptive && !T.fourK ? renderScale : 1));
 }
+// Ultra keeps a 4K canvas and renders the 3D picture at renderScale of that (dynamic resolution), then sharpens it up to 4K
+function sceneRatio() { return renderer.getPixelRatio() * (tier().fourK && settings.adaptive ? renderScale : 1); }
 function applyQuality() {
   const q = TIERS[settings.gfx] ? settings.gfx : 'high';
   Game.lite = q === 'low' || q === 'medium';
@@ -127,7 +133,7 @@ function applyQuality() {
   }
   if (composer) for (const rt of [composer.renderTarget1, composer.renderTarget2]) if (rt.samples !== T.msaa) { rt.samples = T.msaa; rt.dispose(); }
   if (bloomPass) bloomPass.enabled = T.post;
-  if (sharpenPass) sharpenPass.enabled = T.post;
+  if (sharpenPass) sharpenPass.enabled = T.post || !!T.fourK;    // at 4K it also sharpens the upscaled picture
   resize();
 }
 
@@ -169,8 +175,9 @@ function buildWorld(home, away) {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
-  if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
-  gfxStats.w = Math.round(w * renderer.getPixelRatio()); gfxStats.h = Math.round(h * renderer.getPixelRatio());
+  if (composer) { composer.setPixelRatio(sceneRatio()); composer.setSize(w, h); }
+  gfxStats.w = Math.round(w * sceneRatio()); gfxStats.h = Math.round(h * sceneRatio());          // the 3D picture
+  gfxStats.outW = Math.round(w * renderer.getPixelRatio()); gfxStats.outH = Math.round(h * renderer.getPixelRatio());   // the screen
   if (sharpenPass) sharpenPass.uniforms.resolution.value.set(gfxStats.w, gfxStats.h);
   camera.aspect = w / h;
   camera.fov = w / h < 1 ? 62 : w / h < 1.4 ? 50 : 40;
@@ -2429,16 +2436,17 @@ function adaptResolution(dt) {
   if (!settings.adaptive || mode === 'menu' && !attract) return;
   const before = renderScale;
   // Only trade sharpness for speed when the frame rate is really struggling, and never go below 80% (stays crisp)
-  const floorNow = tuneLevel >= 3 ? 0.6 : 0.8;
+  const fourK = !!tier().fourK;
+  const floorNow = fourK ? (tuneLevel >= 3 ? 0.42 : 0.5) : tuneLevel >= 3 ? 0.6 : 0.8;
   if (avg > 1 / 50) renderScale = Math.max(floorNow, renderScale - (avg > 1 / 32 ? 0.12 : 0.06));
   else if (avg < 1 / 58 && renderScale < 1) renderScale = Math.min(1, renderScale + 0.04);
-  if (renderScale !== before) { renderer.setPixelRatio(targetRatio()); resize(); }
+  if (renderScale !== before) { if (!fourK) renderer.setPixelRatio(targetRatio()); resize(); }
   // Still slow with the resolution already at its floor: take an effect off. Smooth for a good while: put one back.
   if (avg > 1 / 48 && renderScale <= floorNow + 1e-6) { tuneSlowT += 1.2; tuneStableT = 0; } else if (avg < 1 / 58) { tuneStableT += 1.2; tuneSlowT = 0; } else { tuneSlowT = 0; }
   if (tuneSlowT >= 2.4 && tuneLevel < 3) { tuneLevel++; tuneSlowT = 0; tuneStableT = 0; applyQuality(); hud.toast('SMOOTHER', `Graphics auto-tuned: ${TUNE_STEPS[tuneLevel]}`, 2.5); }
   else if (tuneStableT >= 30 && tuneLevel > 0) { tuneLevel--; tuneStableT = 0; applyQuality(); }
   const st = $('#gfxInfo');
-  if (st && st.offsetParent) st.textContent = `Rendering ${gfxStats.w}x${gfxStats.h} at ${Math.round(gfxStats.fps)} fps${tuneLevel ? ` (auto-tuned: ${TUNE_STEPS.slice(1, tuneLevel + 1).join(', ')})` : ''}`;
+  if (st && st.offsetParent) st.textContent = `Rendering ${gfxStats.w}x${gfxStats.h}${gfxStats.outW && gfxStats.outW !== gfxStats.w ? `, shown at ${gfxStats.outW}x${gfxStats.outH}` : ''} at ${Math.round(gfxStats.fps)} fps${tuneLevel ? ` (auto-tuned: ${TUNE_STEPS.slice(1, tuneLevel + 1).join(', ')})` : ''}`;
 }
 // People outside the camera's view are neither drawn nor posed. (Their meshes skip three.js culling because skinned
 // meshes get culled wrongly while animated, so this test uses a sphere around each whole body instead.)
@@ -2506,7 +2514,8 @@ function frame() {
   cullPeople();
   // When the auto-tuner has stepped in, the shadows are redrawn every other frame (they move little in 1/60 s)
   if (renderer.shadowMap.enabled) { shadowFrame = (shadowFrame + 1) % 2; renderer.shadowMap.autoUpdate = tuneLevel === 0 || shadowFrame === 0; }
-  if ((TIERS[settings.gfx] || TIERS.high).post) composer.render();
+  const RT = tier();
+  if (RT.post || RT.fourK) composer.render();   // 4K always goes through the composer: it scales the 3D picture up to the 4K screen
   else renderer.render(scene, camera);
   adaptResolution(rawDt);
 }
@@ -2695,7 +2704,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.se
 // Debug handle for testing in the browser console
 window.pph = {
   manual: false, input, Season, portrait, camera, auth, gfxStats, renderer, getContest: () => contest,
-  get game() { return game; }, get tutorial() { return tutorial; }, get session() { return session; }, get intro() { return intro; }, get scene() { return scene; },
+  get game() { return game; }, get tutorial() { return tutorial; }, get session() { return session; }, get intro() { return intro; }, get scene() { return scene; }, get renderScale() { return renderScale; }, get sceneTarget() { return composer ? [composer.renderTarget1.width, composer.renderTarget1.height] : null; },
   watch: (code) => watchGame(code),
   endIntro,
   // Step the game with a fixed input state (used by automated tests)
