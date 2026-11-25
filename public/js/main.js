@@ -152,7 +152,7 @@ function buildWorld(home, away) {
   renderPass = new RenderPass(scene, camera);
   composer.addPass(renderPass);
   // Subtle glow only on genuinely bright things (LED boards, lights, particles), not the whole court
-  bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.18, 0.3, 0.95);
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.18, 0.3, 1.05);   // only things that give off light glow, not a lit white kit
   composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
   // A light unsharp mask after tone mapping: keeps characters and lines crisp (multisampling softens edges slightly)

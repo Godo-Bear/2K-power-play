@@ -290,9 +290,20 @@ function tintModel(model, cfg, fake) {
       const col = rule && (rule[1] === 'hair' ? (cfg.hairMesh ? fake.data.hair : scalpColor(fake.data)) : tintColor(fake, rule[1]));
       if (col && c.color) {
         c.color.set(col);
+        if (['jersey', 'trim', 'shorts', 'shoe'].includes(rule[1])) {
+          // Fabric, not plastic: pure white under the arena lights blew out and glowed, so very bright kit colours are
+          // brought down to a soft fabric white, and kit reflects less of the arena around it
+          // (measured on the colour as you see it, sRGB: #f5f5f5 becomes a soft #dcdcdc)
+          const hsl = {}; c.color.getHSL(hsl, THREE.SRGBColorSpace);
+          if (hsl.l > 0.86) c.color.setHSL(hsl.h, hsl.s, 0.86, THREE.SRGBColorSpace);
+          if ('envMapIntensity' in c) c.envMapIntensity = 0.35;
+          if ('clearcoat' in c) c.clearcoat = 0;
+          if ('sheen' in c) c.sheen = 0;
+          if ('specularIntensity' in c) c.specularIntensity = 0.3;
+        }
         // Kit made from photo textures (a red shirt, say) would stain the team colour: use a flat colour and keep the fabric's normal map
         if (c.map && ['jersey', 'trim', 'shoe', 'shorts'].includes(rule[1]) && cfg.flatColors !== false) c.map = null;
-        if (['jersey', 'trim', 'shorts'].includes(rule[1])) { c.normalMap = null; c.bumpMap = null; c.aoMap = null; c.roughness = 0.82; c.metalness = 0; }   // clean fabric: no baked wrinkles
+        if (['jersey', 'trim', 'shorts'].includes(rule[1])) { c.normalMap = null; c.bumpMap = null; c.aoMap = null; c.roughness = 0.9; c.metalness = 0; }   // clean fabric: no baked wrinkles
       }
       return c;
     });
@@ -311,8 +322,8 @@ function shoeVariant(side, upper, sole) {
   const roleOf = (n) => (n === 'upper' ? 'upper' : n === 'midsole' ? 'midsole' : n === 'trim' ? 'trim' : 'dark');
   const col = {
     upper: new THREE.Color(upper || '#17171c'),
-    midsole: new THREE.Color(sole || '#f2f2f4'),
-    trim: new THREE.Color('#d5d9e0'),
+    midsole: new THREE.Color(sole || '#e2e3e6'),
+    trim: new THREE.Color('#c9cdd4'),
     dark: sole ? new THREE.Color(sole).multiplyScalar(0.28) : new THREE.Color('#2a2b31'),
   };
   const geos = [];
@@ -330,7 +341,8 @@ function shoeVariant(side, upper, sole) {
   const group = new THREE.Group();
   const geo = mergeGeometries(geos, false);
   if (geo) {
-    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.08 }));
+    // Leather and rubber, not glossy plastic: matte enough that the white midsole doesn't shine
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0, envMapIntensity: 0.45 }));
     mesh.castShadow = false; mesh.frustumCulled = false;
     group.add(mesh);
   }
@@ -393,7 +405,7 @@ function attachDecals(holder, model, bones, player, cfg) {
   for (const p of pts) if (Math.abs(p.y - cy) < size * 0.3 && Math.abs(p.x - cx) < size * 0.25) { zF = Math.max(zF, p.z); zB = Math.min(zB, p.z); }
   if (zF < -1e8) return;
   const mk = (back) => {
-    const mat = new THREE.MeshStandardMaterial({ map: decalTexture(player.team, player, back), transparent: true, roughness: 0.7, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const mat = new THREE.MeshStandardMaterial({ map: decalTexture(player.team, player, back), transparent: true, roughness: 0.9, envMapIntensity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
     const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
     m.position.set(cx, cy, back ? zB - 0.004 : zF + 0.004);
     if (back) m.rotation.y = Math.PI;
