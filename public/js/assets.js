@@ -1037,12 +1037,17 @@ export function makeCustomBall(radius) {
   const s = (radius * 2) / Math.max(size.x, size.y, size.z);
   model.position.sub(center).multiplyScalar(s);
   model.scale.multiplyScalar(s);
-  // Make the ball easy to spot: a warm glow on the surface itself
+  // The ball keeps a faint warm tint so it stays easy to spot, but it is matte, not shiny
   model.traverse((o) => {
     if (!o.isMesh) return;
     o.material = (Array.isArray(o.material) ? o.material : [o.material]).map((mt) => {
       const c = mt.clone();
-      if ('emissive' in c) { c.emissive = new THREE.Color(0xff5a10); c.emissiveIntensity = 0.38; }
+      if ('emissive' in c) { c.emissive = new THREE.Color(0xff5a10); c.emissiveIntensity = 0.1; }
+      // Pebbled leather, not a polished ball: matte, and it reflects little of the arena
+      if ('roughness' in c) c.roughness = Math.max(c.roughness ?? 0, 0.82);
+      if ('metalness' in c) c.metalness = 0;
+      if ('envMapIntensity' in c) c.envMapIntensity = 0.4;
+      if ('clearcoat' in c) c.clearcoat = 0;
       return c;
     }).reduce((a, c, _, all) => (all.length === 1 ? c : all), null);
   });

@@ -30,7 +30,7 @@ function makeBallHalo() {
   grad.addColorStop(1, 'rgba(255,90,0,0)');
   g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false }));
-  s.scale.set(0.62, 0.62, 1);
+  s.scale.set(0.5, 0.5, 1);
   s.renderOrder = 4;
   return s;
 }
@@ -120,7 +120,7 @@ export class Game {
 
     // Ball
     this.ball = {
-      mesh: new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 24), new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.65 })),
+      mesh: new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 32, 24), new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.85, metalness: 0, envMapIntensity: 0.4 })),
       pos: v3(), vel: v3(),
       state: 'held', holder: null, lastTouch: null,
       shot: null, pass: null, dribblePhase: 0, lastCos: 1,
@@ -1619,7 +1619,7 @@ export class Game {
     {
       const b = this.ball, held = b.state === 'held';
       // Glow: gentle while dribbled, stronger when the ball is in the air or loose
-      if (b.halo) b.halo.material.opacity += ((held ? 0.3 : 0.62) - b.halo.material.opacity) * Math.min(1, dt * 8);
+      if (b.halo) b.halo.material.opacity += ((held ? 0.06 : 0.22) - b.halo.material.opacity) * Math.min(1, dt * 8);   // a faint glow, mostly while it is in the air
       // Floor ring: sits under the ball, grows and fades as it rises, so the ball's position (and a shot's arc) is easy to read
       if (b.ring) {
         const k = Math.min(1, Math.max(0, b.pos.y - 0.12) / 4);
