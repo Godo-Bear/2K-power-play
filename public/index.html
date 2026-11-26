@@ -98,35 +98,27 @@
       </button>
       <button class="tile career" id="tileCareer">
         <span class="t-portrait" id="tileCareerArt"></span>
-        <span class="t-kicker">Create a player · Earn upgrades</span>
         <span class="t-title">My Career</span>
         <span class="t-sub" id="tileCareerSub"></span>
       </button>
-      <button class="tile online" id="tileOnline">
-        <span class="t-icon">⇄</span>
-        <span class="t-kicker">Play a friend</span>
-        <span class="t-title">Online</span>
-        <span class="t-sub">Host a room or join with a code</span>
-      </button>
-      <button class="tile season" id="tileSeason">
-        <span class="t-icon">🏆</span>
-        <span class="t-kicker"><span class="seasonGames">15</span> games + playoffs</span>
-        <span class="t-title">Season</span>
-        <span class="t-sub" id="tileSeasonSub"></span>
-      </button>
-      <button class="tile practice" id="tilePractice">
-        <span class="t-icon">◎</span>
-        <span class="t-kicker">No clock · Any team size</span>
-        <span class="t-title">Practice</span>
-        <span class="t-sub">Work on your game</span>
-      </button>
-      <button class="tile small" id="tileDraft"><span class="t-title">Draft</span><span class="t-sub" id="tileDraftSub">Build a squad, win four in a row</span></button>
-      <button class="tile small" id="tileContests"><span class="t-title">Contests</span><span class="t-sub">3-point, dunks &amp; street ball</span></button>
-      <button class="tile small" id="tutorialBtn"><span class="t-title">Tutorial</span><span class="t-sub">Learn every move</span></button>
-      <button class="tile small" data-go="controls"><span class="t-title">Controls</span><span class="t-sub">Keys, mouse &amp; pad</span></button>
-      <button class="tile small" data-go="settings"><span class="t-title">Settings</span><span class="t-sub">Graphics &amp; sound</span></button>
+      <button class="tile online" id="tileOnline"><span class="t-icon">⇄</span><span class="t-title">Online</span><span class="t-sub">Play a friend</span></button>
+      <button class="tile season" id="tileSeason"><span class="t-icon">🏆</span><span class="t-title">Season</span><span class="t-sub" id="tileSeasonSub"></span></button>
+      <button class="tile practice" id="tilePractice"><span class="t-icon">◎</span><span class="t-title">Practice</span><span class="t-sub">No clock, any team size</span></button>
+      <button class="tile draft" id="tileDraft"><span class="t-icon">✦</span><span class="t-title">Draft</span><span class="t-sub" id="tileDraftSub">Build a squad, win four in a row</span></button>
+      <button class="tile contests" id="tileContests"><span class="t-icon">★</span><span class="t-title">Contests</span><span class="t-sub">3-point, dunks &amp; street</span></button>
+      <button class="tile tutorial" id="tutorialBtn"><span class="t-icon">?</span><span class="t-title">Tutorial</span><span class="t-sub">Learn every move</span></button>
     </div>
-    <footer class="hub-foot"><span class="tip" id="hubTip"></span><span class="grow"></span><button type="button" id="hubInstall" class="foot-btn" hidden>Install app</button><button type="button" id="hubFriends" class="foot-btn">Friends<i class="dot-badge" id="frDot" hidden></i></button><button type="button" id="hubTrophies" class="foot-btn">Trophy Room<i class="dot-badge" id="trDot" hidden></i></button><button type="button" id="hubMoves" class="foot-btn">Move Guide</button><span><kbd>←</kbd><kbd>→</kbd> Navigate</span><span><kbd>Enter</kbd> Select</span></footer>
+    <footer class="hub-foot">
+      <span class="tip" id="hubTip"></span>
+      <div class="hub-bar" role="group" aria-label="More">
+        <button type="button" id="hubFriends" class="foot-btn">Friends<i class="dot-badge" id="frDot" hidden></i></button>
+        <button type="button" id="hubTrophies" class="foot-btn">Trophies<i class="dot-badge" id="trDot" hidden></i></button>
+        <button type="button" id="hubMoves" class="foot-btn">Move Guide</button>
+        <button type="button" class="foot-btn" data-go="controls">Controls</button>
+        <button type="button" class="foot-btn" data-go="settings">Settings</button>
+        <button type="button" id="hubInstall" class="foot-btn" hidden>Install app</button>
+      </div>
+    </footer>
   </div>
 
   <!-- Career slots -->

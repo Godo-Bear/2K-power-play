@@ -252,7 +252,7 @@ function renderHome() {
   }
   $('#tileCareerArt').innerHTML = art;
   const s = Season.load('season');
-  $('#tileSeasonSub').textContent = s ? `${TEAMS[s.team].name} · ${Season.record(s, s.team)} · Year ${s.year}` : 'Lead a team to the title';
+  $('#tileSeasonSub').textContent = s ? `${TEAMS[s.team].name} · ${Season.record(s, s.team)} · Year ${s.year}` : `${Season.SEASON_GAMES} games + playoffs`;
   $('#hubTip').innerHTML = `<b>TIP</b>${TIPS[tipIdx % TIPS.length]}`;
   $$('.seasonGames').forEach((el) => { el.textContent = Season.SEASON_GAMES; });
 }

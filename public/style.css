@@ -1040,3 +1040,39 @@ button.danger:hover { background: rgba(255,60,60,0.22) !important; }
 .fr-watch { padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(61,255,122,0.5); background: rgba(61,255,122,0.12); color: var(--green); font-weight: 800; font-size: 11px; text-transform: uppercase; }
 .cloud-bak { margin-top: 8px; padding: 10px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--line); max-height: 280px; overflow-y: auto; } .bak-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; } .bak-row small { display: block; color: var(--muted); font-size: 11px; } .bak-row button { padding: 6px 12px; border-radius: 8px; flex: none; }
 #touch .tc[data-tc=flair] { background: rgba(255,214,10,0.16); border-color: rgba(255,214,10,0.6); }
+
+/* ---------- Home hub v3: one clean block of modes and a slim toolbar (overrides the older hub rules above) ---------- */
+#menu .hub-grid { display: grid; grid-template-columns: 1.7fr repeat(4, 1fr); grid-template-rows: repeat(2, minmax(112px, 19vh)); gap: 12px; width: 100%; max-width: 1500px; margin: auto auto 0; padding: 0 clamp(16px, 4vw, 48px); box-sizing: border-box; }
+#menu .hub-grid .tile { grid-column: auto; grid-row: auto; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 4px; padding: 16px 18px; border-radius: 16px; background: linear-gradient(160deg, rgba(18,24,40,0.86), rgba(7,10,18,0.92)); border-color: rgba(255,255,255,0.08); }
+#menu .hub-grid .tile::before { opacity: 0.55; }
+#menu .hub-grid .tile.hero { grid-column: 1; grid-row: 1 / span 2; padding: 22px; border-color: rgba(53,240,255,0.35); background: linear-gradient(160deg, rgba(16,34,60,0.92), rgba(6,9,18,0.95)); }
+#menu .hub-grid .tile.career { grid-column: 2 / span 2; grid-row: 1; padding-right: 38%; }
+#menu .hub-grid .tile.draft { --tg: rgba(60,139,255,0.3); }
+#menu .hub-grid .tile.contests { --tg: rgba(255,90,40,0.3); }
+#menu .hub-grid .tile.tutorial { --tg: rgba(91,43,209,0.4); }
+#menu .hub-grid .tile .t-title { font-size: clamp(17px, 11cqw, 34px); }
+#menu .hub-grid .tile.hero .t-title { font-size: clamp(28px, 10cqw, 72px); }
+#menu .hub-grid .tile.career .t-title { font-size: clamp(20px, 7cqw, 40px); }
+#menu .hub-grid .tile .t-sub { color: #aeb8cc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+#menu .hub-grid .tile.hero .t-sub, #menu .hub-grid .tile.career .t-sub { white-space: normal; }
+#menu .hub-grid .t-icon { font-size: clamp(18px, 1.8vw, 26px); opacity: 0.4; }
+#menu .hub-foot { gap: 16px; flex-wrap: wrap; max-width: 1500px; width: 100%; margin: 0 auto; box-sizing: border-box; padding-top: 12px; }
+#menu .hub-foot .tip { flex: 1 1 260px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#menu .hub-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+#menu .hub-bar .foot-btn { border-color: rgba(255,255,255,0.16); background: rgba(10,14,24,0.7); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); padding: 8px 14px; }
+#menu .hub-bar .foot-btn:hover, #menu .hub-bar .foot-btn:focus-visible { border-color: var(--accent); background: rgba(53,240,255,0.16); outline: none; }
+#menu .hub-bar .foot-btn[hidden] { display: none; }
+@media (max-width: 1000px) {
+  #menu .hub-grid { grid-template-columns: repeat(3, 1fr); grid-template-rows: none; grid-auto-rows: minmax(96px, auto); }
+  #menu .hub-grid .tile.hero { grid-column: 1 / -1; grid-row: auto; min-height: 170px; }
+  #menu .hub-grid .tile.career { grid-column: 1 / -1; grid-row: auto; min-height: 120px; }
+}
+@media (max-width: 640px) {
+  #menu .hub-grid { grid-template-columns: 1fr 1fr; gap: 10px; grid-auto-rows: minmax(84px, auto); margin-top: 12px; }
+  #menu .hub-grid .tile { padding: 12px 14px; }
+  #menu .hub-grid .tile.career { padding-right: 36%; }
+  #menu .hub-foot .tip { display: none; }
+  #menu .hub-bar { justify-content: center; width: 100%; }
+  #menu .hub-bar .foot-btn { padding: 8px 11px; }
+  #menu .hub-live { visibility: hidden; }
+}
