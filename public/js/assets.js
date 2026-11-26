@@ -59,6 +59,15 @@ export async function loadCustomAssets() {
   const jobs = [];
   if (m.ball?.model) jobs.push(attempt('ball model', async () => { custom.ball = { scene: (await loadGLTF(m.ball.model)).scene, cfg: m.ball }; }));
   if (m.ball?.texture) jobs.push(attempt('ball texture', async () => { custom.ballTexture = await loadTex(m.ball.texture); }));
+  // Face textures with different facial hair (the model's own face has a goatee)
+  if (m.player?.faces) jobs.push(attempt('faces', async () => {
+    const out = {};
+    await Promise.all(Object.entries(m.player.faces).map(async ([k, file]) => {
+      const res = await fetch(url(file)); if (!res.ok) throw new Error(`${file}: ${res.status}`);
+      out[k] = await createImageBitmap(await res.blob(), { imageOrientation: 'none' });
+    }));
+    custom.faces = out;
+  }));
   if (m.player?.model) jobs.push(attempt('player model', async () => {
     const g = await loadGLTF(m.player.model);
     custom.player = { scene: g.scene, animations: g.animations, cfg: m.player };
@@ -272,11 +281,96 @@ function attachHair(holder, model, bones, data, cfg = {}) {
   bones.head.attach(hair);
 }
 
+// ---------- Player looks: facial hair, socks, wristbands, an arm sleeve, the jersey's cut ----------
+// Every player gets a look from their name, so it never changes between games: no beard, the model's goatee, or a short beard;
+// crew or low socks in the team's sock colour; wristbands; sometimes a shooting sleeve. They are drawn in the skin and kit
+// shaders from the model's T-pose positions (centimetres), so they cost no extra meshes or draw calls.
+const hashStr = (s) => { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+export function lookOf(data, teamData) {
+  const h = hashStr(`${data.first || ''}|${data.last || ''}|${data.number ?? ''}|${data.skin || ''}|${data.hair || ''}`);
+  const h2 = hashStr(`${h}:look`);
+  const r = (x, k) => ((x >>> k) & 255) / 255;
+  const t = hashStr((teamData && (teamData.id || teamData.name)) || '');
+  const beard = data.beard != null ? data.beard : r(h, 0) < 0.45 ? 0 : r(h, 0) < 0.72 ? 1 : 2;
+  return {
+    beard,
+    socks: r(h, 8) < 0.2 ? 'low' : 'crew',
+    sockStyle: ['white', 'black', 'team'][t % 3],
+    wrist: r(h, 16) < 0.3 ? 2 : r(h, 16) < 0.45 ? 1 : 0,          // 0 none, 1 one wrist, 2 both
+    sleeve: r(h2, 0) < 0.13 ? (r(h2, 8) < 0.5 ? 1 : -1) : 0,       // which arm wears a shooting sleeve
+    sleeveColor: r(h2, 16) < 0.55 ? 'black' : 'white',
+  };
+}
+const faceMaps = new Map();
+function faceMap(orig, variant) {
+  const img = custom.faces && custom.faces[variant];
+  if (!orig || !img) return orig;
+  const key = `${orig.uuid}|${variant}`;
+  if (!faceMaps.has(key)) { const t = orig.clone(); t.image = img; t.source = new THREE.Source(img); t.needsUpdate = true; faceMaps.set(key, t); }
+  return faceMaps.get(key);
+}
+const linColor = (hex) => new THREE.Color(hex);
+const KIT_WHITE = '#e4e5e8', KIT_BLACK = '#1b1c20';
+// part: 'leg' | 'arm' | 'jersey' | 'shorts'
+function addLook(mat, part, look, player) {
+  const team = player.team || {};
+  const sock = look.sockStyle === 'white' ? KIT_WHITE : look.sockStyle === 'black' ? KIT_BLACK : (team.jerseyColor || KIT_WHITE);
+  const trim = team.trimColor || '#35f0ff';
+  const U = {
+    uSock: { value: linColor(sock) }, uSockTop: { value: look.socks === 'low' ? 13.5 : 29 }, uStripe: { value: linColor(trim) }, uStripeOn: { value: look.socks === 'crew' && look.sockStyle !== 'team' ? 1 : 0 },
+    uWrist: { value: linColor(look.sockStyle === 'black' ? KIT_BLACK : look.sockStyle === 'white' ? KIT_WHITE : trim) }, uWristMask: { value: look.wrist },
+    uSleeve: { value: linColor(look.sleeveColor === 'black' ? KIT_BLACK : KIT_WHITE) }, uSleeveSide: { value: look.sleeve },
+    uTrim: { value: linColor(trim) },
+  };
+  const frag = {
+    leg: `
+      float lookCloth = 0.0;
+      if (vBind.y < uSockTop) {
+        float side = vBind.x > 0.0 ? 1.0 : -1.0;
+        float rib = 0.92 + 0.08 * sin(atan(vBind.z, vBind.x - side * 8.0) * 30.0);
+        diffuseColor.rgb = uSock * rib;
+        if (uStripeOn > 0.5 && vBind.y > uSockTop - 4.2 && vBind.y < uSockTop - 2.2) diffuseColor.rgb = uStripe;
+        lookCloth = 1.0;
+      }`,
+    arm: `
+      float lookCloth = 0.0;
+      float ax = abs(vBind.x);
+      bool wristL = vBind.x > 0.0 ? uWristMask > 0.5 : uWristMask > 1.5;
+      if (wristL && ax > 62.0 && ax < 68.5) { diffuseColor.rgb = uWrist * (0.93 + 0.07 * sin(vBind.x * 6.0)); lookCloth = 1.0; }
+      if (uSleeveSide != 0.0 && vBind.x * uSleeveSide > 21.0 && vBind.x * uSleeveSide < 66.5) { diffuseColor.rgb = uSleeve; lookCloth = 1.0; }`,
+    jersey: `
+      float lookCloth = 0.0;
+      float jx = abs(vBind.x);
+      // sleeveless: the sleeves are cut off where the arm starts (the model's shoulder skin ends there, so the jersey
+      // keeps covering it and no seam shows), with a thin trim round each armhole
+      if (jx > 18.2 && vBind.y > 139.5) discard;
+      if (jx > 17.35 && vBind.y > 138.5) diffuseColor.rgb = uTrim;
+      if (vBind.y > 153.6) diffuseColor.rgb = uTrim;                       // and round the neck`,
+    shorts: `
+      float lookCloth = 0.0;
+      if (abs(vBind.x) > 17.2 && vBind.y < 100.0) diffuseColor.rgb = uTrim;   // a side panel down each leg`,
+  }[part];
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader.replace('void main() {', 'varying vec3 vBind;\nvoid main() {').replace('#include <begin_vertex>', '#include <begin_vertex>\n  vBind = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('void main() {', 'varying vec3 vBind;\nuniform vec3 uSock, uStripe, uWrist, uSleeve, uTrim;\nuniform float uSockTop, uStripeOn, uWristMask, uSleeveSide;\nvoid main() {')
+      .replace('#include <map_fragment>', `#include <map_fragment>\n${frag}`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.95, lookCloth);');
+  };
+  mat.customProgramCacheKey = () => `look-${part}`;
+  if (part === 'jersey') mat.side = THREE.DoubleSide;
+}
+
 function tintModel(model, cfg, fake) {
   const tint = { ...(cfg.tint || {}) };
   if (cfg.jerseyMaterial && !Object.keys(tint).length) tint[cfg.jerseyMaterial] = 'jersey';
   const rules = Object.entries(tint).map(([k, v]) => [k.toLowerCase(), v]);
   const style = fake.data.hairStyle ?? 2;
+  const isRef = !!(fake.team && fake.team.data && fake.team.data.id === 'REF');
+  const look = fake.look || lookOf(fake.data, fake.team && fake.team.data);
+  if (isRef) Object.assign(look, { sockStyle: 'black', socks: 'crew', wrist: 0, sleeve: 0 });   // officials: plain black socks, a shirt with sleeves
+  fake.look = look;
   model.traverse((o) => {
     if (!o.isMesh) return;
     o.frustumCulled = false; // skinned meshes can be culled wrongly when animated
@@ -306,7 +400,25 @@ function tintModel(model, cfg, fake) {
         // Kit made from photo textures (a red shirt, say) would stain the team colour: use a flat colour and keep the fabric's normal map
         if (c.map && ['jersey', 'trim', 'shoe', 'shorts'].includes(rule[1]) && cfg.flatColors !== false) c.map = null;
         if (['jersey', 'trim', 'shorts'].includes(rule[1])) { c.normalMap = null; c.bumpMap = null; c.aoMap = null; c.roughness = 0.9; c.metalness = 0; }   // clean fabric: no baked wrinkles
+        // The model's kit is see-through (blended), so it did not hide what is behind it: another player's number showed
+        // through a shirt, and white kit looked thin. Kit is solid cloth
+        if (['jersey', 'trim', 'shorts'].includes(rule[1])) { c.transparent = false; c.depthWrite = true; c.opacity = 1; c.alphaTest = 0; }
+        // Skin: the texture is a light skin, so tinting it by multiplying made darker skin nearly black with no features.
+        // Dividing by the texture's own average colour makes the skin come out as the chosen colour on average, with
+        // the face's shading and detail kept in proportion
+        if (rule[1] === 'skin' && cfg.skinMeans) {
+          const mean = Object.entries(cfg.skinMeans).find(([k]) => (mt.name || '').includes(k));
+          // lighter skin is brought down a little more, so it does not glow white under the arena lights
+          const lum = 0.2126 * c.color.r + 0.7152 * c.color.g + 0.0722 * c.color.b;
+          if (mean) { const g = (cfg.skinGain ?? 0.86) - 0.2 * lum; c.color.setRGB(c.color.r / mean[1][0] * g, c.color.g / mean[1][1] * g, c.color.b / mean[1][2] * g); }
+        }
       }
+      const mn = mt.name || '';
+      if (/Std_Skin_Head/.test(mn) && look.beard !== 1) c.map = faceMap(c.map, look.beard === 0 ? 'clean' : 'beard');
+      if (/Std_Skin_Leg/.test(mn)) addLook(c, 'leg', look, fake);
+      else if (/Std_Skin_Arm/.test(mn)) addLook(c, 'arm', look, fake);
+      else if (rule && rule[1] === 'jersey' && !isRef) addLook(c, 'jersey', look, fake);
+      else if (rule && rule[1] === 'shorts') addLook(c, 'shorts', look, fake);
       return c;
     });
     o.material = mats.length === 1 ? mats[0] : mats;
@@ -1095,10 +1207,10 @@ export function placeCustomCourt(scene) {
 let pRenderer = null, pScene = null, pCam = null;
 const portraitCache = new Map();
 // `yaw` turns the model (degrees) and `zoom` (0 to 1) moves the camera in on the head; both are for previews
-export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim = '#35f0ff', shorts = null, yaw = 0, zoom = 0, body = false, kit = null }) {
+export function portrait({ skin, hair, hairStyle = 1, beard = null, jersey = '#e9edf5', trim = '#35f0ff', shorts = null, yaw = 0, zoom = 0, body = false, kit = null }) {
   const cp = custom.player;
   if (!cp) return null;
-  const key = [skin, hair, hairStyle, jersey, trim, shorts, yaw, zoom, body, kit ? JSON.stringify(kit) : ''].join('|');
+  const key = [skin, hair, hairStyle, beard, jersey, trim, shorts, yaw, zoom, body, kit ? JSON.stringify(kit) : ''].join('|');
   if (portraitCache.has(key)) return portraitCache.get(key);
   try {
     if (!pRenderer) {
@@ -1114,7 +1226,7 @@ export function portrait({ skin, hair, hairStyle = 1, jersey = '#e9edf5', trim =
     let model = SkeletonUtils.clone(cp.scene);
     model.rotation.y = THREE.MathUtils.degToRad(cp.cfg.rotationY || 0);
     fitToHeight(model, 2);
-    const fake = { team: { jerseyColor: jersey, trimColor: trim, shortsColor: shorts, data: { secondary: trim, ...((kit && kit.team) || {}) } }, data: { skin, hair, hairStyle, number: kit ? kit.number : 7, last: kit ? kit.last : 'STAR', shoeUpper: kit ? kit.shoeUpper : null, shoeSole: kit ? kit.shoeSole : null }, index: 1 };
+    const fake = { team: { jerseyColor: jersey, trimColor: trim, shortsColor: shorts, data: { secondary: trim, ...((kit && kit.team) || {}) } }, data: { skin, hair, hairStyle, beard: beard ?? 0, number: kit ? kit.number : 7, last: kit ? kit.last : 'STAR', shoeUpper: kit ? kit.shoeUpper : null, shoeSole: kit ? kit.shoeSole : null }, index: 1 };
     tintModel(model, cp.cfg, fake);
     const pHolder = new THREE.Group();
     pHolder.add(model);

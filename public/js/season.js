@@ -454,7 +454,7 @@ export function tier(ovr) {
   return { name: 'Bronze', cls: 'bronze' };
 }
 
-export function newCareerPlayer({ first, last, pos, number, archetype, skin, hair, hairStyle }) {
+export function newCareerPlayer({ first, last, pos, number, archetype, skin, hair, hairStyle, beard = 0 }) {
   const ratings = {};
   for (const [k] of ATTRS) ratings[k] = 60;
   // Position shapes the base, archetype adds the specialty
@@ -463,7 +463,7 @@ export function newCareerPlayer({ first, last, pos, number, archetype, skin, hai
   for (const [k, v] of Object.entries(ARCHETYPES[archetype].boost)) ratings[k] += v;
   for (const k of Object.keys(ratings)) ratings[k] = Math.max(40, Math.min(99, ratings[k]));
   return {
-    first, last, pos, number, archetype, skin, hair, hairStyle,
+    first, last, pos, number, archetype, skin, hair, hairStyle, beard,
     height: POS_HEIGHT[pos], ratings, rp: 30, earned: 0, games: 0, upgrades: 0,
     totals: { pts: 0, reb: 0, ast: 0, stl: 0, blk: 0 }, best: { pts: 0 }, titles: 0, log: [],
   };
@@ -474,7 +474,7 @@ export function careerTeamData(s) {
   const base = scaledTeam(s.team, s.year, 0.5);
   const c = s.career;
   const me = {
-    first: c.first, last: c.last, pos: POS[c.pos], number: c.number, height: c.height, skin: c.skin, hair: c.hair, hairStyle: c.hairStyle,
+    first: c.first, last: c.last, pos: POS[c.pos], number: c.number, height: c.height, skin: c.skin, hair: c.hair, hairStyle: c.hairStyle, beard: c.beard ?? 0,
     headband: false, sleeve: true, ratings: effectiveRatings(c), styles: [c.archetype, ...extraStyles(c)], ovr: careerOvr(c), isMe: true,
   };
   const sp = sponsorOf(c);

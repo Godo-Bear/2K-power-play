@@ -251,7 +251,7 @@ function renderHome() {
   let art = '';
   if (c) {
     const t = TEAMS[c.team];
-    const img = portrait({ skin: c.career.skin, hair: c.career.hair, hairStyle: c.career.hairStyle, jersey: t.primary, trim: t.accent });
+    const img = portrait({ skin: c.career.skin, hair: c.career.hair, hairStyle: c.career.hairStyle, beard: c.career.beard, jersey: t.primary, trim: t.accent });
     art = `${img ? `<img src="${img}" alt="">` : ''}<span class="ovr">${Season.careerOvr(c.career)}</span>`;
   }
   $('#tileCareerArt').innerHTML = art;
@@ -310,7 +310,7 @@ function continueTarget() {
     const opp = TEAMS[ng.h === s.team ? ng.a : ng.h], home = ng.h === s.team;
     const title = kind === 'career' ? `${s.career.first} ${s.career.last}` : `${TEAMS[s.team].city} ${TEAMS[s.team].name}`;
     let art = crest(TEAMS[s.team]);
-    if (kind === 'career') { const t = TEAMS[s.team]; const img = portrait({ skin: s.career.skin, hair: s.career.hair, hairStyle: s.career.hairStyle, jersey: t.primary, trim: t.accent }); if (img) art = `<img src="${img}" alt="">`; }
+    if (kind === 'career') { const t = TEAMS[s.team]; const img = portrait({ skin: s.career.skin, hair: s.career.hair, hairStyle: s.career.hairStyle, beard: s.career.beard, jersey: t.primary, trim: t.accent }); if (img) art = `<img src="${img}" alt="">`; }
     return { kind, slot, title: `${kind === 'career' ? 'Career' : 'Season'} · ${title}`, sub: `Year ${s.year} · ${ng.stage.replace(/ · .*/, '')} · ${home ? 'vs' : 'at'} ${opp.city} ${opp.name}`, art };
   };
   if (last && (last.kind === 'career' || last.kind === 'season')) { const r = tryHub(last.kind, last.slot || 1); if (r) return r; }
@@ -346,7 +346,7 @@ function profileFace() {
   const c = careers[0];
   if (c) {
     const t = TEAMS[c.team];
-    const img = portrait({ skin: c.career.skin, hair: c.career.hair, hairStyle: c.career.hairStyle, jersey: t.primary, trim: t.accent });
+    const img = portrait({ skin: c.career.skin, hair: c.career.hair, hairStyle: c.career.hairStyle, beard: c.career.beard, jersey: t.primary, trim: t.accent });
     if (img) return `<img src="${img}" alt="">`;
   }
   const n = (auth.user && !auth.offline ? auth.user : 'P').charAt(0).toUpperCase();
@@ -2032,14 +2032,15 @@ let snTeam = 0;
 let pendingCareer = null;
 const SKINS = ['#ffdbac', '#f1c27d', '#e0ac69', '#c68642', '#a0673a', '#8d5524', '#5c3a1e', '#3d2716'];
 const HAIRS = ['#111111', '#2b1b10', '#5a3a1a', '#8a6a3a', '#c9a26b', '#b23a2e', '#e8e8e8'];
-const create = { arch: 'sharpshooter', skin: SKINS[3], hair: HAIRS[0], hairStyle: 1 };
+const create = { arch: 'sharpshooter', skin: SKINS[3], hair: HAIRS[0], hairStyle: 1, beard: 0 };
+const BEARDS = ['Clean shaven', 'Goatee', 'Beard'];
 
 function cardHTML(c, teamIdx) {
   const ovr = Season.careerOvr(c), t = Season.tier(ovr);
   const r = c.ratings;
   const team = teamIdx != null ? TEAMS[teamIdx] : null;
   // Portrait rendered from the 3D player model (falls back to a simple drawn face)
-  const img = portrait({ skin: c.skin, hair: c.hair, hairStyle: c.hairStyle, jersey: team ? team.primary : '#e9edf5', trim: team ? team.accent : '#35f0ff' });
+  const img = portrait({ skin: c.skin, hair: c.hair, hairStyle: c.hairStyle, beard: c.beard, jersey: team ? team.primary : '#e9edf5', trim: team ? team.accent : '#35f0ff' });
   const face = img
     ? `<div class="face3d" data-num="#${c.number}"><img src="${img}" alt=""></div>`
     : `<div class="face" data-num="#${c.number}" style="--skin:${c.skin};--hair:${c.hair};--hairShow:${c.hairStyle === 0 ? 'none' : 'block'}"></div>`;
@@ -2087,7 +2088,7 @@ $('#snStart').addEventListener('click', () => {
 
 function openCareerCreate() {
   const preview = () => {
-    const c = Season.newCareerPlayer({ first: $('#cnFirst').value.trim(), last: $('#cnLast').value.trim(), pos: Number($('#cnPos').value), number: Math.max(0, Math.min(99, Number($('#cnNum').value) || 0)), archetype: create.arch, skin: create.skin, hair: create.hair, hairStyle: create.hairStyle });
+    const c = Season.newCareerPlayer({ first: $('#cnFirst').value.trim(), last: $('#cnLast').value.trim(), pos: Number($('#cnPos').value), number: Math.max(0, Math.min(99, Number($('#cnNum').value) || 0)), archetype: create.arch, skin: create.skin, hair: create.hair, hairStyle: create.hairStyle, beard: create.beard });
     // Stable preview numbers: use archetype base without the random spread
     $('#cnCard').innerHTML = cardHTML(c);
     return c;
@@ -2111,6 +2112,8 @@ function openCareerCreate() {
     $$('#cnSkin button').forEach((b) => b.addEventListener('click', () => { create.skin = b.dataset.c; chips(); }));
     $$('#cnHair button').forEach((b) => b.addEventListener('click', () => { create.hair = b.dataset.c; chips(); }));
     $$('#cnHairStyle button').forEach((b) => b.addEventListener('click', () => { create.hairStyle = Number(b.dataset.i); chips(); }));
+    $('#cnBeard').innerHTML = BEARDS.map((n, i) => `<button class="${i === create.beard ? 'on' : ''}" data-i="${i}">${n}</button>`).join('');
+    $$('#cnBeard button').forEach((b) => b.addEventListener('click', () => { create.beard = Number(b.dataset.i); chips(); }));
     preview();
   };
   for (const id of ['#cnFirst', '#cnLast', '#cnNum']) $(id).oninput = preview;

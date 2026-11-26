@@ -24,7 +24,39 @@
       "dribbleLeft": "anims/dribble-left.json",
       "dribbleRight": "anims/dribble-right.json"
     },
-    "hairStyles": "models/hair-styles.glb"
+    "hairStyles": "models/hair-styles.glb",
+    "faces": {
+      "clean": "textures/face-clean.webp",
+      "beard": "textures/face-beard.webp"
+    },
+    "skinMeans": {
+      "Std_Skin_Head": [
+        0.4598,
+        0.2867,
+        0.2279
+      ],
+      "Std_Skin_Body": [
+        0.4735,
+        0.3023,
+        0.2395
+      ],
+      "Std_Skin_Arm": [
+        0.4538,
+        0.2927,
+        0.2281
+      ],
+      "Std_Skin_Leg": [
+        0.4528,
+        0.2749,
+        0.2133
+      ],
+      "Std_Nails": [
+        0.6915,
+        0.4381,
+        0.3869
+      ]
+    },
+    "skinGain": 0.88
   },
   "ball": {
     "model": "models/basketball.glb",
