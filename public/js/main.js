@@ -15,7 +15,7 @@ import { Game } from './game.js';
 import { applyTouchPreset } from './input.js';
 import { input, pollInput, setupTouch, tapAction, ACTIONS, bindings, setKey, setPad, resetBindings, keyName, padName, firstGamepad, touchLayout, saveTouchLayout, resetTouchLayout, applyTouchLayout } from './input.js';
 import { initAudio, setMuted, setQuiet, sfx, startMusic, stopMusic, audioReady } from './audio.js';
-import { loadCustomAssets, custom, portrait } from './assets.js';
+import { loadCustomAssets, custom, portrait, cosmetics } from './assets.js';
 import { Tutorial } from './tutorial.js';
 import { FX } from './fx.js';
 import { HAIR_STYLES } from './hair.js';
@@ -24,6 +24,8 @@ import { attachCrowd } from './crowd.js';
 import { attachLowerThirds, stopLowerThirds } from './lowerthirds.js';
 import { MoveLab, MOVES as LAB_MOVES, GROUPS as LAB_GROUPS } from './movelab.js';
 import * as Draft from './draft.js';
+import * as Pass from './pass.js';
+import * as Moments from './moments.js';
 import { gameStory, quarterStory, pickReel } from './highlights.js';
 import { initFriends, openFriends, friendsBadge } from './friends.js';
 import { newDay, attachTrophies, renderTrophies, claimDaily, payOut, hasUnclaimed } from './trophies.js';
@@ -236,9 +238,11 @@ function allCareers() {
   return out;
 }
 function renderHome() {
-  const h = TEAMS[settings.home], a = TEAMS[settings.away];
-  $('#tilePlaySub').textContent = `${a.city} ${a.name} at ${h.city} ${h.name}`;
-  $('#tilePlayArt').innerHTML = `${crest(a)}<span class="vs">VS</span>${crest(h)}`;
+  renderQuickMatch();
+  renderContinue();
+  renderProfile();
+  renderMomentsTile();
+  refreshFriendsHome();
   const careers = allCareers().sort((x, y) => Season.careerOvr(y.career) - Season.careerOvr(x.career));
   const c = careers[0];
   $('#tileCareerSub').textContent = c
@@ -257,6 +261,355 @@ function renderHome() {
   $$('.seasonGames').forEach((el) => { el.textContent = Season.SEASON_GAMES; });
 }
 setInterval(() => { if (mode === 'menu' && shown() && shown().id === 'menu') { tipIdx++; $('#hubTip').innerHTML = `<b>TIP</b>${TIPS[tipIdx % TIPS.length]}`; } }, 7000);
+
+// ---------- Home: quick match picker ----------
+function renderQuickMatch(anim) {
+  const sides = ['away', 'home'];
+  for (const side of sides) {
+    const t = TEAMS[settings[side]], box = $(`#qm .qm-team[data-side=${side}]`);
+    const c = box.querySelector('.qm-crest');
+    c.innerHTML = `${crest(t)}${settings.side === side ? '<em class="qm-you">YOU</em>' : ''}`;
+    c.style.setProperty('--tc', t.primary);
+    box.querySelector('.qm-name').innerHTML = `${esc(t.name)} <small>${t.ovr}</small>`;
+    if (anim && anim.side === side) { c.classList.remove('swap-l', 'swap-r'); void c.offsetWidth; c.classList.add(anim.d < 0 ? 'swap-l' : 'swap-r'); }
+  }
+  const a = TEAMS[settings.away], h = TEAMS[settings.home];
+  $('#tilePlaySub').textContent = `${a.city} ${a.name} at ${h.city} ${h.name}`;
+  const hero = $('#tileHero');
+  hero.style.setProperty('--ca', a.primary); hero.style.setProperty('--ch', h.primary);
+}
+function stepTeam(side, d) {
+  let v = settings[side];
+  do { v = (v + d + TEAMS.length) % TEAMS.length; } while (v === settings[side === 'home' ? 'away' : 'home']);
+  settings[side] = v; saveSettings();
+  sfx.menu(); renderQuickMatch({ side, d });
+}
+$$('#qm .qm-team').forEach((box) => {
+  const side = box.dataset.side;
+  box.querySelectorAll('.qm-arrow').forEach((b) => b.addEventListener('click', () => { initAudio(); stepTeam(side, Number(b.dataset.d)); }));
+  box.querySelector('.qm-crest').addEventListener('click', () => { initAudio(); sfx.menu(); settings.side = side; saveSettings(); renderQuickMatch(); });
+});
+$('#heroTip').addEventListener('click', () => $('#startBtn').click());
+$('#heroRandom').addEventListener('click', () => {
+  initAudio();
+  const a = Math.floor(Math.random() * TEAMS.length);
+  let h = Math.floor(Math.random() * (TEAMS.length - 1)); if (h >= a) h++;
+  settings.away = a; settings.home = h; saveSettings(); sfx.menu();
+  renderQuickMatch({ side: 'away', d: 1 }); renderQuickMatch({ side: 'home', d: -1 });
+});
+
+// ---------- Home: continue where you left off ----------
+const LAST = 'pph-last';
+function rememberLast(kind, slot = 1) { try { localStorage.setItem(LAST, JSON.stringify({ kind, slot, t: Date.now() })); } catch { /* ignore */ } }
+function continueTarget() {
+  let last = null; try { last = JSON.parse(localStorage.getItem(LAST) || 'null'); } catch { last = null; }
+  const tryHub = (kind, slot) => {
+    const s = Season.load(kind, slot);
+    const ng = s && Season.nextGame(s);
+    if (!ng) return null;
+    const opp = TEAMS[ng.h === s.team ? ng.a : ng.h], home = ng.h === s.team;
+    const title = kind === 'career' ? `${s.career.first} ${s.career.last}` : `${TEAMS[s.team].city} ${TEAMS[s.team].name}`;
+    let art = crest(TEAMS[s.team]);
+    if (kind === 'career') { const t = TEAMS[s.team]; const img = portrait({ skin: s.career.skin, hair: s.career.hair, hairStyle: s.career.hairStyle, jersey: t.primary, trim: t.accent }); if (img) art = `<img src="${img}" alt="">`; }
+    return { kind, slot, title: `${kind === 'career' ? 'Career' : 'Season'} · ${title}`, sub: `Year ${s.year} · ${ng.stage.replace(/ · .*/, '')} · ${home ? 'vs' : 'at'} ${opp.city} ${opp.name}`, art };
+  };
+  if (last && (last.kind === 'career' || last.kind === 'season')) { const r = tryHub(last.kind, last.slot || 1); if (r) return r; }
+  if (last && last.kind === 'draft') {
+    const d = Draft.loadDraft();
+    if (d && !d.done) return { kind: 'draft', title: 'Draft run', sub: d.slot < Draft.SLOTS.length ? `Drafting · pick ${d.slot + 1} of ${Draft.SLOTS.length}` : `${d.run.wins} win${d.run.wins === 1 ? '' : 's'} so far · next game ${d.run.wins + 1}`, art: '<span class="hc-ico">✦</span>' };
+  }
+  // nothing recent: the best career, then a season in progress
+  const careers = allCareers().sort((x, y) => (y.updated || 0) - (x.updated || 0));
+  for (const c of careers) { const r = tryHub('career', c.slot || 1); if (r) return r; }
+  return tryHub('season', 1);
+}
+let contTarget = null;
+function renderContinue() {
+  contTarget = continueTarget();
+  const b = $('#heroContinue');
+  b.hidden = !contTarget;
+  if (!contTarget) return;
+  $('#hcTitle').textContent = contTarget.title; $('#hcSub').textContent = contTarget.sub; $('#hcArt').innerHTML = contTarget.art;
+}
+$('#heroContinue').addEventListener('click', () => {
+  const c = contTarget; if (!c) return;
+  initAudio(); musicMaybe();
+  if (c.kind === 'draft') { sfx.select(); renderDraft(); show('draft'); return; }
+  openHub(c.kind, c.slot);
+  // straight into the next game, unless the hub has something to show first (a title, a new season)
+  if (shown() && shown().id === 'hub' && session.save && Season.nextGame(session.save)) playHubGame();
+});
+
+// ---------- Home: profile badge and the Power Pass ----------
+function profileFace() {
+  const careers = allCareers().sort((x, y) => Season.careerOvr(y.career) - Season.careerOvr(x.career));
+  const c = careers[0];
+  if (c) {
+    const t = TEAMS[c.team];
+    const img = portrait({ skin: c.career.skin, hair: c.career.hair, hairStyle: c.career.hairStyle, jersey: t.primary, trim: t.accent });
+    if (img) return `<img src="${img}" alt="">`;
+  }
+  const n = (auth.user && !auth.offline ? auth.user : 'P').charAt(0).toUpperCase();
+  return `<span class="mono">${esc(n)}</span>`;
+}
+const fmt = (n) => Number(n || 0).toLocaleString();
+function syncCosmetics() { const c = Pass.SHOES[Pass.equipped().shoes]; cosmetics.shoes = c && c.c ? c.c : null; }
+syncCosmetics();
+function renderProfile(animate = true) {
+  syncCosmetics();
+  const s = Pass.load(), L = Pass.levelOf(s.xp);
+  const fr = Pass.FRAMES[s.eq.frame] || Pass.FRAMES.basic;
+  const av = $('#profAv');
+  av.style.setProperty('--frame', fr.css); av.classList.toggle('anim', !!fr.anim);
+  $('#profFace').innerHTML = profileFace();
+  $('#profLv').textContent = L.level;
+  $('#profName').textContent = auth.user && !auth.offline ? auth.user : 'Guest';
+  $('#profTitle').textContent = Pass.TITLES[s.eq.title] || 'Rookie';
+  // the coins count up and the ring fills from what you last saw on this screen
+  const seen = Pass.levelOf(Math.min(s.seenXp || 0, s.xp));
+  const ring = $('#profRing');
+  const startFrac = animate && seen.level === L.level ? seen.frac : animate ? 0 : L.frac;
+  ring.style.transition = 'none'; ring.style.strokeDashoffset = String(100 - startFrac * 100);
+  void ring.getBoundingClientRect();
+  ring.style.transition = ''; ring.style.strokeDashoffset = String(100 - L.frac * 100);
+  countUp($('#profCoins'), s.coins);
+  // the pass strip
+  $('#psLv').textContent = L.level;
+  $('#psXp').textContent = L.need ? `${fmt(L.into)} / ${fmt(L.need)} XP` : 'Max level';
+  const fill = $('#psFill');
+  fill.style.transition = 'none'; fill.style.width = `${startFrac * 100}%`; void fill.offsetWidth;
+  fill.style.transition = ''; fill.style.width = `${L.frac * 100}%`;
+  let next = null;
+  for (let l = L.level + 1; l <= Pass.MAX_LEVEL; l++) if (Pass.TRACK[l] && !Pass.unlocked(s, l)) { next = { level: l, ...Pass.TRACK[l] }; break; }
+  $('#psNext').textContent = next ? `Lv ${next.level} · ${Pass.rewardName(next)}` : 'Everything unlocked';
+  $('#psIco').innerHTML = next ? rewardArt(next) : '🏆';
+  if (s.xp !== s.seenXp && $('#menu').classList.contains('show')) setTimeout(() => Pass.markSeen(), 1400);
+}
+function countUp(el, to) {
+  const from = Number(el.dataset.v || 0);
+  el.dataset.v = String(to);
+  if (from === to || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { el.textContent = fmt(to); return; }
+  const t0 = performance.now(), dur = 900;
+  const tick = () => { const u = Math.min(1, (performance.now() - t0) / dur), e = 1 - Math.pow(1 - u, 3); el.textContent = fmt(Math.round(from + (to - from) * e)); if (u < 1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+}
+// A little picture of a reward
+function rewardArt(r) {
+  if (r.type === 'ball') { const b = Pass.BALLS[r.id]; return `<i class="rw-ball" style="--bt:${b.tint || '#ee7a24'};--bg:${b.glowColor || 'transparent'}"></i>`; }
+  if (r.type === 'shoes') { const c = Pass.SHOES[r.id].c || ['#f4f4f4', '#222']; return `<i class="rw-shoe" style="--u:${c[0]};--s:${c[1]}"></i>`; }
+  if (r.type === 'frame') { const f = Pass.FRAMES[r.id]; return `<i class="rw-frame${f.anim ? ' anim' : ''}" style="--frame:${f.css}"></i>`; }
+  if (r.type === 'title') return '<i class="rw-title">“ ”</i>';
+  return '<i class="coin big"></i>';
+}
+
+function renderPassScreen() {
+  const s = Pass.load(), L = Pass.levelOf(s.xp);
+  const fr = Pass.FRAMES[s.eq.frame] || Pass.FRAMES.basic;
+  $('#passCard').innerHTML = `<div class="pc-av${fr.anim ? ' anim' : ''}" style="--frame:${fr.css}">${profileFace()}</div><b>${esc(auth.user && !auth.offline ? auth.user : 'Guest')}</b><small>${esc(Pass.TITLES[s.eq.title] || 'Rookie')}</small><div class="pc-stats"><span><b>${L.level}</b>Level</span><span><b>${fmt(s.coins)}</b>Coins</span><span><b>${fmt(s.games || 0)}</b>Games</span></div>`;
+  $('#passLvText').textContent = `Level ${L.level}`;
+  $('#passXpText').textContent = L.need ? `${fmt(L.into)} / ${fmt(L.need)} XP to level ${L.level + 1}` : 'Max level reached';
+  $('#passFill').style.width = `${L.frac * 100}%`;
+  let cards = '';
+  for (let l = 2; l <= Pass.MAX_LEVEL; l++) {
+    const r = Pass.TRACK[l]; if (!r) continue;
+    const got = Pass.unlocked(s, l), cur = l === L.level + 1;
+    const price = Pass.priceOf(l);
+    cards += `<div class="pt-card${got ? ' got' : ''}${cur ? ' cur' : ''}" data-l="${l}" style="--i:${l}"><span class="pt-lv">${l}</span><span class="pt-art">${rewardArt(r)}</span><b>${esc(Pass.rewardName(r))}</b>${r.title ? `<small>+ “${esc(Pass.TITLES[r.title])}” title</small>` : ''}
+      ${got ? '<em class="pt-got">✓ Unlocked</em>' : `<button type="button" class="pt-buy" data-buy="${l}" ${s.coins < price ? 'disabled' : ''}><i class="coin"></i>${fmt(price)}</button>`}</div>`;
+  }
+  const track = $('#passTrack');
+  track.innerHTML = cards;
+  const cur = track.querySelector('.pt-card.cur') || track.querySelector('.pt-card:not(.got)');
+  if (cur) requestAnimationFrame(() => { track.scrollLeft = Math.max(0, cur.offsetLeft - track.clientWidth / 2 + cur.clientWidth / 2); });
+  // locker
+  const group = (type, label, items, art) => `<div class="lk-row"><h4>${label}</h4><div class="lk-items">${items.map(([id, name]) => {
+    const own = Pass.owns(s, type, id), on = s.eq[type] === id;
+    return `<button type="button" class="lk-item${on ? ' on' : ''}" data-eq="${type}" data-id="${id}" ${own ? '' : 'disabled'} title="${own ? name : `${name} (locked)`}">${art(id)}<span>${esc(name)}</span>${own ? '' : '<i class="lk-lock">🔒</i>'}</button>`;
+  }).join('')}</div></div>`;
+  $('#locker').innerHTML =
+    group('ball', 'Ball', Object.entries(Pass.BALLS).map(([k, v]) => [k, v.name]), (id) => rewardArt({ type: 'ball', id })) +
+    group('shoes', 'Shoes (your team)', Object.entries(Pass.SHOES).map(([k, v]) => [k, v.name]), (id) => rewardArt({ type: 'shoes', id })) +
+    group('frame', 'Card frame', Object.entries(Pass.FRAMES).map(([k, v]) => [k, v.name]), (id) => rewardArt({ type: 'frame', id })) +
+    group('title', 'Title', Object.entries(Pass.TITLES).map(([k, v]) => [k, v]), () => '');
+}
+function openPass() { initAudio(); sfx.menu(); renderPassScreen(); show('passScreen'); }
+$('#hubProfile').addEventListener('click', openPass);
+$('#tilePass').addEventListener('click', openPass);
+$('#passTrack').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-buy]'); if (!b) return;
+  const l = Number(b.dataset.buy), r = Pass.TRACK[l];
+  if (!confirm(`Unlock the ${Pass.rewardName(r)} now for ${Pass.priceOf(l)} coins?`)) return;
+  const res = Pass.buy(l);
+  if (!res.ok) { hud.toast('NOT ENOUGH COINS', res.short ? `${res.short} more needed` : '', 2); return; }
+  sfx.levelUp(); renderPassScreen(); renderProfile(false);
+  showLevelUp(null, [res.reward]);
+});
+$('#locker').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-eq]'); if (!b || b.disabled) return;
+  if (Pass.equip(b.dataset.eq, b.dataset.id)) { sfx.select(); renderPassScreen(); renderProfile(false); }
+});
+
+// The level-up card reveal (also used when a reward is bought)
+function showLevelUp(level, rewards) {
+  const box = $('#lvlUp');
+  $('#lvlNum').textContent = level ? String(level) : '★';
+  box.querySelector('.lvl-in > small').textContent = level ? 'Level up' : 'Unlocked';
+  $('#lvlCards').innerHTML = rewards.map((r, i) => `<div class="lvl-card" style="--d:${0.35 + i * 0.18}s"><div class="lvl-flip"><div class="lvl-back">?</div><div class="lvl-front">${rewardArt(r)}<b>${esc(Pass.rewardName(r))}</b>${r.title ? `<small>+ “${esc(Pass.TITLES[r.title])}” title</small>` : ''}</div></div></div>`).join('') || '<p class="hint">Keep going: the next reward is close.</p>';
+  const conf = $('#confetti');
+  const cols = ['#35f0ff', '#ff2e88', '#ffd60a', '#3dff7a', '#ffffff', '#7a5bff'];
+  conf.innerHTML = Array.from({ length: 70 }, (_, i) => `<i style="--x:${Math.random() * 100}vw;--r:${Math.random() * 720 - 360}deg;--t:${1.6 + Math.random() * 1.6}s;--dl:${Math.random() * 0.5}s;background:${cols[i % cols.length]}"></i>`).join('');
+  box.hidden = false; box.classList.remove('show'); void box.offsetWidth; box.classList.add('show');
+  $('#lvlOk').focus();
+}
+function hideLevelUp() { const box = $('#lvlUp'); box.classList.remove('show'); setTimeout(() => { box.hidden = true; $('#confetti').innerHTML = ''; }, 250); }
+$('#lvlOk').addEventListener('click', () => { sfx.menu(); hideLevelUp(); });
+$('#lvlLocker').addEventListener('click', () => { hideLevelUp(); if (mode === 'menu' || mode === 'over') { renderPassScreen(); show('passScreen'); } });
+
+// XP for a finished game, shown on the results screen
+function awardPass(g, winner) {
+  if (g.opts.attract || g.opts.tutorial || g.opts.practice || g.passAwarded || (online && online.role === 'watch')) return '';
+  g.passAwarded = true;
+  const big = (g.reel || []).filter((e) => e.teamObj && e.teamObj.isUser && e.score >= 6).length;
+  const res = Pass.awardGame({ won: winner === g.user, pts: g.user.score, mode: session.kind, big, ranked: !!(online && online.ranked) });
+  const rows = res.parts.map(([k, v]) => `<li><span>${esc(k)}</span><b>+${v}</b></li>`).join('');
+  const lv = res.after.level, up = lv > res.before.level;
+  g.passResult = res;
+  return `<div class="xpcard" data-from="${res.before.frac}" data-to="${res.after.frac}" data-ups="${lv - res.before.level}">
+    <div class="xp-top"><b class="xp-lv">Lv <span>${res.before.level}</span></b><span class="xp-bar"><i></i></span><b class="xp-gain">+${res.xp} XP</b></div>
+    <ul class="xp-parts">${rows}<li class="coins"><span>Coins</span><b><i class="coin"></i>+${res.coins + res.levelCoins}</b></li></ul>${up ? `<div class="xp-up">LEVEL ${lv}!</div>` : ''}</div>`;
+}
+// Animates the XP bar on the results screen, through any level-ups, then shows the rewards
+function playXpCard(g) {
+  const card = $('#overExtras .xpcard'), res = g.passResult;
+  if (!card || !res) return;
+  const bar = card.querySelector('.xp-bar i'), lvEl = card.querySelector('.xp-lv span');
+  let ups = Number(card.dataset.ups), lv = res.before.level;
+  bar.style.transition = 'none'; bar.style.width = `${res.before.frac * 100}%`; void bar.offsetWidth;
+  const step = () => {
+    bar.style.transition = 'width .9s cubic-bezier(.3,.8,.3,1)';
+    if (ups > 0) {
+      bar.style.width = '100%';
+      setTimeout(() => { ups--; lv++; lvEl.textContent = lv; card.classList.remove('pop'); void card.offsetWidth; card.classList.add('pop'); sfx.levelUp(); bar.style.transition = 'none'; bar.style.width = '0%'; void bar.offsetWidth; step(); }, 950);
+    } else {
+      bar.style.width = `${res.after.frac * 100}%`;
+      if (res.rewards.length) setTimeout(() => { if (mode === 'over') showLevelUp(res.after.level, res.rewards); }, 1100);
+    }
+  };
+  setTimeout(step, 500);
+}
+
+// ---------- Home: best moments ----------
+function renderMomentsTile() {
+  const m = Moments.list()[0];
+  const img = $('#moImg');
+  img.style.backgroundImage = m ? `url(${m.img})` : '';
+  $('#tileMoments').classList.toggle('has', !!m);
+  $('#moSub').textContent = m ? `${m.icon} ${m.head.charAt(0)}${m.head.slice(1).toLowerCase()}` : 'Your best plays land here';
+}
+const MODE_NAME = { quick: 'Exhibition', career: 'Career', season: 'Season', draft: 'Draft', online: 'Online', street: 'Street' };
+function renderMomentsScreen() {
+  const l = Moments.list();
+  $('#moGrid').innerHTML = l.length ? l.map((m, i) => `<button type="button" class="mo-card" data-id="${m.id}" style="--i:${i};--tc:${m.color}"><span class="mo-pic" style="background-image:url(${m.img})"></span><span class="mo-cap"><b>${m.icon} ${esc(m.head)}</b><small>${esc(m.text)}</small><em>${esc(MODE_NAME[m.mode] || '')}${m.opp ? ` vs ${esc(m.opp)}` : ''} · ${m.won ? 'W' : 'L'} ${esc(m.final || '')} · ${new Date(m.t).toLocaleDateString()}</em></span></button>`).join('')
+    : '<p class="adm-empty">No moments yet. Make a big play (a dunk, a deep three, a block) and the best one from each game shows up here.</p>';
+}
+let moOpen = null;
+$('#tileMoments').addEventListener('click', () => { initAudio(); sfx.menu(); renderMomentsScreen(); show('momentsScreen'); });
+$('#moGrid').addEventListener('click', (ev) => {
+  const b = ev.target.closest('[data-id]'); if (!b) return;
+  const m = Moments.list().find((x) => x.id === b.dataset.id); if (!m) return;
+  moOpen = m; sfx.menu();
+  $('#moViewImg').src = m.img; $('#moViewHead').textContent = `${m.icon} ${m.head}`; $('#moViewText').textContent = m.text;
+  $('#moViewMeta').textContent = `${MODE_NAME[m.mode] || ''}${m.opp ? ` vs ${m.opp}` : ''} · ${m.when} · Final ${m.final || ''}`;
+  const v = $('#moView'); v.hidden = false; v.classList.remove('show'); void v.offsetWidth; v.classList.add('show');
+});
+const closeMo = () => { $('#moView').hidden = true; moOpen = null; };
+$('#moClose').addEventListener('click', () => { sfx.menu(); closeMo(); });
+$('#moView').addEventListener('click', (ev) => { if (ev.target.id === 'moView') closeMo(); });
+$('#moDel').addEventListener('click', () => { if (!moOpen || !confirm('Delete this moment?')) return; Moments.remove(moOpen.id); closeMo(); renderMomentsScreen(); renderMomentsTile(); });
+$('#moSave').addEventListener('click', async () => {
+  if (!moOpen) return;
+  sfx.select();
+  const blob = await Moments.cardImage(moOpen);
+  if (!blob) return;
+  const file = new File([blob], `power-play-${moOpen.id}.png`, { type: 'image/png' });
+  try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: moOpen.head }); return; } } catch { /* fall back to a download */ }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+});
+
+// ---------- Home: friends online and game invites ----------
+let frHome = { friends: [], invites: [] };
+const frApi = async (path, body) => { try { const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${auth.token}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); return { status: r.status, data: await r.json().catch(() => null) }; } catch { return { status: 0, data: null }; } };
+const FR_ACT = { menu: 'In the menu', game: 'In a game', career: 'In Career', season: 'In Season', online: 'Online game', practice: 'Practice', contest: 'Contests', tutorial: 'Tutorial' };
+async function refreshFriendsHome() {
+  if (!auth.token || auth.offline) { $('#frChip').hidden = true; $('#tileOnlineSub').textContent = 'Play a friend'; return; }
+  const r = await frApi('/api/friends');
+  if (r.status !== 200 || !r.data) return;
+  frHome = { friends: r.data.friends || [], invites: r.data.invites || [] };
+  const on = frHome.friends.filter((f) => f.online);
+  const chip = $('#frChip');
+  chip.hidden = !on.length;
+  $('#tileOnlineSub').textContent = on.length ? 'Invite a friend in one tap' : frHome.friends.length ? 'No friends online right now' : 'Play a friend';
+  $('#frCount').textContent = `${on.length} online`;
+  $('#frFaces').innerHTML = on.slice(0, 3).map((f) => `<i style="--h:${[...f.name].reduce((a, ch) => a + ch.charCodeAt(0), 0) % 360}">${esc(f.name.charAt(0).toUpperCase())}</i>`).join('');
+  if (!$('#frPop').hidden) renderFrPop();
+  showInvite();
+}
+function renderFrPop() {
+  const on = frHome.friends.filter((f) => f.online);
+  $('#frPop').innerHTML = `<h4>Friends online</h4>${on.map((f) => `<div class="fp-row"><i class="dot on"></i><span><b>${esc(f.name)}</b><small>${esc(FR_ACT[f.activity] || 'Playing')}</small></span>${f.room ? `<button type="button" class="fp-btn" data-watch="${esc(f.room)}">Watch</button>` : ''}<button type="button" class="fp-btn primary" data-invite="${esc(f.name)}">Invite</button></div>`).join('') || '<p class="hint">Nobody is online right now.</p>'}`;
+}
+function placeFrPop() {
+  const pop = $('#frPop'), r = $('#frChip').getBoundingClientRect();
+  const w = Math.min(300, window.innerWidth - 24);
+  pop.style.width = `${w}px`;
+  pop.style.left = `${Math.max(12, Math.min(window.innerWidth - w - 12, r.right - w))}px`;
+  const below = r.bottom + 8, h = pop.offsetHeight || 200;
+  pop.style.top = `${below + h < window.innerHeight - 8 ? below : Math.max(8, r.top - h - 8)}px`;
+}
+$('#frChip').addEventListener('click', (ev) => {
+  ev.stopPropagation(); initAudio(); sfx.menu();
+  const pop = $('#frPop');
+  if (!pop.hidden) { pop.hidden = true; return; }
+  renderFrPop(); pop.hidden = false; placeFrPop();
+  pop.classList.remove('show'); void pop.offsetWidth; pop.classList.add('show');
+});
+document.addEventListener('click', (ev) => { const pop = $('#frPop'); if (!pop.hidden && !pop.contains(ev.target) && ev.target.id !== 'frChip') pop.hidden = true; });
+$('#frPop').addEventListener('click', (ev) => {
+  const inv = ev.target.closest('[data-invite]'), w = ev.target.closest('[data-watch]');
+  if (w) { $('#frPop').hidden = true; watchGame(w.dataset.watch); return; }
+  if (!inv) return;
+  $('#frPop').hidden = true;
+  initAudio(); musicMaybe();
+  openOnline();
+  connectOnline(makeCode(), 'host', 0, { invite: inv.dataset.invite });
+});
+async function sendInvite(name, code) {
+  const r = await frApi('/api/friends/invite', { username: name, room: code });
+  $('#onInvited').textContent = r.status === 200 ? `Invite sent to ${name}. They can join with one tap.` : r.status === 429 ? 'Too many invites. Send them the code instead.' : `Could not invite ${name}. Send them the code instead.`;
+}
+let invShown = null;
+function showInvite() {
+  const fresh = frHome.invites.filter((v) => Date.now() - v.t < 170000).sort((a, b) => b.t - a.t)[0];
+  const card = $('#invCard');
+  if (!fresh || online) { card.hidden = true; invShown = null; return; }
+  if (invShown && invShown.from === fresh.from && invShown.room === fresh.room) return;
+  invShown = fresh;
+  $('#invWho').textContent = fresh.from;
+  card.hidden = false; card.classList.remove('show'); void card.offsetWidth; card.classList.add('show');
+  sfx.select();
+}
+$('#invJoin').addEventListener('click', () => {
+  const v = invShown; if (!v) return;
+  $('#invCard').hidden = true; frApi('/api/friends/invite-dismiss', { username: v.from }); invShown = null;
+  initAudio(); musicMaybe(); openOnline(); connectOnline(v.room, 'guest');
+});
+$('#invX').addEventListener('click', () => {
+  const v = invShown; $('#invCard').hidden = true;
+  if (v) frApi('/api/friends/invite-dismiss', { username: v.from });
+  frHome.invites = frHome.invites.filter((x) => x !== v);
+});
+// look again every 15 s while the home screen is up
+setInterval(() => { if (mode === 'menu' && shown() && shown().id === 'menu' && !document.hidden) refreshFriendsHome(); }, 15000);
 setInterval(() => {
   const d = new Date();
   $('#hubClock').textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -659,6 +1012,11 @@ const hud = {
       if (g.simmed) extras += `<div class="pog"><span class="big">⏩</span><div><small>Simulated</small><b>Rest of the game</b><br><span>You were on the bench, so the rest was simmed</span></div></div>`;
       extras += recordSessionGame(g, winner);
       extras += recordDraftGame(g, winner);
+      extras += awardPass(g, winner);
+      if (!g.opts.attract && !(online && online.role === 'watch')) {
+        const opp = g.other(g.user);
+        try { Moments.keepBest(g, { mode: session.kind, opp: opp.data.id, won: winner === g.user, score: `${g.user.score}-${opp.score}` }); } catch { /* a picture is a bonus */ }
+      }
       $('#overExtras').innerHTML = extras;
       $('#boxscore').innerHTML = [g.away, g.home].map((t) => `
         <div class="box"><h4 style="color:${t.data.primary}">${t.data.city} ${t.data.name}</h4>
@@ -671,6 +1029,7 @@ const hud = {
       $('#rematchBtn').hidden = inSession || !!online;
       $('#menuBtn').hidden = inSession;
       show('over');
+      playXpCard(g);
       musicMaybe();
     }, 2600);
   },
@@ -1213,8 +1572,37 @@ $('#htNext').addEventListener('click', () => { sfx.menu(); htNext(); });
 $('#pauseTactics2').addEventListener('click', () => { if (game) openTactics(game.user.data, () => show('halftime')); });
 
 // ---------- Game lifecycle ----------
+// The equipped Power Pass ball: the leather keeps its seams and grain, recoloured to the skin's tint
+function dressBall(g) {
+  const b = Pass.BALLS[Pass.equipped().ball];
+  if (!b || !b.tint || g.opts.attract) return;
+  const tint = new THREE.Color(b.tint);
+  g.ball.mesh.traverse((o) => {
+    if (!o.isMesh || !o.material || o === g.ball.halo) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach((m, i) => {
+      if (!('roughness' in m)) return;
+      const c = m.clone();
+      c.onBeforeCompile = (sh) => {
+        sh.uniforms.skinTint = { value: tint };
+        sh.fragmentShader = sh.fragmentShader.replace('void main() {', 'uniform vec3 skinTint;\nvoid main() {')
+          .replace('#include <map_fragment>', '#include <map_fragment>\n  { float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)); diffuseColor.rgb = skinTint * smoothstep(0.16, 0.44, lum) * 1.05; }');
+      };
+      c.customProgramCacheKey = () => `skin-${b.tint}`;
+      if ('emissive' in c) { c.emissive = new THREE.Color(b.glowColor || b.tint); c.emissiveIntensity = b.glow || 0; }
+      if (Array.isArray(o.material)) o.material[i] = c; else o.material = c;
+    });
+  });
+  if (b.glowColor && g.ball.ring) g.ball.ring.material.color.set(b.glowColor);
+}
 function hookFx(g) {
+  dressBall(g);
   g.on((type, d) => {
+    // a picture of your team's big plays, for Moments
+    if ((type === 'score' || type === 'block' || type === 'steal') && g === game && !g.opts.attract && g.reel && g.reel.length) {
+      const e = g.reel[g.reel.length - 1];
+      if (e && e.teamObj && e.teamObj.isUser && g.time - e.tAbs < 0.3) Moments.requestShot(e, type === 'score' ? 0.3 : 0.15);
+    }
     if (type === 'halftime' && g === game) { renderHalftime(g, d.reel); show('halftime'); $('#hud').classList.remove('show'); $('#touch').classList.remove('active'); }
     if (type === 'instantReplay' && g === game) {
       $('#irHead').textContent = d.entry.headline; $('#irText').textContent = d.entry.detail; $('#irBanner').hidden = false;
@@ -1286,7 +1674,9 @@ function startAttract() {
   endGameObjects();
   const home = TEAMS[settings.home], away = TEAMS[settings.away];
   buildWorld(home, away);
+  const shoes = cosmetics.shoes; cosmetics.shoes = null;     // the game behind the menus wears team shoes
   game = new Game(scene, arena, home, away, { difficulty: 'allstar', quarterMinutes: 3, userSide: 'home', playerLock: -1, attract: true }, nullHud);
+  cosmetics.shoes = shoes;
   game.autoplay = true;
   hookFx(game);
   attract = true;
@@ -1406,6 +1796,8 @@ async function connectOnline(code, role, tries = 0, opts = {}) {
       $('#onCreate').disabled = $('#onJoin').disabled = false;
       $('#onStart').hidden = true; $('#onLobby').hidden = false;
       renderLobby();
+      $('#onInvited').textContent = '';
+      if (role === 'host' && opts.invite) sendInvite(opts.invite, code);
       if (role === 'guest') o.room.send({ k: 'pick', team: o.away });
     },
     peerJoined: () => { if (online !== o) return; o.peer = true; sfx.select(); o.room.send({ k: 'lobby', home: o.home, away: o.away, q: o.q }); if (!o.playing) renderLobby(); },
@@ -1664,6 +2056,7 @@ function openHub(kind, slot = 1) {
   const s = Season.load(kind, slot);
   if (!s) { if (kind === 'career') openCareerCreate(); else openSeasonNew('season'); return; }
   session = { kind, save: s };
+  rememberLast(kind, slot);
   hubTab = kind === 'career' ? 'upgrades' : 'standings';
   maybeChampion(s) || (renderHub(), show('hub'));
 }
@@ -1687,6 +2080,7 @@ $('#snStart').addEventListener('click', () => {
   pendingCareer = null;
   sfx.select();
   session = { kind, save: s };
+  rememberLast(kind, s.slot || 1);
   hubTab = kind === 'career' ? 'upgrades' : 'standings';
   renderHub(); show('hub');
 });
@@ -1969,6 +2363,7 @@ function renderDraft() {
     <div class="dsquad"><h4>Starters</h4><div class="dgrid">${team.roster.slice(0, 5).map((p) => draftCard(p)).join('')}</div><h4>Bench</h4><div class="dgrid">${team.roster.slice(5).map((p) => draftCard(p)).join('')}</div></div>`;
   $('#drPlay').onclick = () => {
     const opp = Draft.nextOpponent(d);
+    rememberLast('draft');
     session = { kind: 'draft', save: null, draft: { opp: TEAMS.findIndex((t) => t.id === opp.id) } };
     sfx.select();
     launch({ home: team, away: opp, userSide: 'home', diff: d.diff, q: d.q, lock: -1, stage: `Draft · Game ${n + 1}` });
@@ -2517,6 +2912,7 @@ function frame() {
   const RT = tier();
   if (RT.post || RT.fourK) composer.render();   // 4K always goes through the composer: it scales the 3D picture up to the 4K screen
   else renderer.render(scene, camera);
+  if (game && mode === 'game') Moments.afterRender(renderer.domElement);
   adaptResolution(rawDt);
 }
 

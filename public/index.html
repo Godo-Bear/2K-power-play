@@ -84,29 +84,47 @@
           <svg viewBox="0 0 100 100" aria-hidden="true"><defs><radialGradient id="ballG" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#ffb25e"/><stop offset=".55" stop-color="#ee7a24"/><stop offset="1" stop-color="#a84a12"/></radialGradient></defs><circle cx="50" cy="50" r="46" fill="url(#ballG)" stroke="#3a1c08" stroke-width="3"/><path d="M50 4v92M4 50h92" stroke="#2b1405" stroke-width="3.2" fill="none"/><path d="M16 17c20 14 20 52 0 66M84 17c-20 14-20 52 0 66" stroke="#2b1405" stroke-width="3.2" fill="none"/></svg>
         </button></div>
       <div class="hub-live" id="hubLive"></div>
+      <button type="button" class="prof" id="hubProfile" aria-label="Your profile and Power Pass">
+        <span class="prof-av" id="profAv"><span class="prof-face" id="profFace"></span>
+          <svg class="prof-ring" viewBox="0 0 48 48" aria-hidden="true"><circle class="bg" cx="24" cy="24" r="22"/><circle class="fg" id="profRing" cx="24" cy="24" r="22" pathLength="100"/></svg>
+          <span class="prof-lv" id="profLv">1</span></span>
+        <span class="prof-txt"><b id="profName">Guest</b><small id="profTitle">Rookie</small></span>
+        <span class="prof-coins" title="Coins"><i class="coin"></i><b id="profCoins">0</b></span>
+      </button>
       <div class="hub-clock" id="hubClock"></div>
       <div class="hub-acct" id="hubAcct" hidden><span id="acctName"></span><button type="button" id="acctLogout">Log out</button></div>
     </header>
     <div id="hubNotice" class="hub-notice" hidden><span class="ico">📣</span><span id="hubNoticeText"></span><button type="button" id="hubNoticeX" aria-label="Dismiss">×</button></div>
     <div class="hub-grid">
-      <button class="tile hero" data-go="select">
-        <span class="t-badge">Tonight's game</span>
-        <span class="t-match" id="tilePlayArt"></span>
+      <div class="tile hero" id="tileHero">
+        <span class="t-badge">Quick match</span>
+        <div class="qm" id="qm">
+          <div class="qm-team" data-side="away"><button type="button" class="qm-arrow" data-d="-1" aria-label="Previous away team">‹</button><button type="button" class="qm-crest" aria-label="Play as the away team"></button><button type="button" class="qm-arrow" data-d="1" aria-label="Next away team">›</button><span class="qm-name"></span></div>
+          <span class="qm-vs">VS</span>
+          <div class="qm-team" data-side="home"><button type="button" class="qm-arrow" data-d="-1" aria-label="Previous home team">‹</button><button type="button" class="qm-crest" aria-label="Play as the home team"></button><button type="button" class="qm-arrow" data-d="1" aria-label="Next home team">›</button><span class="qm-name"></span></div>
+        </div>
         <span class="t-title">Play Now</span>
         <span class="t-sub" id="tilePlaySub"></span>
-        <span class="t-cta">Tip off ›</span>
-      </button>
+        <div class="hero-actions"><button type="button" class="t-cta" id="heroTip">Tip off ›</button><button type="button" class="hero-btn" id="heroRandom" title="Random matchup" aria-label="Random matchup">🎲</button><button type="button" class="hero-btn" data-go="select">Options</button></div>
+        <button type="button" class="hero-cont" id="heroContinue" hidden><span class="hc-art" id="hcArt"></span><span class="hc-txt"><small>Continue</small><b id="hcTitle"></b><em id="hcSub"></em></span><i aria-hidden="true">›</i></button>
+      </div>
       <button class="tile career" id="tileCareer">
         <span class="t-portrait" id="tileCareerArt"></span>
         <span class="t-title">My Career</span>
         <span class="t-sub" id="tileCareerSub"></span>
       </button>
-      <button class="tile online" id="tileOnline"><span class="t-icon">⇄</span><span class="t-title">Online</span><span class="t-sub">Play a friend</span></button>
+      <div class="tile online" id="tileOnlineBox"><button type="button" class="tile-hit" id="tileOnline" aria-label="Online: play a friend"></button><span class="t-icon">⇄</span><span class="t-title">Online</span><span class="t-sub" id="tileOnlineSub">Play a friend</span>
+        <button type="button" class="fr-chip" id="frChip" hidden><i class="pulse"></i><span class="fr-faces" id="frFaces"></span><b id="frCount"></b></button></div>
       <button class="tile season" id="tileSeason"><span class="t-icon">🏆</span><span class="t-title">Season</span><span class="t-sub" id="tileSeasonSub"></span></button>
       <button class="tile practice" id="tilePractice"><span class="t-icon">◎</span><span class="t-title">Practice</span><span class="t-sub">No clock, any team size</span></button>
       <button class="tile draft" id="tileDraft"><span class="t-icon">✦</span><span class="t-title">Draft</span><span class="t-sub" id="tileDraftSub">Build a squad, win four in a row</span></button>
       <button class="tile contests" id="tileContests"><span class="t-icon">★</span><span class="t-title">Contests</span><span class="t-sub">3-point, dunks &amp; street</span></button>
-      <button class="tile tutorial" id="tutorialBtn"><span class="t-icon">?</span><span class="t-title">Tutorial</span><span class="t-sub">Learn every move</span></button>
+      <button class="tile moments" id="tileMoments"><span class="mo-img" id="moImg"></span><span class="t-icon">🎬</span><span class="t-title">Moments</span><span class="t-sub" id="moSub">Your best plays land here</span></button>
+      <button class="tile pass" id="tilePass">
+        <span class="ps-lv"><small>Level</small><b id="psLv">1</b></span>
+        <span class="ps-main"><span class="ps-top"><b>Power Pass</b><span id="psXp"></span></span><span class="ps-bar"><i id="psFill"></i></span></span>
+        <span class="ps-next"><span class="ps-ico" id="psIco"></span><span><small>Next reward</small><b id="psNext"></b></span></span>
+      </button>
     </div>
     <footer class="hub-foot">
       <span class="tip" id="hubTip"></span>
@@ -114,12 +132,42 @@
         <button type="button" id="hubFriends" class="foot-btn">Friends<i class="dot-badge" id="frDot" hidden></i></button>
         <button type="button" id="hubTrophies" class="foot-btn">Trophies<i class="dot-badge" id="trDot" hidden></i></button>
         <button type="button" id="hubMoves" class="foot-btn">Move Guide</button>
+        <button type="button" id="tutorialBtn" class="foot-btn">Tutorial</button>
         <button type="button" class="foot-btn" data-go="controls">Controls</button>
         <button type="button" class="foot-btn" data-go="settings">Settings</button>
         <button type="button" id="hubInstall" class="foot-btn" hidden>Install app</button>
       </div>
     </footer>
+    <div class="fr-pop" id="frPop" hidden></div>
+    <div class="inv-card" id="invCard" hidden><span class="inv-ball">🏀</span><span class="inv-txt"><b id="invWho"></b><small>invited you to an online game</small></span><button type="button" class="t-cta" id="invJoin">Join</button><button type="button" class="inv-x" id="invX" aria-label="Dismiss invite">×</button></div>
   </div>
+
+  <!-- Power Pass -->
+  <div id="passScreen" class="screen">
+    <div class="pass-head">
+      <div class="pass-card" id="passCard"></div>
+      <div class="pass-info"><h2>Power Pass</h2><p class="hint">Every game you finish earns XP and coins. Wins, points and highlight plays earn more, and your first win each day earns a bonus. Coins can unlock a reward early.</p>
+        <div class="pass-xp"><span id="passLvText"></span><span class="ps-bar big"><i id="passFill"></i></span><span id="passXpText"></span></div></div>
+    </div>
+    <div class="pass-track" id="passTrack"></div>
+    <h3 class="locker-h">Locker</h3>
+    <div class="locker" id="locker"></div>
+    <div class="row"><button data-go="menu">Back</button></div>
+  </div>
+
+  <!-- Best moments -->
+  <div id="momentsScreen" class="screen">
+    <h2>Moments</h2>
+    <p class="hint">The best play from each of your recent games. Tap one to see it big, or save it as a picture.</p>
+    <div class="mo-grid" id="moGrid"></div>
+    <div class="row"><button data-go="menu">Back</button></div>
+  </div>
+  <div class="mo-view" id="moView" hidden><div class="mo-view-in"><img id="moViewImg" alt=""><div class="mo-view-cap"><b id="moViewHead"></b><span id="moViewText"></span><small id="moViewMeta"></small></div>
+    <div class="row"><button type="button" class="primary" id="moSave">Save picture</button><button type="button" id="moDel" class="danger">Delete</button><button type="button" id="moClose">Close</button></div></div></div>
+
+  <!-- Level up -->
+  <div class="lvl-up" id="lvlUp" hidden><div class="lvl-in"><div class="lvl-burst" aria-hidden="true"></div><small>Level up</small><div class="lvl-num" id="lvlNum"></div>
+    <div class="lvl-cards" id="lvlCards"></div><div class="row"><button type="button" class="primary" id="lvlOk">Nice!</button><button type="button" id="lvlLocker">Open locker</button></div></div><div class="confetti" id="confetti" aria-hidden="true"></div></div>
 
   <!-- Career slots -->
   <div id="slots" class="screen">
@@ -538,6 +586,7 @@
     <div id="onLobby" hidden>
       <div class="on-code"><span>Room code</span><b id="onRoomCode"></b><button id="onCopy">Copy</button></div>
       <p class="hint" id="onStatus"></p>
+      <p class="hint on-invited" id="onInvited"></p>
       <div class="matchup">
         <div class="team-card" id="onAway">
           <div class="tag">AWAY · <span class="who"></span></div>

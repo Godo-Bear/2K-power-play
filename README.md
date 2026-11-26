@@ -6,7 +6,8 @@ built with Three.js and deployed on Cloudflare Workers.
 ## Features
 
 **Game modes**
-- **Play Now**: pick any two teams and which one you control
+- **Play Now**: change both teams right on the home screen with the arrows (or the dice for a random matchup), tap a crest to choose which team you control, then Tip off. Options opens the full matchup screen
+- **Continue**: the Play Now card offers your last career, season or draft run; one tap goes straight into the next game
 - **My Career**: up to 3 saved players. Create a player (name, position, look with 10 hair styles, a starter play style), join a team, and earn Rep Points from your game grades to upgrade your ratings. Like FC PlayStyles, the others unlock as your OVR climbs, and you can equip up to 2 extras. Each style changes how you play (shooting, speed, steals, blocks, rebounds, passing), not just your ratings. Your player card goes from Bronze to Legend as you improve.
 - **Season**: a 16-team league where you play every other team once (15 games), with standings, team stats, then 4-team playoffs for the title. Play or simulate each game. Progress is saved in your browser.
 - **Season life**: playoffs are best-of-5 semifinals and a best-of-7 final (2-2-1-1-1 home court). Tiredness from a long game carries into the next one and players can pick up short injuries (1-3 games; your own player misses at most 2, and admins can clear them with the Heal gift). Team chemistry grows with games and wins together and makes passes cleaner. In the summer a few free agents offer to join: sign one and they start for you. In My Career, sponsors pay Rep Points every game and put their shoes on your player
@@ -147,7 +148,19 @@ quarter. It can be turned off in Settings ("Quarter recaps"), and "Start next qu
 
 Open **Friends** from the home footer (needs a signed-in account). Add people by username, accept requests, see who is online and what
 they are playing, and chat (messages are plain text, up to 200 characters, 40 a minute). A dot on the button shows a waiting request or
-unread message. Tip: send your room code in the chat to invite a friend to an online game.
+unread message. To invite a friend to an online game, tap the green "online" chip on the Online tile and press Invite.
+
+### Power Pass, profile and Moments
+
+- **Power Pass**: every finished game earns XP and coins (a game played, a win, your points, career/season/draft/online games, your
+  highlight plays, and a bonus for the first win each day). 30 levels unlock coins, ball skins, shoe colourways for your team, card
+  frames and profile titles. Coins can unlock a reward early. Equip them in the Locker. The XP bar fills on the results screen and a
+  level-up shows your new rewards. Saved under `pph-pass`, so it follows your account through the cloud save
+- **Profile badge**: top right of the home screen: your face (your best career player), level with an XP ring, title, frame and coins
+- **Moments**: when your team makes a big play, a picture is taken from the game camera. The best play of each game is kept (the
+  last 12, in this browser), shown on the home screen, and can be saved or shared as a picture card
+- **Friends online**: the Online tile shows how many friends are online. Tap it to invite one (it opens a room and sends them an
+  invite) or watch their game. Invites pop up on your friend's home screen with a Join button and last 3 minutes
 
 ### The Trophy Room
 
@@ -220,6 +233,8 @@ public/
   js/lowerthirds.js         TV lower-third name cards
   js/movelab.js             the Move Guide's live court (scripted moves on the game's poses)
   js/draft.js               the Draft mode (picks, squad, runs)
+  js/pass.js                the Power Pass (XP, levels, rewards, coins, the Locker)
+  js/moments.js             Moments (big-play pictures, the best play of each game, picture cards)
   sw.js                     app-shell cache for the installable app
   js/tutorial.js            interactive tutorial
   js/input.js, audio.js     remappable controls and synthesized sound

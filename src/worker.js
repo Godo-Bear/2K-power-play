@@ -23,6 +23,7 @@ const ADMIN_ID = '~admin';
 const ADMIN_SESSION_MS = 2 * 60 * 60 * 1000;   // an admin sign-in lasts 2 hours
 const ADMIN_MAX_FAILS = 5;                      // wrong codes in a row before the admin door locks
 const ADMIN_LOCK_MS = 10 * 60 * 1000;
+const INVITE_MS = 3 * 60 * 1000;                // a game invite stays open for 3 minutes
 const ONLINE_MS = 150 * 1000;                   // seen in the last 2.5 minutes counts as online (players check in every 90 s)
 // The admin code is kept as a salted hash, not as text. To use a different code, set a secret named ADMIN_CODE
 // (Cloudflare dashboard: Workers > your Worker > Settings > Variables and Secrets, or `npx wrangler secret put ADMIN_CODE`).
@@ -400,6 +401,23 @@ export class User extends DurableObject {
     const l = (await this.ctx.storage.get(`chat:${other}`)) || [];
     l.push(msg); while (l.length > 60) l.shift();
     await this.ctx.storage.put(`chat:${other}`, l);
+    return true;
+  }
+  // Game invites from friends: one per friend, kept for a few minutes
+  async inviteSet(from, room) {
+    const m = (await this.ctx.storage.get('invites')) || {};
+    m[from] = { room, t: Date.now() };
+    for (const k of Object.keys(m)) if (Date.now() - m[k].t > INVITE_MS) delete m[k];
+    await this.ctx.storage.put('invites', m);
+    return true;
+  }
+  async invitesGet() {
+    const m = (await this.ctx.storage.get('invites')) || {};
+    return Object.entries(m).filter(([, v]) => Date.now() - v.t < INVITE_MS).map(([from, v]) => ({ from, room: v.room, t: v.t }));
+  }
+  async inviteDrop(from) {
+    const m = (await this.ctx.storage.get('invites')) || {};
+    if (m[from]) { delete m[from]; await this.ctx.storage.put('invites', m); }
     return true;
   }
   async chatRead(other) {
@@ -886,7 +904,8 @@ async function handleFriends(request, env, path) {
       const online = !!e && now - (e.lastSeen || 0) < ONLINE_MS;
       return { name, online, activity: online ? String(e.activity || '').slice(0, 12) : '', room: online && e.activity === 'online' && e.room ? e.room : '', lastSeen: e ? e.lastSeen || 0 : 0, unread: st.unread[name] || 0 };
     }));
-    return json({ me, friends, incoming: st.reqIn, outgoing: st.reqOut });
+    const invites = (await mine.invitesGet()).filter((v) => st.friends.includes(v.from));
+    return json({ me, friends, incoming: st.reqIn, outgoing: st.reqOut, invites });
   }
   if (request.method !== 'POST') return json({ error: 'method' }, 405);
   const body = await readJson(request, 1200);
@@ -916,6 +935,16 @@ async function handleFriends(request, env, path) {
   }
   if (path === '/api/friends/decline') { await mine.listPut('reqIn', other, false, 30); await target.listPut('reqOut', me, false, 30); return json({ ok: true }); }
   if (path === '/api/friends/remove') { await mine.dropFriend(other); await target.dropFriend(me); return json({ ok: true }); }
+  if (path === '/api/friends/invite') {
+    const lim = await limit('inv', 20, 10 * 60 * 1000); if (lim) return lim;
+    const room = typeof body.room === 'string' && /^[A-Z0-9]{4,8}$/.test(body.room) ? body.room : null;
+    if (!room) return json({ error: 'bad' }, 400);
+    const st = await mine.social();
+    if (!st.friends.includes(other)) return json({ error: 'not-friends' }, 403);
+    await target.inviteSet(me, room);
+    return json({ ok: true });
+  }
+  if (path === '/api/friends/invite-dismiss') { await mine.inviteDrop(other); return json({ ok: true }); }
   if (path === '/api/chat') {
     const st = await mine.social();
     if (!st.friends.includes(other)) return json({ error: 'not-friends' }, 403);

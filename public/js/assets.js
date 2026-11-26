@@ -11,6 +11,8 @@ const BASE = 'assets/';
 const gltfLoader = new GLTFLoader();
 const texLoader = new THREE.TextureLoader();
 
+// Cosmetics from the Power Pass, set by main.js: shoes = [upper, sole] for the user's team, or null
+export const cosmetics = { shoes: null };
 export const custom = {
   manifest: {},
   ball: null,        // { scene }
@@ -453,8 +455,10 @@ function attachShoes(holder, model, bones, player) {
     bone.attach(shoe);
     placed.push({ obj: shoe, foot: bone, calf: side === 'l' ? bones.llL : bones.llR, rel: shoe.quaternion.clone() });
   };
-  const upper = (player.data && player.data.shoeUpper) || (player.team && player.team.data && player.team.data.shoeUpper) || null;
-  const sole = (player.data && player.data.shoeSole) || (player.team && player.team.data && player.team.data.shoeSole) || null;
+  // Power Pass shoes go on your team (a sponsored career player keeps the sponsor's shoes)
+  const pass = cosmetics.shoes && player.team && player.team.isUser && !(player.data && player.data.shoeUpper) ? cosmetics.shoes : null;
+  const upper = (pass && pass[0]) || (player.data && player.data.shoeUpper) || (player.team && player.team.data && player.team.data.shoeUpper) || null;
+  const sole = (pass && pass[1]) || (player.data && player.data.shoeSole) || (player.team && player.team.data && player.team.data.shoeSole) || null;
   fit('l', bones.ftL, shoeVariant('left', upper, sole));
   fit('r', bones.ftR, shoeVariant('right', upper, sole));
   for (const m of boots) m.visible = false;
