@@ -18,6 +18,8 @@ const v3 = () => new THREE.Vector3();
 const tmp = v3(), tmp2 = v3();
 const rand = (a, b) => a + Math.random() * (b - a);
 const hdist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const HALF_D = 12.2;   // metres from the basket: half court (the hoop is 12.7 m from the half-court line)
+const LOGO_D = 9.4;    // deep logo range, where shots start to fade toward a heave
 
 // Soft additive glow sprite that rides with the ball
 function makeBallHalo() {
@@ -773,6 +775,15 @@ export class Game {
     }
     if (fouled) prob *= (isUser && label === 'EXCELLENT') ? 0.97 : 0.55; // contact barely affects a perfect release
     prob = Math.min(1, prob);
+    // Heaves: from half court or further a shot almost never goes in, even with a perfect release (about 1 in 20 green,
+    // 1 in 80 otherwise, a little less from deeper still). Between the logo and half court the chance fades down to that.
+    if (p.state === 'shoot' && info.d > LOGO_D) {
+      const green = label === 'EXCELLENT';
+      const heave = (green ? 0.05 : 0.012) * Math.max(0.5, 1 - Math.max(0, info.d - HALF_D) / 16);
+      const t = Math.min(1, (info.d - LOGO_D) / (HALF_D - LOGO_D));
+      const k = t * t * (3 - 2 * t);
+      prob = Math.min(prob, prob * (1 - k) + heave * k);
+    }
     if (label === 'EXCELLENT' && isUser && team === this.user) sfx.green();
     const made = Math.random() < prob;
     const pts = this.opts.street ? (info.three ? 2 : 1) : info.three ? 3 : 2;   // street rules: ones and twos
