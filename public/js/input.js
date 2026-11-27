@@ -103,6 +103,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 const mouseBound = (code) => Object.values(bindings.keys).some((arr) => arr.includes(code));
 window.addEventListener('mousedown', (e) => {
   if (input.capturing || e.target.tagName !== 'CANVAS') return;
+  if (input.mouseGate && input.mouseGate(e)) { e.preventDefault(); return; }   // this click locks the mouse to the game
   const code = `Mouse${e.button}`;
   if (!mouseBound(code)) return;
   keys.add(code); tapped.add(code);

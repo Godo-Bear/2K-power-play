@@ -704,6 +704,7 @@ $('#optVoice').checked = settings.voice;
 $('#optRecaps').checked = settings.recaps !== false;
 $('#optLT').checked = settings.lowerThirds !== false;
 $('#optBallMark').checked = settings.ballMark !== false;
+$('#optMouseLock').checked = settings.mouseLock !== false;
 $('#optCtlHelp').checked = !!settings.ctlHelp;
 $('#optCtlHelp').addEventListener('change', (e) => { settings.ctlHelp = e.target.checked; saveSettings(); renderCtlHelp(); });
 $('#pauseCtlHelp').addEventListener('click', () => { settings.ctlHelp = !settings.ctlHelp; $('#optCtlHelp').checked = settings.ctlHelp; saveSettings(); renderCtlHelp(); sfx.menu(); });
@@ -750,6 +751,7 @@ $('#optAdaptive').addEventListener('change', (e) => { settings.adaptive = e.targ
 $('#optMute').addEventListener('change', (e) => { settings.mute = e.target.checked; setMuted(settings.mute); setVoice(settings.voice && !settings.mute); saveSettings(); musicMaybe(); });
 $('#optRecaps').addEventListener('change', (e) => { settings.recaps = e.target.checked; if (game) game.opts.recaps = settings.recaps; saveSettings(); });
 $('#optBallMark').addEventListener('change', (e) => { settings.ballMark = e.target.checked; saveSettings(); });
+$('#optMouseLock').addEventListener('change', (e) => { settings.mouseLock = e.target.checked; saveSettings(); });
 $('#optLT').addEventListener('change', (e) => { settings.lowerThirds = e.target.checked; if (!e.target.checked) stopLowerThirds(); saveSettings(); });
 $('#optVoice').addEventListener('change', (e) => { settings.voice = e.target.checked; setVoice(settings.voice && !settings.mute); saveSettings(); });
 $('#optMusic').addEventListener('change', (e) => { settings.music = e.target.checked; saveSettings(); musicMaybe(); });
@@ -913,10 +915,58 @@ function pause() {
   mode = 'paused'; show('pause');
 }
 function resume() {
-  if (netPlaying() && online.menu) { online.menu = false; show(null); if (game && game.state === 'timeout') $('#timeoutScreen').classList.add('show'); return; }
+  if (netPlaying() && online.menu) { online.menu = false; show(null); if (game && game.state === 'timeout') $('#timeoutScreen').classList.add('show'); lockMouse(); return; }
   if (mode !== 'paused') return;
   mode = 'game'; show(null); if (game && game.state === 'timeout') $('#timeoutScreen').classList.add('show');
+  lockMouse();
 }
+// ---------- Mouse lock ----------
+// In a game the mouse is locked to the game view, like a PC game: the cursor is hidden and every click goes to the game.
+// Right-click, the middle button, the side (back/forward) buttons and dragging never open a menu, leave the page or
+// select text. Esc frees the mouse and pauses; Resume or a click on the game locks it again. Menus, timeouts and the
+// halftime show free it on their own. Can be turned off in Settings; never used on touch screens.
+const lockable = () => settings.mouseLock !== false && !!canvas.requestPointerLock && !(window.matchMedia && matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches);
+const lockWanted = () => lockable() && mode === 'game' && !shown() && !$('#timeoutScreen').classList.contains('show')
+  && !$('#tutPanel').classList.contains('done') && !(online && online.menu) && $('#lvlUp').hidden;
+const mouseLocked = () => document.pointerLockElement === canvas;
+let lockReleasing = false, lockPausedAt = 0;
+function lockMouse() {
+  if (!lockWanted() || mouseLocked()) return;
+  try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => { /* needs a click first: the next click on the game locks it */ }); } catch { /* not allowed right now */ }
+}
+function unlockMouse() { if (document.pointerLockElement) { lockReleasing = true; document.exitPointerLock(); } }
+document.addEventListener('pointerlockchange', () => {
+  const locked = mouseLocked();
+  document.body.classList.toggle('mouse-locked', locked);
+  // Esc (or the browser) freed the mouse in the middle of play: pause, so the menus can be used
+  if (!locked && !lockReleasing && mode === 'game' && !intro) { pause(); lockPausedAt = performance.now(); }
+  lockReleasing = false;
+});
+// A click on the game while it is not locked locks it, and is not also taken as a shot or a pass
+input.mouseGate = (e) => {
+  if (e.target !== canvas || mouseLocked() || !lockWanted()) return false;
+  lockMouse();
+  return true;
+};
+// No browser menus, page navigation or text selection while playing
+const playing = () => mode === 'game' || mouseLocked();
+window.addEventListener('contextmenu', (e) => { if (playing() || e.target === canvas) e.preventDefault(); }, true);
+window.addEventListener('mousedown', (e) => { if (playing() && e.button !== 0 && e.target === canvas) e.preventDefault(); }, true);   // middle-click autoscroll
+for (const ev of ['mouseup', 'auxclick']) window.addEventListener(ev, (e) => { if (playing() && (e.button === 3 || e.button === 4)) e.preventDefault(); }, true);   // back / forward buttons
+window.addEventListener('dragstart', (e) => { if (playing()) e.preventDefault(); }, true);
+window.addEventListener('selectstart', (e) => { if (playing() && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) e.preventDefault(); }, true);
+// Checked every frame: free the mouse whenever a menu or overlay needs it
+let lockWas = false;
+function updateMouseLock() {
+  document.body.classList.toggle('in-game', mode === 'game');
+  const want = lockWanted();
+  if (mouseLocked() && !want) unlockMouse();
+  // Play just started or came back (a new game, the end of a timeout or the halftime show): lock straight away if the
+  // browser allows it (it does right after a click or key press); otherwise the next click on the game does
+  if (want && !lockWas && !mouseLocked()) lockMouse();
+  lockWas = want;
+}
+
 function endGameObjects() {
   $('#irBanner').hidden = true;
   if (game) { game.dispose(); game = null; }
@@ -2885,7 +2935,7 @@ function frame() {
     intro.t += dt;
     if (intro.t > 0.6 && (input.pressed.shoot || input.pressed.pass || input.pressed.pause || input.pressed.move)) endIntro();
     else if (intro.t >= intro.dur) endIntro();
-  } else if (input.pressed.pause) {
+  } else if (input.pressed.pause && performance.now() - lockPausedAt > 400) {   // (the Esc that freed the mouse must not also un-pause)
     if (netPlaying() && online.menu) resume();
     else if (mode === 'game') pause(); else if (mode === 'paused') resume();
   }
@@ -2908,6 +2958,7 @@ function frame() {
       else arena.drawJumbo({ home: { ...TEAMS[settings.home], score: 0 }, away: { ...TEAMS[settings.away], score: 0 }, clockText: 'TIP-OFF', periodText: '2K POWER PLAY' });
     }
   }
+  updateMouseLock();
   updateCamera(dt, t);
   cullPeople();
   // When the auto-tuner has stepped in, the shadows are redrawn every other frame (they move little in 1/60 s)

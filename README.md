@@ -60,6 +60,7 @@ built with Three.js and deployed on Cloudflare Workers.
 **Controls**
 - Keyboard, mouse buttons, **gamepad** and **touch** (touch controls appear when you touch the screen)
 - Every action can be remapped, including to mouse buttons and the scroll wheel
+- **Mouse lock**: in a game the mouse locks to the game view (cursor hidden, every click goes to the game). Right-click, middle-click, the back/forward side buttons and dragging never open browser menus, leave the page or select text. Esc frees the mouse and pauses; Resume or a click on the game locks it again. It can be turned off in Settings
 - **Custom 3D models and textures**: see [`public/assets/README.md`](public/assets/README.md)
 
 ## Controls (defaults, all remappable in the Controls menu)

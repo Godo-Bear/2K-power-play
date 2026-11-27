@@ -1352,3 +1352,6 @@ div.tile:focus-within { border-color: var(--accent); }
 .qm-arrow { width: 24px; height: 24px; font-size: 16px; }
 .qm-crest .crest { width: clamp(52px, 4.8vw, 84px); height: clamp(52px, 4.8vw, 84px); }
 .qm-vs { margin: -18px 2px 0; }
+/* while playing: no text selection or drag ghosts, and no cursor while the mouse is locked to the game */
+body.in-game, body.in-game * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.mouse-locked { cursor: none; }
