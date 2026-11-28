@@ -1622,6 +1622,9 @@ export class Game {
         passT: p.passT || 0, passStyle: p.passStyle, passLocal: p.passLocal, actionT: p.actionT, stealStyle: p.stealStyle,
         // motion-captured jump shot and dribble (not during replays or on an online guest, where the ball is not simulated here)
         overlays: !this.guest && !this.replay && !this.replayActors, dribblePhase: hasBall ? this.ball.dribblePhase : null, meterIdeal: METER_TIME * METER_TARGET,
+        // body language: where to look, who has the ball, a dead ball, how tired he is
+        hoop: this.hoopOf(p.team), holderPos: this.ball.holder && this.ball.holder !== p ? this.ball.holder.pos : null,
+        holderMate: !!(this.ball.holder && this.ball.holder !== p && this.ball.holder.team === p.team), dead: this.state !== 'live', energy: p.energy, idx: p.index,
       });
     }
     // Ball mesh

@@ -628,6 +628,7 @@ export function applyCustomPlayer(player) {
   fitToHeight(model, player.data.height * (cfg.scale || 1));
   tintModel(model, cfg, player);
   player.bones = findBones(model);
+  player.bodyRig = player.bones ? bodyRig(model, player.bones) : null;
   attachHair(holder, model, player.bones, player.data, cfg);
   player.shoes = attachShoes(holder, model, player.bones, player);
   if (player.bones && player.bones.ftL && player.bones.ftR) {
@@ -891,6 +892,125 @@ function sampleKeys(keys, t) {
 }
 
 // Which pose each arm/leg should take. Returns { aL, aR, lL, lR } with [upperDir, lowerDir] or null.
+// ---------- Body language: the spine bends, the head watches the play, the shoulders turn against the hips ----------
+// Basketball players are never stiff planks: they sit into stances by bending at the hips (the back stays long and the
+// head stays up), they watch the ball, and their shoulders counter-rotate against their hips as they run. These
+// rotations go on top of whatever the clips and the procedural pose did, and step aside while a captured clip
+// (a jump shot, a jump, a sprint, a standing dribble) moves the body itself.
+const UP = new THREE.Vector3(0, 1, 0);
+const _bq = new THREE.Quaternion(), _bq2 = new THREE.Quaternion(), _bq3 = new THREE.Quaternion();
+const _bv = new THREE.Vector3(), _bv2 = new THREE.Vector3(), _bv3 = new THREE.Vector3(), _bfw = new THREE.Vector3();
+// Turn a bone by a rotation given in world space (its world matrix and its parent's must be up to date)
+const _dp = new THREE.Vector3(), _ds = new THREE.Vector3();
+const worldQ = (o, q) => { o.matrixWorld.decompose(_dp, q, _ds); return q; };   // matrices must be fresh (refreshDown)
+function rotateWorld(bone, dq) {
+  worldQ(bone, _bq2);
+  worldQ(bone.parent, _bq3);
+  bone.quaternion.copy(_bq3.invert().multiply(dq).multiply(_bq2));
+  bone.updateMatrix();
+  bone.matrixWorld.multiplyMatrices(bone.parent.matrixWorld, bone.matrix);
+}
+// The spine, neck and head, found once per model; and which way the face points in the head bone's own space
+function bodyRig(model, b) {
+  const spine = [];
+  let neck = null;
+  model.traverse((o) => {
+    if (!o.isBone) return;
+    const id = boneId(o.name);
+    if (id === 'waist' || id === 'spine' || id === 'chest' || id === 'torso') spine.push(o);
+    if (!neck && /^neck/.test(id)) neck = o;
+  });
+  const head = b.head || null;
+  if (!head) return null;
+  model.updateMatrixWorld(true);
+  const fwd = new THREE.Vector3(0, 0, 1).applyAxisAngle(UP, model.rotation.y);
+  const faceLocal = fwd.applyQuaternion(head.getWorldQuaternion(new THREE.Quaternion()).invert()).normalize();
+  const all = [...spine, neck, head].filter(Boolean);
+  for (const o of all) o.userData.bindQ = o.quaternion.clone();
+  return { spine: spine.slice(0, 3), neck, head, faceLocal, all };
+}
+// Before the clips play: put the spine and head back to rest, so the rotations below never pile up frame after frame
+// on bones a clip does not animate
+function resetBody(player) {
+  const r = player.bodyRig;
+  if (r) for (const o of r.all) o.quaternion.copy(o.userData.bindQ);
+}
+// How far he bends at the hips (radians) for what he is doing
+function bendFor(state, speed, ctx) {
+  if (['shoot', 'ft', 'dunk', 'layup', 'dive', 'sit', 'celebrate'].includes(state) || ctx.airborne || ctx.refSignal) return 0;
+  const sprint = Math.min(1, Math.max(0, (speed - 5) / 3.5));
+  if (ctx.restPose === 'knees') return 0.72;
+  if (state === 'steal') return 0.3;
+  if (ctx.postT > 0) return 0.4;
+  if (ctx.defending && speed < 4.6) return 0.6;                      // a real stance: hips back, chest over the knees
+  if (ctx.hasBall) return speed < 1.2 ? 0.42 : 0.26 + 0.08 * sprint; // over the ball, protecting it
+  if (state === 'run') return 0.06 + 0.1 * sprint;
+  if (state === 'walk') return 0.05;
+  if (ctx.restPose === 'ready') return 0.22;
+  return 0.04;
+}
+// Where he looks
+function lookTarget(player, state, ctx, out) {
+  if (ctx.refSignal || !ctx.ballPos) return ctx.ballPos ? out.copy(ctx.ballPos) : null;
+  if (['shoot', 'ft', 'layup', 'dunk'].includes(state) && ctx.hoop) return out.set(ctx.hoop.x, 3.05, ctx.hoop.z || 0);   // eyes on the rim
+  if (ctx.hasBall && ctx.hoop) {
+    // the ball handler looks up the floor, with a glance down at the ball now and then
+    const glance = Math.sin((player.life || 0) * 0.7 + (ctx.idx || 0)) > 0.93;
+    return glance ? out.copy(ctx.ballPos) : out.set(ctx.hoop.x, 2.0, (ctx.hoop.z || 0) * 0.5 + player.pos.z * 0.5);
+  }
+  if (ctx.defending && ctx.holderPos && Math.hypot(ctx.holderPos.x - player.pos.x, ctx.holderPos.z - player.pos.z) < 3) return out.set(ctx.holderPos.x, 1.15, ctx.holderPos.z);   // on the ball: watch his hips, not his eyes
+  return out.copy(ctx.ballPos);
+}
+function bodyLayer(player, dt, state, speed, ctx, yaw, model) {
+  const r = player.bodyRig;
+  if (!r || state === 'sit') return;
+  const O = player.ov || {};
+  // Captured clips that move the spine themselves: the bend and twist give way to them
+  const clipW = Math.max(O.jumpshot ? O.jumpshot.w : 0, O.jump ? O.jump.w : 0, O.run ? O.run.w * 0.65 : 0,
+    speed < 0.6 && ctx.hasBall ? 0.45 * Math.max(O.dribbleLeft ? O.dribbleLeft.w : 0, O.dribbleRight ? O.dribbleRight.w : 0) : 0);
+  const k = Math.min(1, dt * 7);
+  player.bendS = (player.bendS || 0) + (bendFor(state, speed, ctx) * (1 - clipW) - (player.bendS || 0)) * k;
+  // the shoulders turn against the hips on every stride
+  const striding = state === 'walk' || state === 'run';
+  const stride = striding ? Math.min(1, Math.max(0, (speed - 1.2) / 4.5)) : 0;
+  const twist = striding ? -Math.sin(player.walkPhase || 0) * (0.07 + 0.13 * stride) * (1 - clipW) : 0;
+  player.twistS = (player.twistS || 0) + (twist - (player.twistS || 0)) * Math.min(1, dt * 16);
+  const fw = _bfw.set(Math.sin(yaw), 0, Math.cos(yaw));
+  const side = _bv3.crossVectors(UP, fw).normalize();          // bending about this axis tips the chest forward
+  const top = model;
+  const parts = [0.38, 0.34, 0.28];
+  r.spine.forEach((bone, i) => {
+    refreshDown(top, bone);
+    _bq.setFromAxisAngle(side, player.bendS * (parts[i] || 0.3));
+    if (i === r.spine.length - 1 && player.twistS) _bq.premultiply(_bq2.setFromAxisAngle(UP, player.twistS));
+    rotateWorld(bone, _bq);
+  });
+  // The head: turn toward what he is watching (a neck can only turn so far), the eyes stay up when the back bends
+  const tgt = lookTarget(player, state, ctx, _bv);
+  if (!tgt) return;
+  refreshDown(top, r.head);
+  const hp = _bv2.setFromMatrixPosition(r.head.matrixWorld);
+  const d = tgt.sub(hp);
+  const horiz = Math.hypot(d.x, d.z) || 1e-6;
+  let a = Math.atan2(fw.z * d.x - fw.x * d.z, fw.x * d.x + fw.z * d.z);
+  a = Math.max(-1.25, Math.min(1.25, a));
+  const pitch = Math.max(-0.55, Math.min(0.45, Math.atan2(d.y, horiz)));
+  const want = _bv.set(Math.sin(yaw + a) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw + a) * Math.cos(pitch));
+  // the head turns smoothly, not instantly
+  if (!player.lookDir) player.lookDir = want.clone();
+  player.lookDir.lerp(want, Math.min(1, dt * 7)).normalize();
+  const w = (state === 'dunk' ? 0.5 : 0.85) * (1 - 0.5 * (O.jumpshot ? O.jumpshot.w : 0));
+  const turn = (bone, share) => {
+    refreshDown(top, r.head);
+    const face = _bv2.copy(r.faceLocal).applyQuaternion(worldQ(r.head, _bq3));
+    _bq.setFromUnitVectors(face, player.lookDir);
+    _bq.slerp(_bq2.identity(), 1 - w * share);
+    rotateWorld(bone, _bq);
+  };
+  if (r.neck) turn(r.neck, 0.4);
+  turn(r.head, 1);
+}
+
 function choosePose(p, state, ctx) {
   const out = { aL: null, aR: null, lL: null, lR: null };
   const mir = (d) => [-d[0], d[1], d[2]];
@@ -991,8 +1111,29 @@ function choosePose(p, state, ctx) {
     if (s > 0) { out.aL = arm; out.aR = off; } else { out.aR = arm; out.aL = off; }
   } else if (ctx.boxT > 0 && !ctx.hasBall) {
     both([0.9, -0.35, -0.25], [0.7, 0.1, -0.5]);                               // boxing out: arms back and wide, holding position
-  } else if (ctx.defending && ctx.speed < 5) {
-    both([0.82, -0.3, 0.35], [0.55, 0.42, 0.6]);                               // wide defensive stance
+  } else if (ctx.defending && ctx.speed < 5 && ctx.ballPos) {
+    // Where the ball is, in his own space (+x is his left)
+    const wx = ctx.ballPos.x - p.pos.x, wz = ctx.ballPos.z - p.pos.z, c = Math.cos(p.facing), sn = Math.sin(p.facing);
+    const lx = wx * c - wz * sn, lz = wx * sn + wz * c, ll = Math.hypot(lx, lz) || 1;
+    const hs = lx >= 0 ? 1 : -1;                                               // the ball's side
+    const wig = Math.sin((ctx.t || 0) * 5.5 + (ctx.idx || 0) * 1.7) * 0.1;      // active hands
+    const onBall = ctx.holderPos && Math.hypot(ctx.holderPos.x - p.pos.x, ctx.holderPos.z - p.pos.z) < 2.8;
+    const low = [[hs * 0.45, -0.6 + wig, 0.66], [hs * 0.22, -0.42 + wig, 0.88]];          // digging at the ball
+    const high = [[-hs * 0.48, -0.12 - wig, 0.86], [-hs * 0.2, 0.42, 0.88 + wig]];        // the other hand up at about head height, in the passing / shooting lane
+    let ballArm = low, other = high;
+    if (!onBall) {
+      // off the ball: the near arm reaches into the passing lane toward the ball, the other stays loose and ready
+      const dx = lx / ll, dz = lz / ll;
+      ballArm = [[dx * 0.85, -0.05, Math.max(0.2, dz) * 0.85], [dx * 0.95, 0.05, Math.max(0.15, dz)]];
+      other = [[-hs * 0.62, -0.62, 0.3], [-hs * 0.25, -0.25, 0.92]];
+    }
+    if (hs > 0) { out.aL = ballArm; out.aR = other; } else { out.aR = ballArm; out.aL = other; }
+  } else if (ctx.restPose === 'ready') {
+    both([0.32, -0.45, 0.6], [0.08, 0.55, 0.82]);                              // hands up at the chest, ready for the pass
+  } else if (ctx.restPose === 'hips') {
+    both([0.62, -0.7, -0.28], [-0.72, -0.22, 0.62]);                           // hands on the hips
+  } else if (ctx.restPose === 'knees') {
+    both([0.14, -0.97, -0.05], [0.06, -0.96, -0.15]);                          // bent over, hands on the knees
   }
   // Athletic stances (set only when nothing above has posed the legs): the legs bend so every state looks like basketball
   if (!out.lL && !out.lR) {
@@ -1014,10 +1155,14 @@ function choosePose(p, state, ctx) {
     } else if (ctx.defending && !ctx.hasBall && !ctx.airborne && (ctx.speed || 0) < 4.6) {
       // Defensive stance and slide: wide base, knees bent, feet shuffling when moving
       const slide = (ctx.speed || 0) > 0.7 ? Math.sin(ctx.phase || 0) : 0;
-      const wide = (side, s) => [[side * (0.42 + 0.32 * Math.max(0, s)), -0.84, 0.16], [side * 0.14, -0.82, -0.32]];
+      const wide = (side, s) => [[side * (0.4 + 0.3 * Math.max(0, s)), -0.72, 0.5], [side * 0.12, -0.86, -0.46]];   // hips low, knees well bent
       out.lL = wide(1, slide); out.lR = wide(-1, -slide);
     } else if (ctx.hasBall && (ctx.speed || 0) < 1.2 && !ctx.airborne) {
       both2(0.34, 0.68, 0.08);                                               // ball handler sits into a triple-threat stance
+    } else if (ctx.restPose === 'knees') {
+      both2(0.32, 0.6, 0.1);                                                   // knees bent under the hands
+    } else if (ctx.restPose === 'ready') {
+      both2(0.2, 0.4, 0.09);                                                   // a little flex in the knees, ready to move
     } else if ((ctx.landT || 0) > 0) {
       const k = ctx.landT / 0.2; both2(0.5 * k, 0.9 * k, 0.08);               // absorb the landing
     }
@@ -1077,7 +1222,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   // Lean into sprints, sit into a defensive stance
   const sprintK = Math.min(1, Math.max(0, (speed - 5) / 3.5));
   const runW = player.ov && player.ov.run ? player.ov.run.w : 0;   // the captured run has its own lean
-  const lean = (Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0)) * (1 - 0.75 * runW) + (ctx.defending && speed < 4 ? 0.07 : 0) + (state === 'dunk' ? dunkLean(ctx.style, ctx.actionT || 0) : 0)
+  const lean = (Math.min(0.16, speed * 0.022) + (state === 'run' || state === 'dribble' ? sprintK * 0.2 : 0)) * (1 - 0.75 * runW) + (state === 'dunk' ? dunkLean(ctx.style, ctx.actionT || 0) : 0)
     + (state === 'steal' ? 0.3 : 0) + (state === 'dive' ? (ctx.actionT < 0.3 ? 0.6 + ctx.actionT * 2.5 : 1.3) : 0)
     + (state === 'shoot' && ctx.style === 'fadeaway' ? -0.3 : 0) + (ctx.move === 'stepback' ? -0.16 : 0) + (ctx.move === 'hesi' ? -0.1 : 0);
   h.rotation.x += (lean - h.rotation.x) * Math.min(1, dt * (state === 'dunk' ? 18 : 8));   // a dunk's lean snaps
@@ -1092,6 +1237,7 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   player.landT = Math.max(0, (player.landT || 0) - dt);
   const sway = stride >= 0 ? Math.sin(ph) * (0.04 + 0.07 * stride) : 0;
   h.rotation.y += sway;
+  if (state !== 'sit') resetBody(player);
   if (player.mixer) {
     // Only body-movement clips come from the model; actions are posed procedurally so they match the gameplay timing
     let want = LOOPING.has(state) ? state : 'idle';
@@ -1114,6 +1260,15 @@ export function updateCustomPlayer(player, dt, state, speed, ctx = {}) {
   // Bring only the chains from the body down to each limb up to date (the renderer refreshes the rest of the body anyway)
   player.root.updateWorldMatrix(true, false);
   h.updateMatrix(); h.matrixWorld.multiplyMatrices(player.root.matrixWorld, h.matrix);
+  // What he does with himself when the play is not his: hands ready for a pass, hands on hips in a dead ball,
+  // hands on knees when he is tired. Each player has his own habits (by his place on the team), so they are not all the same
+  ctx.restPose = null;
+  if (state === 'idle' && !ctx.hasBall && !ctx.airborne && !ctx.refSignal && speed < 0.5) {
+    const idx = ctx.idx || 0;
+    if (ctx.dead) ctx.restPose = (ctx.energy ?? 1) < 0.45 ? 'knees' : idx % 3 === 1 ? 'hips' : null;
+    else if (!ctx.defending && ctx.holderMate && ctx.ballPos && Math.hypot(ctx.ballPos.x - player.pos.x, ctx.ballPos.z - player.pos.z) < 8.5 && idx % 2 === 0) ctx.restPose = 'ready';
+  }
+  bodyLayer(player, dt, state, speed, ctx, yaw, h.children[0] || h);
   for (const bone of [b.uaL, b.uaR, b.ulL, b.ulR]) if (bone) refreshDown(h.children[0] || h, bone);
   const sliding = ctx.defending && speed > 0.6 && !ctx.airborne && !ctx.hasBall && speed < 4.6;
   if (state === 'walk' || state === 'run' || sliding) player.walkPhase = ((player.walkPhase || 0) + dt * (sliding ? 5 + speed * 1.6 : Math.min(15, 6 + speed * 1.0))) % (Math.PI * 2);
